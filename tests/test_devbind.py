@@ -1,0 +1,18 @@
+def test_devbind_props(cijoe):
+    err, _ = cijoe.run("devbind --props")
+    assert not err
+
+
+def test_devbind_unbind(cijoe):
+    err, _ = cijoe.run("devbind --unbind")
+    assert not err
+
+
+def test_devbind_bind_nvme(cijoe):
+    err, _ = cijoe.run("devbind --bind nvme")
+    assert not err
+
+
+def test_devbind_bind_vfio(cijoe):
+    err, _ = cijoe.run("devbind --bind vfio")
+    assert not err

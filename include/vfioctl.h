@@ -231,3 +231,4 @@ static inline int vfio_device_pci_hot_reset(struct vfio_device *dev,
 }
 
 #endif // VFIOCTL_H
+

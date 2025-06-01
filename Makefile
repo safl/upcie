@@ -14,11 +14,14 @@ install:
 	meson install -C $(BUILD_DIR)
 
 test:
-	meson test -C $(BUILD_DIR)
+	@cd cijoe && cijoe \
+		--config configs/cijoe-config.toml \
+		--workflow workflows/guest_test.yaml \
+		-l \
+		-m
 
 uninstall:
 	cd $(BUILD_DIR) && meson --internal uninstall
 
 clean:
 	rm -rf $(BUILD_DIR)
-

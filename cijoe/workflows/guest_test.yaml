@@ -1,0 +1,60 @@
+---
+doc: |
+  This use of the 'qemu' shows how to initialize, start, and stop a qemu guest
+
+  * Start the guest
+  * Run a command within the guest (via SSH)
+  * Stop the guest again
+
+  This is done via scripts, which in turn are utilizing helper-functions from
+  cijoe.qemu.wrapper.
+
+steps:
+- name: guest_kill
+  uses: qemu.guest_kill
+  with:
+    guest_name: generic-bios-kvm-x86_64
+  
+- name: guest_start
+  uses: qemu_guest_start_nvme
+  with:
+    guest_name: generic-bios-kvm-x86_64
+
+- name: guest_check
+  run: |
+    hostname
+
+- name: source_sync
+  uses: git_sync
+  with:
+    upstream: '{{ config.upcie.repository.remote }}'
+    branch: '{{ config.upcie.repository.sync.branch }}'
+    remote_alias: '{{ config.upcie.repository.sync.remote_alias }}'
+    local_path: '{{ config.upcie.repository.path }}'
+    remote_path: '{{ config.upcie.repository.sync.remote_path }}'
+
+- name: build
+  uses: meson_build
+  with:
+    source: '{{ config.upcie.repository.sync.remote_path }}'
+
+- name: install
+  uses: meson_install
+  with:
+    source: '{{ config.upcie.repository.sync.remote_path }}'
+
+- name: test
+  uses: core.testrunner
+  with:
+    args: '{{ config.upcie.repository.path }}/tests'
+    random_order: false
+#
+#- name: guest_shutdown
+#  run: |
+#    sudo shutdown -h now
+#
+#- name: guest_wait
+#  uses: qemu.guest_wait_for_termination
+#  with:
+#    guest_name: generic-bios-kvm-x86_64
+#    timeout: 60
