@@ -1,5 +1,5 @@
 driver_script = custom_target(
-  'vfioctl-dirver-script',
+  'pcie-device-driver-script',
   input: 'devbind.py',
   output: 'devbind',
   command: [find_program('cp'), '@INPUT@', '@OUTPUT@'],
