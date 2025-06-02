@@ -16,10 +16,8 @@
 # * /sys/bus/pci/devices/{slot}/nvme/nvme*
 # * /sys/bus/pci/devices/{slot}/nvme/nvme*/ng*
 # * /sys/bus/pci/devices/{slot}/nvme/nvme*/nvme*
-# * /sys/bus/pci/drivers/vfio-pci/bind
-# * /sys/bus/pci/drivers/vfio-pci/new_id
-# * /sys/bus/pci/drivers/nvme/bind
-# * /sys/bus/pci/drivers/nvme/new_id
+# * /sys/bus/pci/drivers/{driver_name}/bind
+# * /sys/bus/pci/drivers/{driver_name}/new_id
 # * /sys/bus/pci/drivers_probe
 #
 import sys
@@ -40,6 +38,22 @@ def run(cmd: str):
 
     print(f"cmd({cmd})")
     return subprocess.run(cmd, capture_output=True, shell=True, text=True)
+
+
+def sysfs_write(path: Path, text):
+
+    with os.fdopen(os.open(path, os.O_WRONLY), "w") as f:
+        f.write(f"{text}\n")
+
+
+class System(object):
+
+    DRIVERS = {"nvme", "vfio-pci", "vfio-noiommu", "uio-pci-generic"}
+
+    drivers: dict = {}
+
+    def probe_drivers(self):
+        pass
 
 
 @dataclass
@@ -73,25 +87,32 @@ class Device:
         return cls(**cdata)
 
     def probe_driver(self):
-        """Populate driver via sysfs"""
-
-        path = Path(f"/sys/bus/pci/devices/{self.slot}/driver")
+        """Populate driver via sysfs; returns False if no driver is found"""
 
         try:
-            resolved = path.resolve(strict=True)
-            self.driver = resolved.name
+            self.driver = (
+                Path(f"/sys/bus/pci/devices/{self.slot}/driver")
+                .resolve(strict=True)
+                .name
+            )
         except FileNotFoundError:
             pass
 
         return self.driver != None
 
     def probe_iommugroup(self):
-        """Populate iommugroup via sysfs"""
+        """Populate iommugroup via sysfs; returns False if no iommugroup is found"""
 
-        path = Path(f"/sys/bus/pci/devices/{self.slot}/iommu_group")
-        resolved = path.resolve(strict=True)
+        try:
+            self.iommugroup = int(
+                Path(f"/sys/bus/pci/devices/{self.slot}/iommu_group").resolve(
+                    strict=True
+                )
+            )
+        except FileNotFoundError:
+            self.iommugroup = None
 
-        self.iommugroup = int(resolved.name)
+        return self.iommugroup != None
 
     def probe_handles(self):
         """Determine possible handles to the NVMe device"""
@@ -159,8 +180,9 @@ def unbind(args, device: Device):
     unbind = sysfs / "devices" / device.slot / "driver" / "unbind"
     if not unbind.exists():
         print("Not bound; skipping unbind()")
+        return
 
-    unbind.write_text(device.slot)
+    sysfs_write(unbind, device.slot)
 
 
 def bind(args, device: Device, driver_name: str):
@@ -172,14 +194,15 @@ def bind(args, device: Device, driver_name: str):
 
     sysfs = Path("/sys") / "bus" / "pci"
 
-    (sysfs / "devices" / device.slot / "driver_override").write_text(driver_name)
+    sysfs_write(sysfs / "devices" / device.slot / "driver_override", driver_name)
 
-    (sysfs / "drivers" / driver_name / "new_id").write_text(
-        f"{device.vendor} {device.device}"
+    sysfs_write(
+        sysfs / "drivers" / driver_name / "new_id", f"{device.vendor} {device.device}"
     )
-    (sysfs / "drivers" / driver_name / "bind").write_text(device.slot)
 
-    (sysfs / "drivers_probe").write_text(device.slot)
+    sysfs_write(sysfs / "drivers" / driver_name / "bind", device.slot)
+
+    sysfs_write(sysfs / "drivers_probe", device.slot)
 
 
 def parse_args():
@@ -204,8 +227,7 @@ def parse_args():
     parser.add_argument("--unbind", action="store_true", help="Unbind if bound.")
 
     def parse_bind(value):
-        drivers = {"nvme", "vfio-pci", "uio-pci-generic"}
-        if value in drivers:
+        if value in System.DRIVERS:
             return value
         return Path(value)
 
@@ -221,6 +243,9 @@ def parse_args():
 
 
 def main(args):
+
+    system = System()
+    system.probe_drivers()
 
     devices = [
         device
@@ -238,7 +263,7 @@ def main(args):
             if device.is_used:
                 print(f"Skipping unbind({device.driver}); device is in use.")
             else:
-                unbind(args, device, args.bind)
+                unbind(args, device)
 
         if args.bind:
             if device.is_used:
