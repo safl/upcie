@@ -40,3 +40,58 @@ devbind
 I would expect a header-only equivalent for ``uio-pci`` would be added, along
 with a minimal memory-allocator based on ``HUGEPAGES``. And possibly other
 things as well. Also, this should also be investigated for FreeBSD.
+
+Host Memory for DMA
+-------------------
+
+When using host memory for DMA -- such as in user-space drivers -- the following
+memory attributes are desirable:
+
+Pinned
+  A region of memory is dedicated (i.e., "pinned") for DMA purposes. Ensuring
+  that pages within the region cannot be swapped to disk, reallocated, or
+  moved in any way. The memory is effectively reserved for a specific use case,
+  guaranteeing availability when a peripheral (e.g., an NVMe device or GPU)
+  needs direct access to host memory.
+  
+Contigous
+  ..
+
+DMA Address Mapping
+~~~~~~~~~~~~~~~~~~~
+
+At the host level, each process has an isolated virtual address space, which
+simplifies host software development. However, addresses in this space are not
+accessible to peripheral devices. Data must be transferred using methods such as
+Direct Memory Access (DMA), performed by an on-device DMA engine, which requires
+a DMA-addressable location -- either a physical address or an IO Virtual Address
+(IOVA).
+
+Thus, at the host level, one maintains a mapping from the isolated virtual
+address space to either **PHYS** or **IOVA** addresses. The DMA engine do not
+care what the address is, it will just do DMA with it.
+
+Note that IOVAs require translation by an IOMMU, known as the
+address-translation-service (**ATS**), which maps IOVAs to physical addresses.
+Without an address-translation-cache (**ATC**), address-translation can become
+a bottleneck.
+
+So when does host software use this? One example is when writing a user-space
+NVMe driver and constructing an NVMe command. Fields such as the data pointer,
+``PRP1``, ``PRP2``, ``PRP``-lists, or ``SGL```-lists require DMA-capable
+addresses. Therefore, the user-space driver must determine what the
+process-isolated virtual address maps to -- either a **PHYS** or **IOVA** -- to
+ensure the command uses a valid DMA address.
+
+IPC via Shared Memory
+~~~~~~~~~~~~~~~~~~~~~
+
+One interesting side-effect of using e.g. pinned hugepages user-space, is that,
+since memory-addressing is physical, then processes can communicate with each
+other (Inter Process Commmunication -- IPC), without any multi-processing,
+threading, locking, or message-passing. They can simply by using the same
+physical memory.
+
+However, this is by default not possible unless the memory is being mapped into
+the process in a form where it is flagged for sharing. Thus, IPC via shared
+memory can be obtained via 
