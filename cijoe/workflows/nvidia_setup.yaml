@@ -1,0 +1,119 @@
+doc: |
+  Setup NVIDIA Firmware Blobs, Open-Source Kernel Modules and CUDA
+  ================================================================
+
+  Performing these tasks, including the manual steps should take around
+  7mins. Subject of course to various factors such as internet/network speed and
+  availability.
+  
+  * NVIDIA Modules: nvidia, nvidia-uvm, nvidia-peermem
+    - Build from source without DRM and modeset (headless system)
+    - Driver version: 570.153.02 (set in config not in workflow)
+    
+  * NVIDIA CUDA: 12.8.1
+    - The installer includes "570.124.06" in its name, which doesn’t exactly
+      match the driver version. This is expected—only the major version (570)
+      needs to match.
+    - cuda-samples are cloned and checked out to v12.8 but not built
+
+  The version numbers described above are not hardcoded in the workflow but
+  defined in the config-file via git-tags and download urls. They are however
+  mentioned here as the commands executed are dependent of pairing up with a
+  matching config.
+
+  Assumptions
+  -----------
+
+  Before running this workflow, check the following assumptions:
+
+  * SSH and root access via SSH are configured on the target system.
+
+  * A compatible NVIDIA GPU is available
+    - The RTX A5000 is a cost-effective option for experimenting with the Open
+      Kernel Module, GPUDirect Storage (GDS), and NVLINK.
+
+  * NVIDIA/Mellanox OFED is installed
+    - Required for `nvidia-peermem` and GDS support
+
+  * The operating system is Ubuntu 24.04
+    - Kernel version 6.8 at the time of writing
+
+  These conditions were used for development and testing. The hardware and
+  software combination has been verified, though the caveats below do affect
+  compatibility and functionality.
+
+  Caveat
+  ------
+
+  Seems like "nvidia-fs" only works with old kernels e.g. 5.15 and lower.
+
+  CUDA is not installed into standard locations for PATH and LD_LIBRARY_PATH,
+  thus these environment variables must be setup manually. An interactive setup
+  is added in "/etc/profile.d/cuda.sh", however, for non-interactive, then this
+  does nothing.
+  
+steps:
+- name: gsp
+  run: |
+    test -f /tmp/gsp.run || wget -O /tmp/gsp.run "{{ config.nvidia.gsp.url }}"
+    chmod +x /tmp/gsp.run
+    ls -lha /tmp/gsp.run
+    md5sum /tmp/gsp.run
+    /tmp/gsp.run --no-kernel-modules --no-questions --ui=none
+
+- name: modules_clone
+  run: |
+    test -d {{ config.nvidia.modules.repository.path }} || git clone "{{ config.nvidia.modules.repository.remote }}" {{ config.nvidia.modules.repository.path }}
+    cd {{ config.nvidia.modules.repository.path }}; git checkout "{{ config.nvidia.modules.repository.tag }}"
+
+- name: modules_build
+  run: |
+    cd {{ config.nvidia.modules.repository.path }}; make modules -j "$(nproc)" BUILD_NV_DRM=n BUILD_NV_MODESET=n 
+
+- name: modules_install
+  run: |
+    cd {{ config.nvidia.modules.repository.path }}; make modules_install
+    depmod
+
+- name: modules_config
+  run: |
+    echo "nvidia" | tee -a /etc/modules-load.d/nvidia.conf
+    echo "nvidia-uvm" | tee -a /etc/modules-load.d/nvidia.conf
+    echo "nvidia-peermem" | tee -a /etc/modules-load.d/nvidia.conf
+    update-initramfs -u
+
+- name: modules_probe
+  run: |
+    modprobe nvidia
+    modprobe nvidia-uvm
+    modprobe nvidia-peermem
+
+- name: modules_inspect
+  run: |
+    modinfo nvidia | grep version
+    lsmod | grep nvidia
+
+- name: cuda
+  run: |
+    test -f /tmp/cuda.run || wget -O /tmp/cuda.run "{{ config.nvidia.cuda.url}}"
+    ls -lha /tmp/cuda.run
+    md5sum /tmp/cuda.run
+    chmod +x /tmp/cuda.run
+    /tmp/cuda.run --toolkit --silent
+
+- name: cuda_profile
+  run: |
+    echo '# CUDA environment variables (set by setup script)' | tee /etc/profile.d/cuda.sh
+    echo 'export PATH=/usr/local/cuda/bin:$PATH' | tee -a /etc/profile.d/cuda.sh
+    echo 'export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH' | tee -a /etc/profile.d/cuda.sh
+    chmod +x /etc/profile.d/cuda.sh
+
+- name: cuda_samples
+  run: |
+    git clone {{ config.nvidia.cuda.samples.repository.remote }} {{ config.nvidia.cuda.samples.repository.path }}
+    cd {{ config.nvidia.cuda.samples.repository.path }}; git checkout {{ config.nvidia.cuda.samples.repository.tag }}
+
+- name: cuda_check
+  run: |
+    nvcc --version || true
+    nvidia-smi || true

@@ -1,0 +1,59 @@
+doc: |
+  Prepare Ubuntu 24.04 for NVIDIA Software stack setup
+  ====================================================
+
+  Performing these tasks, including the manual steps should take around 5mins.
+
+  The entire DOCA host-stack is installed as it provides a convenient
+  installation which covers the requirements of having OFED for GPU Direct
+  Storage / nvidia-peermem.
+
+  The nouveau driver is blacklisted.
+
+  A couple of packages are installed.
+
+  Then the system is rebooted.
+
+  Misc. manual commands
+  ---------------------
+
+  By default then Ubuntu allows password-login over SSH, installs sudo and adds
+  the user created during installation to sudoers. Thus, what is left is to
+  allow root to login over SSH and to set a password for root.
+  
+  Something like this::
+
+    echo 'PermitRootLogin yes' | sudo tee -a /etc/ssh/sshd_config.d/100-root.conf
+
+    sudo passwd root
+
+    sudo service ssh restart
+
+  Assumptions
+  -----------
+
+  Ubuntu 24.04 is installed on the system.
+  
+steps:
+- name: packages
+  run: |
+    apt-get -qy update && apt-get -qy upgrade
+    apt-get -qy install build-essential linux-headers-$(uname -r) wget git htop vim cmake
+    apt-get -qy autoremove
+
+- name: blacklist
+  run: |
+    echo "blacklist nouveau" | tee /etc/modprobe.d/disable-nouveau.conf
+    echo "options nouveau modeset=0" | tee -a /etc/modprobe.d/disable-nouveau.conf
+    update-initramfs -u
+
+- name: ofed
+  run: |
+    wget -O /tmp/ofed.deb {{ config.nvidia.ofed.url }}
+    dpkg -i /tmp/ofed.deb
+    apt-get -qy update
+    apt-get -qy install doca-all
+
+- name: reboot
+  run: |
+    reboot
