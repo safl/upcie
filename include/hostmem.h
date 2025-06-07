@@ -250,8 +250,20 @@ static inline int hostmem_internal_memfd_create(const char *name,
   return syscall(SYS_memfd_create, name, flags);
 }
 
-///< Is this correct to assume 55bit ?
-static inline int hostmem_virt_to_phys(void *virt, uint64_t *phys) {
+/**
+ * Consult "/proc/self/pagemap" for the given va-space address
+ *
+ * NOTE: The implementation assumes 55bit VA-space, is this assumption safe?
+ *
+ * @param virt The address in the process virtual-address space to resolve the
+ * physical address for
+ * @param phys Pointer to where the physical address should be recorded
+ *
+ * @returns On success, 0 is returned. On error, negative errno is return to
+ * indicate the error.
+ *
+ */
+static inline int hostmem_pagemap_virt_to_phys(void *virt, uint64_t *phys) {
   const int pagemap_entry_bytes = 8;
   const uint64_t pfn_mask = ((1ULL << 55) - 1);
   uint64_t entry = 0;
@@ -383,7 +395,7 @@ static inline int hostmem_hugepage_alloc(size_t size,
   ///< The assumption here is that memset and mlock should lead to pinned pages
   memset(hugepage->virt, 0, hugepage->size);
 
-  err = hostmem_virt_to_phys(hugepage->virt, &hugepage->phys);
+  err = hostmem_pagemap_virt_to_phys(hugepage->virt, &hugepage->phys);
   if (err) {
     perror("hostmem_virt_to_phys(hugepage)");
     munmap(hugepage->virt, hugepage->size);
@@ -457,7 +469,7 @@ static inline int hostmem_hugepage_import(const char *path,
     }
   }
 
-  err = hostmem_virt_to_phys(hugepage->virt, &hugepage->phys);
+  err = hostmem_pagemap_virt_to_phys(hugepage->virt, &hugepage->phys);
   if (err) {
     fprintf(stderr, "Failed to resolve physical address\n");
     munmap(hugepage->virt, st.st_size);
