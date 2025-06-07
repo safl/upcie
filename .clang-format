@@ -1,0 +1,28 @@
+BasedOnStyle: LLVM
+ColumnLimit: 100
+IndentWidth: 8
+UseTab: Always
+TabWidth: 8
+
+# Function return type on a separate line
+AlwaysBreakAfterReturnType: TopLevel
+AlwaysBreakAfterDefinitionReturnType: TopLevel
+
+# Function blocks start on a new line
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  AfterClass: false
+  AfterControlStatement: false
+  AfterEnum: false
+  AfterNamespace: false
+  AfterStruct: false
+  AfterUnion: false
+  BeforeElse: false
+  BeforeCatch: false
+
+# Enforce 1TBS brace requirement
+AllowShortBlocksOnASingleLine: false
+AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false

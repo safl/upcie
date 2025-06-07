@@ -1,10 +1,9 @@
 /**
   Memory allocator using hugepages for DMA in user-space drivers and host IPC
 
-  The library provides two sets of APIs for host memory. The first, a foundation
-  for interaction with hugepages. The second, a malloc-like buffer-allocator
-  which makes use of the first API for its backing memory, for the purpose of
-  DMA.
+  The library provides two sets of APIs for host memory. The first, a foundation for interaction
+  with hugepages. The second, a malloc-like buffer-allocator which makes use of the first API for
+  its backing memory, for the purpose of DMA.
 
   API: Hugepages
   ==============
@@ -32,29 +31,26 @@
   Caveat: system setup
   ====================
 
-  The library makes use of memfd_create(MFC_HUGETLB), however, you still need to
-  allocate them yourself. That is, have a system setup step than makes hugepages
-  available, such as:
+  The library makes use of memfd_create(MFC_HUGETLB), however, you still need to allocate them
+  yourself. That is, have a system setup step than makes hugepages available, such as:
 
     echo 128 | tee -a /proc/sys/vm/nr_hugepages
     ulimit -l unlimited
 
-  Thus, a utility for this similar to devbind.py is needed. This is what we have
-  today with 'xnvme-driver', however, we want something simpler.
+  Thus, a utility for this similar to devbind.py is needed. This is what we have today with
+  'xnvme-driver', however, we want something simpler.
 
   Caveat: CAP_SYS_ADMIN
   =====================
 
-  Seems like the reading(/proc/self/pagemap) requires CAP_SYS_ADMIN. This means
-  that hostmem_virt_to_phys() is not possible as a non-privileged user. Which is
-  very annoying. Thus, whatever runs that needs DMA via this allocator must run
-  as "root".
+  Seems like the reading(/proc/self/pagemap) requires CAP_SYS_ADMIN. This means that
+  hostmem_virt_to_phys() is not possible as a non-privileged user. Which is very annoying. Thus,
+  whatever runs that needs DMA via this allocator must run as "root".
 
-  Potential work-around; since the allocator does everything with MAP_SHARED,
-  then another process could attach to an "allocator-daemon", the allocator
-  could have privileges, and attaching client could be without. Then the
-  allocator can do the entire virt_to_phys and expose that to the client via
-  shared memory.
+  Potential work-around; since the allocator does everything with MAP_SHARED, then another process
+  could attach to an "allocator-daemon", the allocator could have privileges, and attaching client
+  could be without. Then the allocator can do the entire virt_to_phys and expose that to the client
+  via shared memory.
 
   @file hostmem.h
 */
@@ -84,37 +80,39 @@
 #endif
 
 enum hostmem_backend {
-  HOSTMEM_BACKEND_UNKNOWN = 0x0,
-  HOSTMEM_BACKEND_MEMFD = 0x1,
-  HOSTMEM_BACKEND_HUGETLBFS = 0x2,
+	HOSTMEM_BACKEND_UNKNOWN = 0x0,
+	HOSTMEM_BACKEND_MEMFD = 0x1,
+	HOSTMEM_BACKEND_HUGETLBFS = 0x2,
 };
 
 struct hostmem_hugepage {
-  int fd;
-  void *virt;
-  size_t size;
-  uint64_t phys;
-  char path[256];
+	int fd;
+	void *virt;
+	size_t size;
+	uint64_t phys;
+	char path[256];
 };
 
-static inline int hostmem_hugepage_pp(struct hostmem_hugepage *hugepage) {
-  int wrtn = 0;
+static inline int
+hostmem_hugepage_pp(struct hostmem_hugepage *hugepage)
+{
+	int wrtn = 0;
 
-  wrtn += printf("hostmem_hugepage:");
+	wrtn += printf("hostmem_hugepage:");
 
-  if (!hugepage) {
-    wrtn += printf(" ~\n");
-    return 0;
-  }
+	if (!hugepage) {
+		wrtn += printf(" ~\n");
+		return 0;
+	}
 
-  wrtn += printf("\n");
-  wrtn += printf("  fd: %d\n", hugepage->fd);
-  wrtn += printf("  size: %zu\n", hugepage->size);
-  wrtn += printf("  virt: 0x%" PRIx64 "\n", (uint64_t)hugepage->virt);
-  wrtn += printf("  phys: 0x%" PRIx64 "\n", hugepage->phys);
-  wrtn += printf("  path: '%.*s'\n", 256, hugepage->path);
+	wrtn += printf("\n");
+	wrtn += printf("  fd: %d\n", hugepage->fd);
+	wrtn += printf("  size: %zu\n", hugepage->size);
+	wrtn += printf("  virt: 0x%" PRIx64 "\n", (uint64_t)hugepage->virt);
+	wrtn += printf("  phys: 0x%" PRIx64 "\n", hugepage->phys);
+	wrtn += printf("  path: '%.*s'\n", 256, hugepage->path);
 
-  return wrtn;
+	return wrtn;
 };
 
 /**
@@ -122,30 +120,30 @@ static inline int hostmem_hugepage_pp(struct hostmem_hugepage *hugepage) {
  * hostmem_buffer_alloc(...)
  */
 struct hostmem_buffer {
-  size_t size;
-  int free;
-  struct hostmem_buffer *next;
+	size_t size;
+	int free;
+	struct hostmem_buffer *next;
 };
 
 /**
  * A pre-allocated heap providing memory for a buffer-allocator
  */
 struct hostmem_heap {
-  struct hostmem_hugepage memory;
-  struct hostmem_buffer *freelist;
+	struct hostmem_hugepage memory;
+	struct hostmem_buffer *freelist;
 };
 
 /**
  * A representation of a various host memory properties, primarly for hugepages
  */
 struct hostmem_state {
-  char hugetlb_path[128]; ///< Mountpoint of hugetlbsfs
-  int memfd_flags;        ///< Flags for memfd_create(...)
-  int backend;
-  int count;
-  int pagesize;             ///< Host memory pagesize (not HUGEPAGE size)
-  int hugepgsz;             ///< THIS, is the HUGEPAGE size
-  struct hostmem_heap heap; ///< A heap to serve a buffer-allocator
+	char hugetlb_path[128]; ///< Mountpoint of hugetlbsfs
+	int memfd_flags;	///< Flags for memfd_create(...)
+	int backend;
+	int count;
+	int pagesize;		  ///< Host memory pagesize (not HUGEPAGE size)
+	int hugepgsz;		  ///< THIS, is the HUGEPAGE size
+	struct hostmem_heap heap; ///< A heap to serve a buffer-allocator
 };
 
 /**
@@ -157,97 +155,104 @@ static struct hostmem_state g_hostmem_state = {
     .count = 0,
 };
 
-static inline int hostmem_state_pp(struct hostmem_state *state) {
-  int wrtn = 0;
+static inline int
+hostmem_state_pp(struct hostmem_state *state)
+{
+	int wrtn = 0;
 
-  wrtn += printf("hostmem:");
+	wrtn += printf("hostmem:");
 
-  if (!state) {
-    wrtn += printf(" ~\n");
-    return 0;
-  }
+	if (!state) {
+		wrtn += printf(" ~\n");
+		return 0;
+	}
 
-  wrtn += printf("  \n");
-  wrtn += printf("  hugetlb_path: '%s'\n", state->hugetlb_path);
-  wrtn += printf("  memfd_flags: 0x%x\n", state->memfd_flags);
-  wrtn += printf("  backend: 0x%x\n", state->backend);
-  wrtn += printf("  count: %d\n", state->count);
-  wrtn += printf("  pagesize: %d\n", state->pagesize);
-  wrtn += printf("  hugepgsz: %d\n", state->hugepgsz);
+	wrtn += printf("  \n");
+	wrtn += printf("  hugetlb_path: '%s'\n", state->hugetlb_path);
+	wrtn += printf("  memfd_flags: 0x%x\n", state->memfd_flags);
+	wrtn += printf("  backend: 0x%x\n", state->backend);
+	wrtn += printf("  count: %d\n", state->count);
+	wrtn += printf("  pagesize: %d\n", state->pagesize);
+	wrtn += printf("  hugepgsz: %d\n", state->hugepgsz);
 
-  return wrtn;
+	return wrtn;
 };
 
-static inline int hostmem_state_get_hugepgsz(int *hugepgsz) {
-  char line[256];
-  FILE *fp;
+static inline int
+hostmem_state_get_hugepgsz(int *hugepgsz)
+{
+	char line[256];
+	FILE *fp;
 
-  fp = fopen("/proc/meminfo", "r");
-  if (!fp) {
-    perror("fopen(meminfo)");
-    return -errno;
-  }
+	fp = fopen("/proc/meminfo", "r");
+	if (!fp) {
+		perror("fopen(meminfo)");
+		return -errno;
+	}
 
-  while (fgets(line, sizeof(line), fp)) {
-    if (strncmp(line, "Hugepagesize:", 13) == 0) {
-      int kb;
-      if (sscanf(line + 13, "%d", &kb) == 1) {
-        fclose(fp);
-        *hugepgsz = kb * 1024;
-        return 0;
-      }
-    }
-  }
+	while (fgets(line, sizeof(line), fp)) {
+		if (strncmp(line, "Hugepagesize:", 13) == 0) {
+			int kb;
+			if (sscanf(line + 13, "%d", &kb) == 1) {
+				fclose(fp);
+				*hugepgsz = kb * 1024;
+				return 0;
+			}
+		}
+	}
 
-  fclose(fp);
-  return -ENOMEM;
+	fclose(fp);
+	return -ENOMEM;
 }
 
-static inline int hostmem_state_init(struct hostmem_state *state) {
-  const char *env;
-  int err;
+static inline int
+hostmem_state_init(struct hostmem_state *state)
+{
+	const char *env;
+	int err;
 
-  state->pagesize = getpagesize();
+	state->pagesize = getpagesize();
 
-  err = hostmem_state_get_hugepgsz(&state->hugepgsz);
-  if (err) {
-    return err;
-  }
+	err = hostmem_state_get_hugepgsz(&state->hugepgsz);
+	if (err) {
+		return err;
+	}
 
-  state->memfd_flags = MFD_HUGETLB;
-  if (state->hugepgsz == 2 * 1024 * 1024) {
-    state->memfd_flags |= MFD_HUGE_2MB;
-  } else if (state->hugepgsz == 1 * 1024 * 1024 * 1024) {
-    state->memfd_flags |= MFD_HUGE_1GB;
-  } else {
-    fprintf(stderr, "Unsupported hugepgsz(%d)\n", state->hugepgsz);
-    return -EINVAL;
-  }
+	state->memfd_flags = MFD_HUGETLB;
+	if (state->hugepgsz == 2 * 1024 * 1024) {
+		state->memfd_flags |= MFD_HUGE_2MB;
+	} else if (state->hugepgsz == 1 * 1024 * 1024 * 1024) {
+		state->memfd_flags |= MFD_HUGE_1GB;
+	} else {
+		fprintf(stderr, "Unsupported hugepgsz(%d)\n", state->hugepgsz);
+		return -EINVAL;
+	}
 
-  env = getenv("HOSTMEM_HUGETLB_PATH");
-  if (env) {
-    snprintf(state->hugetlb_path, sizeof(state->hugetlb_path), "%s", env);
-  }
+	env = getenv("HOSTMEM_HUGETLB_PATH");
+	if (env) {
+		snprintf(state->hugetlb_path, sizeof(state->hugetlb_path), "%s", env);
+	}
 
-  env = getenv("HOSTMEM_BACKEND");
-  if (env) {
-    if (env && strcmp(env, "memfd") == 0) {
-      state->backend = HOSTMEM_BACKEND_MEMFD;
-    } else if (env && strcmp(env, "hugetlbfs") == 0) {
-      state->backend = HOSTMEM_BACKEND_HUGETLBFS;
-    } else {
-      return -EINVAL;
-    }
-  } else {
-    state->backend = HOSTMEM_BACKEND_MEMFD;
-  }
+	env = getenv("HOSTMEM_BACKEND");
+	if (env) {
+		if (env && strcmp(env, "memfd") == 0) {
+			state->backend = HOSTMEM_BACKEND_MEMFD;
+		} else if (env && strcmp(env, "hugetlbfs") == 0) {
+			state->backend = HOSTMEM_BACKEND_HUGETLBFS;
+		} else {
+			return -EINVAL;
+		}
+	} else {
+		state->backend = HOSTMEM_BACKEND_MEMFD;
+	}
 
-  return 0;
+	return 0;
 }
 
-static inline int hostmem_internal_memfd_create(const char *name,
-                                                unsigned int flags) {
-  return syscall(SYS_memfd_create, name, flags);
+static inline int
+hostmem_internal_memfd_create(const char *name, unsigned int flags)
+{
+	return syscall(SYS_memfd_create, name, flags);
 }
 
 /**
@@ -263,57 +268,61 @@ static inline int hostmem_internal_memfd_create(const char *name,
  * indicate the error.
  *
  */
-static inline int hostmem_pagemap_virt_to_phys(void *virt, uint64_t *phys) {
-  const int pagemap_entry_bytes = 8;
-  const uint64_t pfn_mask = ((1ULL << 55) - 1);
-  uint64_t entry = 0;
-  uint64_t virt_pfn = (uint64_t)virt / getpagesize();
-  uint64_t phys_pfn;
-  int fd;
+static inline int
+hostmem_pagemap_virt_to_phys(void *virt, uint64_t *phys)
+{
+	const int pagemap_entry_bytes = 8;
+	const uint64_t pfn_mask = ((1ULL << 55) - 1);
+	uint64_t entry = 0;
+	uint64_t virt_pfn = (uint64_t)virt / getpagesize();
+	uint64_t phys_pfn;
+	int fd;
 
-  fd = open("/proc/self/pagemap", O_RDONLY);
-  if (fd < 0) {
-    perror("open(pagemap)");
-    return -errno;
-  }
+	fd = open("/proc/self/pagemap", O_RDONLY);
+	if (fd < 0) {
+		perror("open(pagemap)");
+		return -errno;
+	}
 
-  if (pread(fd, &entry, pagemap_entry_bytes, virt_pfn * pagemap_entry_bytes) !=
-      pagemap_entry_bytes) {
-    perror("pread(pagemap)");
-    close(fd);
-    return -errno;
-  }
+	if (pread(fd, &entry, pagemap_entry_bytes, virt_pfn * pagemap_entry_bytes) !=
+	    pagemap_entry_bytes) {
+		perror("pread(pagemap)");
+		close(fd);
+		return -errno;
+	}
 
-  if (!(entry & (1ULL << 63))) {
-    fprintf(stderr, "Page not present\n");
-    close(fd);
-    return -EINVAL;
-  }
+	if (!(entry & (1ULL << 63))) {
+		fprintf(stderr, "Page not present\n");
+		close(fd);
+		return -EINVAL;
+	}
 
-  phys_pfn = entry & pfn_mask;
-  *phys = (phys_pfn * getpagesize()) + ((uint64_t)virt % getpagesize());
+	phys_pfn = entry & pfn_mask;
+	*phys = (phys_pfn * getpagesize()) + ((uint64_t)virt % getpagesize());
 
-  close(fd);
+	close(fd);
 
-  return 0;
+	return 0;
 }
 
 /**
  * Deallocate a hugepage allocation
  */
-static inline void hostmem_hugepage_free(struct hostmem_hugepage *hugepage) {
-  if (!hugepage)
-    return;
+static inline void
+hostmem_hugepage_free(struct hostmem_hugepage *hugepage)
+{
+	if (!hugepage)
+		return;
 
-  if (hugepage->virt && hugepage->size) {
-    munmap(hugepage->virt, hugepage->size);
-  }
+	if (hugepage->virt && hugepage->size) {
+		munmap(hugepage->virt, hugepage->size);
+	}
 
-  if (HOSTMEM_BACKEND_HUGETLBFS == g_hostmem_state.backend) {
-    unlink(hugepage->path);
-  }
+	if (HOSTMEM_BACKEND_HUGETLBFS == g_hostmem_state.backend) {
+		unlink(hugepage->path);
+	}
 
-  memset(hugepage, 0, sizeof(*hugepage));
+	memset(hugepage, 0, sizeof(*hugepage));
 }
 
 /**
@@ -325,87 +334,88 @@ static inline void hostmem_hugepage_free(struct hostmem_hugepage *hugepage) {
  * @return On success, 0 is returned. On error, negative errno is returned to
  * indicate the error.
  */
-static inline int hostmem_hugepage_alloc(size_t size,
-                                         struct hostmem_hugepage *hugepage) {
-  int err;
+static inline int
+hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage)
+{
+	int err;
 
-  if (size % (g_hostmem_state.hugepgsz) != 0) {
-    fprintf(stderr, "size must be multiple of hugepgsz(%d)\n",
-            g_hostmem_state.hugepgsz);
-    return -EINVAL;
-  }
+	if (size % (g_hostmem_state.hugepgsz) != 0) {
+		fprintf(stderr, "size must be multiple of hugepgsz(%d)\n",
+			g_hostmem_state.hugepgsz);
+		return -EINVAL;
+	}
 
-  hugepage->size = size;
+	hugepage->size = size;
 
-  switch (g_hostmem_state.backend) {
-  case HOSTMEM_BACKEND_MEMFD:
-    hugepage->fd =
-        hostmem_internal_memfd_create("hostmem", g_hostmem_state.memfd_flags);
-    if (hugepage->fd < 0) {
-      perror("memfd_create()");
-      return -errno;
-    }
+	switch (g_hostmem_state.backend) {
+	case HOSTMEM_BACKEND_MEMFD:
+		hugepage->fd =
+		    hostmem_internal_memfd_create("hostmem", g_hostmem_state.memfd_flags);
+		if (hugepage->fd < 0) {
+			perror("memfd_create()");
+			return -errno;
+		}
 
-    snprintf(hugepage->path, sizeof(hugepage->path), "/proc/%d/fd/%d", getpid(),
-             hugepage->fd);
-    break;
+		snprintf(hugepage->path, sizeof(hugepage->path), "/proc/%d/fd/%d", getpid(),
+			 hugepage->fd);
+		break;
 
-  case HOSTMEM_BACKEND_HUGETLBFS:
-    snprintf(hugepage->path, sizeof(hugepage->path), "%s/%d",
-             g_hostmem_state.hugetlb_path, g_hostmem_state.count);
+	case HOSTMEM_BACKEND_HUGETLBFS:
+		snprintf(hugepage->path, sizeof(hugepage->path), "%s/%d",
+			 g_hostmem_state.hugetlb_path, g_hostmem_state.count);
 
-    hugepage->fd = open(hugepage->path, O_CREAT | O_RDWR, 0600);
-    if (hugepage->fd < 0) {
-      perror("open(hugepage)");
-      return -errno;
-    }
+		hugepage->fd = open(hugepage->path, O_CREAT | O_RDWR, 0600);
+		if (hugepage->fd < 0) {
+			perror("open(hugepage)");
+			return -errno;
+		}
 
-    break;
-  }
+		break;
+	}
 
-  if (ftruncate(hugepage->fd, hugepage->size) != 0) {
-    perror("ftruncate(hugepage)");
-    close(hugepage->fd);
-    return -ENOMEM;
-  }
+	if (ftruncate(hugepage->fd, hugepage->size) != 0) {
+		perror("ftruncate(hugepage)");
+		close(hugepage->fd);
+		return -ENOMEM;
+	}
 
-  hugepage->virt = mmap(NULL, hugepage->size, PROT_READ | PROT_WRITE,
-                        MAP_SHARED, hugepage->fd, 0);
-  if (hugepage->virt == MAP_FAILED) {
-    perror("mmap(hugepage)");
-    close(hugepage->fd);
-    return -ENOMEM;
-  }
+	hugepage->virt =
+	    mmap(NULL, hugepage->size, PROT_READ | PROT_WRITE, MAP_SHARED, hugepage->fd, 0);
+	if (hugepage->virt == MAP_FAILED) {
+		perror("mmap(hugepage)");
+		close(hugepage->fd);
+		return -ENOMEM;
+	}
 
-  err = mlock(hugepage->virt, hugepage->size);
-  if (err) {
-    perror("mlock(hugepage)");
-    munmap(hugepage->virt, hugepage->size);
-    close(hugepage->fd);
-    return -ENOMEM;
-  }
+	err = mlock(hugepage->virt, hugepage->size);
+	if (err) {
+		perror("mlock(hugepage)");
+		munmap(hugepage->virt, hugepage->size);
+		close(hugepage->fd);
+		return -ENOMEM;
+	}
 
-  {
-    volatile char *ptr = (volatile char *)hugepage->virt;
-    for (size_t i = 0; i < hugepage->size; i += g_hostmem_state.pagesize) {
-      ptr[i] = 0;
-    }
-  }
+	{
+		volatile char *ptr = (volatile char *)hugepage->virt;
+		for (size_t i = 0; i < hugepage->size; i += g_hostmem_state.pagesize) {
+			ptr[i] = 0;
+		}
+	}
 
-  ///< The assumption here is that memset and mlock should lead to pinned pages
-  memset(hugepage->virt, 0, hugepage->size);
+	///< The assumption here is that memset and mlock should lead to pinned pages
+	memset(hugepage->virt, 0, hugepage->size);
 
-  err = hostmem_pagemap_virt_to_phys(hugepage->virt, &hugepage->phys);
-  if (err) {
-    perror("hostmem_virt_to_phys(hugepage)");
-    munmap(hugepage->virt, hugepage->size);
-    close(hugepage->fd);
-    return -ENOMEM;
-  }
+	err = hostmem_pagemap_virt_to_phys(hugepage->virt, &hugepage->phys);
+	if (err) {
+		perror("hostmem_virt_to_phys(hugepage)");
+		munmap(hugepage->virt, hugepage->size);
+		close(hugepage->fd);
+		return -ENOMEM;
+	}
 
-  g_hostmem_state.count++;
+	g_hostmem_state.count++;
 
-  return 0;
+	return 0;
 }
 
 /**
@@ -418,165 +428,171 @@ static inline int hostmem_hugepage_alloc(size_t size,
  *
  * @return 0 on success, negative errno on error
  */
-static inline int hostmem_hugepage_import(const char *path,
-                                          struct hostmem_hugepage *hugepage) {
-  struct stat st;
-  int err;
+static inline int
+hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage)
+{
+	struct stat st;
+	int err;
 
-  if (!path || !hugepage) {
-    return -EINVAL;
-  }
+	if (!path || !hugepage) {
+		return -EINVAL;
+	}
 
-  snprintf(hugepage->path, sizeof(hugepage->path), "%s", path);
+	snprintf(hugepage->path, sizeof(hugepage->path), "%s", path);
 
-  hugepage->fd = open(hugepage->path, O_RDWR);
-  if (hugepage->fd < 0) {
-    perror("open(hugepage_import_path)");
-    return -errno;
-  }
+	hugepage->fd = open(hugepage->path, O_RDWR);
+	if (hugepage->fd < 0) {
+		perror("open(hugepage_import_path)");
+		return -errno;
+	}
 
-  if (fstat(hugepage->fd, &st) != 0) {
-    perror("fstat(hugepage_import_path)");
-    close(hugepage->fd);
-    return -errno;
-  }
-  hugepage->size = st.st_size;
+	if (fstat(hugepage->fd, &st) != 0) {
+		perror("fstat(hugepage_import_path)");
+		close(hugepage->fd);
+		return -errno;
+	}
+	hugepage->size = st.st_size;
 
-  if (hugepage->size % g_hostmem_state.hugepgsz != 0) {
-    fprintf(stderr,
-            "Error: mapped file size (%zu) is not hugepgsz(%d) aligned\n",
-            st.st_size, g_hostmem_state.hugepgsz);
-    close(hugepage->fd);
-    return -EINVAL;
-  }
+	if (hugepage->size % g_hostmem_state.hugepgsz != 0) {
+		fprintf(stderr, "Error: mapped file size (%zu) is not hugepgsz(%d) aligned\n",
+			st.st_size, g_hostmem_state.hugepgsz);
+		close(hugepage->fd);
+		return -EINVAL;
+	}
 
-  hugepage->virt = mmap(NULL, hugepage->size, PROT_READ | PROT_WRITE,
-                        MAP_SHARED, hugepage->fd, 0);
-  if (hugepage->virt == MAP_FAILED) {
-    perror("mmap(import)");
-    close(hugepage->fd);
-    return -errno;
-  }
+	hugepage->virt =
+	    mmap(NULL, hugepage->size, PROT_READ | PROT_WRITE, MAP_SHARED, hugepage->fd, 0);
+	if (hugepage->virt == MAP_FAILED) {
+		perror("mmap(import)");
+		close(hugepage->fd);
+		return -errno;
+	}
 
-  // This is done to ensure that pages are 'paged-in', that is, the process
-  // importing the hugepage will be able to resolve virtual pages to physical
-  // ones, without this, then this mapping will not be done
-  {
-    volatile const char *p = (volatile const char *)hugepage->virt;
-    volatile char sink;
-    for (size_t i = 0; i < hugepage->size; i += g_hostmem_state.pagesize) {
-      sink = p[i];
-    }
-  }
+	// This is done to ensure that pages are 'paged-in', that is, the process
+	// importing the hugepage will be able to resolve virtual pages to physical
+	// ones, without this, then this mapping will not be done
+	{
+		volatile const char *p = (volatile const char *)hugepage->virt;
+		volatile char sink;
+		for (size_t i = 0; i < hugepage->size; i += g_hostmem_state.pagesize) {
+			sink = p[i];
+		}
+	}
 
-  err = hostmem_pagemap_virt_to_phys(hugepage->virt, &hugepage->phys);
-  if (err) {
-    fprintf(stderr, "Failed to resolve physical address\n");
-    munmap(hugepage->virt, st.st_size);
-    close(hugepage->fd);
-    return -ENOMEM;
-  }
+	err = hostmem_pagemap_virt_to_phys(hugepage->virt, &hugepage->phys);
+	if (err) {
+		fprintf(stderr, "Failed to resolve physical address\n");
+		munmap(hugepage->virt, st.st_size);
+		close(hugepage->fd);
+		return -ENOMEM;
+	}
 
-  return 0;
+	return 0;
 }
 
 /**
  * Initialize the given heap, that is, pre-allocate a large hugepage-backed
  * va-space
  */
-static inline int hostmem_heap_init(struct hostmem_heap *heap, size_t size) {
-  int err;
+static inline int
+hostmem_heap_init(struct hostmem_heap *heap, size_t size)
+{
+	int err;
 
-  if (!heap) {
-    return -EINVAL;
-  }
+	if (!heap) {
+		return -EINVAL;
+	}
 
-  memset(heap, 0, sizeof(*heap));
+	memset(heap, 0, sizeof(*heap));
 
-  err = hostmem_hugepage_alloc(size, &heap->memory);
-  if (err) {
-    return err;
-  }
+	err = hostmem_hugepage_alloc(size, &heap->memory);
+	if (err) {
+		return err;
+	}
 
-  // Initialize a single free block spanning the entire heap
-  heap->freelist = (struct hostmem_buffer *)heap->memory.virt;
-  heap->freelist->size = size;
-  heap->freelist->free = 1;
-  heap->freelist->next = NULL;
+	// Initialize a single free block spanning the entire heap
+	heap->freelist = (struct hostmem_buffer *)heap->memory.virt;
+	heap->freelist->size = size;
+	heap->freelist->free = 1;
+	heap->freelist->next = NULL;
 
-  return 0;
+	return 0;
 }
 
-static inline void hostmem_buffer_free(struct hostmem_heap *heap, void *ptr) {
-  struct hostmem_buffer *block = NULL;
+static inline void
+hostmem_buffer_free(struct hostmem_heap *heap, void *ptr)
+{
+	struct hostmem_buffer *block = NULL;
 
-  if (!ptr) {
-    return;
-  }
+	if (!ptr) {
+		return;
+	}
 
-  block = (struct hostmem_buffer *)((char *)ptr - sizeof(*block));
-  block->free = 1;
+	block = (struct hostmem_buffer *)((char *)ptr - sizeof(*block));
+	block->free = 1;
 
-  block = heap->freelist;
-  while (block && block->next) {
-    if (block->free && block->next->free) {
-      block->size += sizeof(*block) + block->next->size;
-      block->next = block->next->next;
-    } else {
-      block = block->next;
-    }
-  }
+	block = heap->freelist;
+	while (block && block->next) {
+		if (block->free && block->next->free) {
+			block->size += sizeof(*block) + block->next->size;
+			block->next = block->next->next;
+		} else {
+			block = block->next;
+		}
+	}
 }
 
-static inline void *hostmem_buffer_alloc(struct hostmem_heap *heap,
-                                         size_t size) {
-  struct hostmem_buffer *block = heap->freelist;
-  size_t pagesize = g_hostmem_state.pagesize;
+static inline void *
+hostmem_buffer_alloc(struct hostmem_heap *heap, size_t size)
+{
+	struct hostmem_buffer *block = heap->freelist;
+	size_t pagesize = g_hostmem_state.pagesize;
 
-  size = (size + pagesize - 1) & ~(pagesize - 1);
+	size = (size + pagesize - 1) & ~(pagesize - 1);
 
-  while (block) {
-    if (block->free && block->size >= size + sizeof(*block)) {
-      size_t remaining = block->size - size - sizeof(*block);
+	while (block) {
+		if (block->free && block->size >= size + sizeof(*block)) {
+			size_t remaining = block->size - size - sizeof(*block);
 
-      if (remaining > sizeof(*block)) {
-        struct hostmem_buffer *newblock;
+			if (remaining > sizeof(*block)) {
+				struct hostmem_buffer *newblock;
 
-        newblock = (void *)((char *)block + sizeof(*block) + size);
-        newblock->size = remaining;
-        newblock->free = 1;
-        newblock->next = block->next;
+				newblock = (void *)((char *)block + sizeof(*block) + size);
+				newblock->size = remaining;
+				newblock->free = 1;
+				newblock->next = block->next;
 
-        block->next = newblock;
-        block->size = size;
-      }
+				block->next = newblock;
+				block->size = size;
+			}
 
-      block->free = 0;
+			block->free = 0;
 
-      return (char *)block + sizeof(*block);
-    }
-    block = block->next;
-  }
+			return (char *)block + sizeof(*block);
+		}
+		block = block->next;
+	}
 
-  return NULL;
+	return NULL;
 }
 
-static inline int hostmem_buffer_virt_to_phys(struct hostmem_heap *heap,
-                                              void *virt, uint64_t *phys) {
-  size_t offset;
+static inline int
+hostmem_buffer_virt_to_phys(struct hostmem_heap *heap, void *virt, uint64_t *phys)
+{
+	size_t offset;
 
-  if (!heap || !virt || !phys)
-    return -EINVAL;
+	if (!heap || !virt || !phys)
+		return -EINVAL;
 
-  if ((char *)virt < (char *)heap->memory.virt ||
-      (char *)virt >= (char *)heap->memory.virt + heap->memory.size) {
-    return -EINVAL;
-  }
+	if ((char *)virt < (char *)heap->memory.virt ||
+	    (char *)virt >= (char *)heap->memory.virt + heap->memory.size) {
+		return -EINVAL;
+	}
 
-  offset = (char *)virt - (char *)heap->memory.virt;
-  *phys = heap->memory.phys + offset;
+	offset = (char *)virt - (char *)heap->memory.virt;
+	*phys = heap->memory.phys + offset;
 
-  return 0;
+	return 0;
 }
 
 #endif
