@@ -21,10 +21,13 @@
   * hostmem_hugepage_free()
     - De-allocate memory obtained with with hostmem_hugepage_{alloc,import}()
 
-  API: Buffer Allocator
-  =====================
+  API: Buffer Allocator using a pre-allocated and hugepage-backed heap
+  ====================================================================
 
-  *
+  * hostmem_heap_init()
+  * hostmem_buffer_alloc()
+  * hostmem_buffer_free()
+  * hostmem_buffer_virt_to_phys()
 
   Caveat: system setup
   ====================
@@ -115,6 +118,24 @@ static inline int hostmem_hugepage_pp(struct hostmem_hugepage *hugepage) {
 };
 
 /**
+ * Representation of a memory-allocation as produced by
+ * hostmem_buffer_alloc(...)
+ */
+struct hostmem_buffer {
+  size_t size;
+  int free;
+  struct hostmem_buffer *next;
+};
+
+/**
+ * A pre-allocated heap providing memory for a buffer-allocator
+ */
+struct hostmem_heap {
+  struct hostmem_hugepage memory;
+  struct hostmem_buffer *freelist;
+};
+
+/**
  * A representation of a various host memory properties, primarly for hugepages
  */
 struct hostmem_state {
@@ -125,6 +146,7 @@ struct hostmem_state {
   int pagesize;                 ///< Host memory pagesize (not HUGEPAGE size)
   int hugepgsz;                 ///< THIS, is the HUGEPAGE size
   struct hostmem_hugepage *lut; ///< Offset-based Look-Up Table
+  struct hostmem_heap heap;     ///< A heap to serve a buffer-allocator
 };
 
 /**
@@ -448,43 +470,34 @@ static inline int hostmem_hugepage_import(const char *path,
   return 0;
 }
 
-struct hostmem_buffer {
-  size_t size;
-  int free;
-  struct hostmem_buffer *next;
-};
-
-struct hostmem_buffer_allocator {
-  struct hostmem_hugepage heap;
-  struct hostmem_buffer *freelist;
-};
-
-static inline int hostmem_buffer_init(struct hostmem_buffer_allocator *alloc,
-                                      size_t size) {
+/**
+ * Initialize the given heap, that is, pre-allocate a large hugepage-backed
+ * va-space
+ */
+static inline int hostmem_heap_init(struct hostmem_heap *heap, size_t size) {
   int err;
 
-  if (!alloc) {
+  if (!heap) {
     return -EINVAL;
   }
 
-  memset(alloc, 0, sizeof(*alloc));
+  memset(heap, 0, sizeof(*heap));
 
-  err = hostmem_hugepage_alloc(size, &alloc->heap);
+  err = hostmem_hugepage_alloc(size, &heap->memory);
   if (err) {
     return err;
   }
 
   // Initialize a single free block spanning the entire heap
-  alloc->freelist = (struct hostmem_buffer *)alloc->heap.virt;
-  alloc->freelist->size = size;
-  alloc->freelist->free = 1;
-  alloc->freelist->next = NULL;
+  heap->freelist = (struct hostmem_buffer *)heap->memory.virt;
+  heap->freelist->size = size;
+  heap->freelist->free = 1;
+  heap->freelist->next = NULL;
 
   return 0;
 }
 
-static inline void hostmem_buffer_free(struct hostmem_buffer_allocator *alloc,
-                                       void *ptr) {
+static inline void hostmem_buffer_free(struct hostmem_heap *heap, void *ptr) {
   struct hostmem_buffer *block = NULL;
 
   if (!ptr) {
@@ -494,7 +507,7 @@ static inline void hostmem_buffer_free(struct hostmem_buffer_allocator *alloc,
   block = (struct hostmem_buffer *)((char *)ptr - sizeof(*block));
   block->free = 1;
 
-  block = alloc->freelist;
+  block = heap->freelist;
   while (block && block->next) {
     if (block->free && block->next->free) {
       block->size += sizeof(*block) + block->next->size;
@@ -505,9 +518,9 @@ static inline void hostmem_buffer_free(struct hostmem_buffer_allocator *alloc,
   }
 }
 
-static inline void *hostmem_buffer_alloc(struct hostmem_buffer_allocator *alloc,
+static inline void *hostmem_buffer_alloc(struct hostmem_heap *heap,
                                          size_t size) {
-  struct hostmem_buffer *block = alloc->freelist;
+  struct hostmem_buffer *block = heap->freelist;
   size_t pagesize = g_hostmem_state.pagesize;
 
   size = (size + pagesize - 1) & ~(pagesize - 1);
@@ -538,21 +551,20 @@ static inline void *hostmem_buffer_alloc(struct hostmem_buffer_allocator *alloc,
   return NULL;
 }
 
-static inline int
-hostmem_buffer_virt_to_phys(struct hostmem_buffer_allocator *alloc, void *virt,
-                            uint64_t *phys) {
+static inline int hostmem_buffer_virt_to_phys(struct hostmem_heap *heap,
+                                              void *virt, uint64_t *phys) {
   size_t offset;
 
-  if (!alloc || !virt || !phys)
+  if (!heap || !virt || !phys)
     return -EINVAL;
 
-  if ((char *)virt < (char *)alloc->heap.virt ||
-      (char *)virt >= (char *)alloc->heap.virt + alloc->heap.size) {
+  if ((char *)virt < (char *)heap->memory.virt ||
+      (char *)virt >= (char *)heap->memory.virt + heap->memory.size) {
     return -EINVAL;
   }
 
-  offset = (char *)virt - (char *)alloc->heap.virt;
-  *phys = alloc->heap.phys + offset;
+  offset = (char *)virt - (char *)heap->memory.virt;
+  *phys = heap->memory.phys + offset;
 
   return 0;
 }
