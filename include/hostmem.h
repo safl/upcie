@@ -143,10 +143,9 @@ struct hostmem_state {
   int memfd_flags;        ///< Flags for memfd_create(...)
   int backend;
   int count;
-  int pagesize;                 ///< Host memory pagesize (not HUGEPAGE size)
-  int hugepgsz;                 ///< THIS, is the HUGEPAGE size
-  struct hostmem_hugepage *lut; ///< Offset-based Look-Up Table
-  struct hostmem_heap heap;     ///< A heap to serve a buffer-allocator
+  int pagesize;             ///< Host memory pagesize (not HUGEPAGE size)
+  int hugepgsz;             ///< THIS, is the HUGEPAGE size
+  struct hostmem_heap heap; ///< A heap to serve a buffer-allocator
 };
 
 /**
@@ -156,7 +155,6 @@ static struct hostmem_state g_hostmem_state = {
     .hugetlb_path = "/mnt/huge",
     .backend = HOSTMEM_BACKEND_UNKNOWN,
     .count = 0,
-    .lut = NULL,
 };
 
 static inline int hostmem_state_pp(struct hostmem_state *state) {
