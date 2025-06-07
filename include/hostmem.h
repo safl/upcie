@@ -177,7 +177,7 @@ static inline int hostmem_state_pp(struct hostmem_state *state) {
   return wrtn;
 };
 
-static inline int hostmem_hugepage_get_hugepgsz(int *hugepgsz) {
+static inline int hostmem_state_get_hugepgsz(int *hugepgsz) {
   char line[256];
   FILE *fp;
 
@@ -208,7 +208,7 @@ static inline int hostmem_state_init(struct hostmem_state *state) {
 
   state->pagesize = getpagesize();
 
-  err = hostmem_hugepage_get_hugepgsz(&state->hugepgsz);
+  err = hostmem_state_get_hugepgsz(&state->hugepgsz);
   if (err) {
     return err;
   }
