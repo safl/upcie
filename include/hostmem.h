@@ -1,76 +1,57 @@
 /**
   Memory allocator using hugepages for DMA in user-space drivers and host IPC
 
-  The library provides helpers for allocating and freeing hugepages, as well as
-  "importing" hugepages allocated by another process. This is the fundamental
-  "hugepage" helpers:
+  The library provides two sets of APIs for host memory. The first, a foundation
+  for interaction with hugepages. The second, a malloc-like buffer-allocator
+  which makes use of the first API for its backing memory, for the purpose of
+  DMA.
 
-  * hostmem_hugepage_init() -- Checks environment variables and sets up state
-  * hostmem_hugepage_alloc() -- Allocate memory in multiples of hugepage size
-  * hostmem_hugepage_import() -- Import hugepage for sharing allocated by
-  another process
-  * hostmem_hugepage_free() -- De-allocate memory obtained with with _alloc() or
-  _import()
+  API: Hugepages
+  ==============
 
-  In addition to this, then a malloc-like allocator is provided with interface:
+  * hostmem_hugepage_init()
+    - Checks environment variables and sets up state
 
-  * hostmem_malloc() -- Malloc, no alignment
-  * hostmem_amalloc() -- Malloc, but with alignment
-  * hostmem_free() -- De-allocator
+  * hostmem_hugepage_alloc()
+    - Allocate memory in multiples of hugepage size
 
-  The intent is to provide memory which is:
+  * hostmem_hugepage_import()
+    - Import hugepage for allocated by another process
 
-  * With O(1) lookup of user-provided virt-pointer to phys
-  * Pinned
-  * Physically Contigous -- in ranges of 2M
-  * Shared
-    - Helper: hostmem_hugepage_import(path, hugepage)
-    - Allows a process to get get access to aka "import" a previously allocated
-  hugepage, e.g. by another process, both processes will be able ot changes to
-  the memory within the hugepage.
+  * hostmem_hugepage_free()
+    - De-allocate memory obtained with with hostmem_hugepage_{alloc,import}()
 
-  A single mmap() allocation is performed; the allocator uses this an amount of
-  physical memory at initialization time. This makes it easy to determine which
-  huge-page it is backed by. Something like:
+  API: Buffer Allocator
+  =====================
 
-    hostmem->size = size;
-    hostmem->heap = mmap(...);
-    hostmem->lut = ...;
-
-  Thus all addresses from the allocator are offset from this address, making it
-  simple to determine which hugepage it belongs to.
-
-    offset = user_vaddr - hostmem->heap;
-
-  This offset can then be be utilized for lookup in the offset-based LUT.
-
-  The other advantage of this is that we can have a very small LUT. Instead of
-  mapping the entire VA space, then we only need a LUT with hostmem->size / 2M.
-  Making lookups dense, cache-friendly, and allocatable at initialization time.
+  *
 
   Caveat: system setup
   ====================
 
-  The library makes use of memfd_create(MFC_HUGETLB), however, you still need to allocate them
-  yourself. That is, have a system setup step than makes hugepages available, such as:
+  The library makes use of memfd_create(MFC_HUGETLB), however, you still need to
+  allocate them yourself. That is, have a system setup step than makes hugepages
+  available, such as:
 
     echo 128 | tee -a /proc/sys/vm/nr_hugepages
     ulimit -l unlimited
 
-  Thus, a utility for this similar to devbind.py is needed. This is what we have today with
-  'xnvme-driver', however, we want something simpler.
+  Thus, a utility for this similar to devbind.py is needed. This is what we have
+  today with 'xnvme-driver', however, we want something simpler.
 
   Caveat: CAP_SYS_ADMIN
   =====================
 
-  Seems like the reading(/proc/self/pagemap) requires CAP_SYS_ADMIN. This means that
-  hostmem_virt_to_phys() is not possible as a non-privileged user. Which is very annoying. Thus,
-  whatever runs that needs DMA via this allocator must run as "root".
+  Seems like the reading(/proc/self/pagemap) requires CAP_SYS_ADMIN. This means
+  that hostmem_virt_to_phys() is not possible as a non-privileged user. Which is
+  very annoying. Thus, whatever runs that needs DMA via this allocator must run
+  as "root".
 
-  Potential work-around; since the allocator does everything with MAP_SHARED, then another process
-  could attach to an "allocator-daemon", the allocator could have privileges, and attaching client
-  could be without. Then the allocator can do the entire virt_to_phys and expose that to the client
-  via shared memory.
+  Potential work-around; since the allocator does everything with MAP_SHARED,
+  then another process could attach to an "allocator-daemon", the allocator
+  could have privileges, and attaching client could be without. Then the
+  allocator can do the entire virt_to_phys and expose that to the client via
+  shared memory.
 
   @file hostmem.h
 */
@@ -463,6 +444,115 @@ static inline int hostmem_hugepage_import(const char *path,
     close(hugepage->fd);
     return -ENOMEM;
   }
+
+  return 0;
+}
+
+struct hostmem_buffer {
+  size_t size;
+  int free;
+  struct hostmem_buffer *next;
+};
+
+struct hostmem_buffer_allocator {
+  struct hostmem_hugepage heap;
+  struct hostmem_buffer *freelist;
+};
+
+static inline int hostmem_buffer_init(struct hostmem_buffer_allocator *alloc,
+                                      size_t size) {
+  int err;
+
+  if (!alloc) {
+    return -EINVAL;
+  }
+
+  memset(alloc, 0, sizeof(*alloc));
+
+  err = hostmem_hugepage_alloc(size, &alloc->heap);
+  if (err) {
+    return err;
+  }
+
+  // Initialize a single free block spanning the entire heap
+  alloc->freelist = (struct hostmem_buffer *)alloc->heap.virt;
+  alloc->freelist->size = size;
+  alloc->freelist->free = 1;
+  alloc->freelist->next = NULL;
+
+  return 0;
+}
+
+static inline void hostmem_buffer_free(struct hostmem_buffer_allocator *alloc,
+                                       void *ptr) {
+  struct hostmem_buffer *block = NULL;
+
+  if (!ptr) {
+    return;
+  }
+
+  block = (struct hostmem_buffer *)((char *)ptr - sizeof(*block));
+  block->free = 1;
+
+  block = alloc->freelist;
+  while (block && block->next) {
+    if (block->free && block->next->free) {
+      block->size += sizeof(*block) + block->next->size;
+      block->next = block->next->next;
+    } else {
+      block = block->next;
+    }
+  }
+}
+
+static inline void *hostmem_buffer_alloc(struct hostmem_buffer_allocator *alloc,
+                                         size_t size) {
+  struct hostmem_buffer *block = alloc->freelist;
+  size_t pagesize = g_hostmem_state.pagesize;
+
+  size = (size + pagesize - 1) & ~(pagesize - 1);
+
+  while (block) {
+    if (block->free && block->size >= size + sizeof(*block)) {
+      size_t remaining = block->size - size - sizeof(*block);
+
+      if (remaining > sizeof(*block)) {
+        struct hostmem_buffer *newblock;
+
+        newblock = (void *)((char *)block + sizeof(*block) + size);
+        newblock->size = remaining;
+        newblock->free = 1;
+        newblock->next = block->next;
+
+        block->next = newblock;
+        block->size = size;
+      }
+
+      block->free = 0;
+
+      return (char *)block + sizeof(*block);
+    }
+    block = block->next;
+  }
+
+  return NULL;
+}
+
+static inline int
+hostmem_buffer_virt_to_phys(struct hostmem_buffer_allocator *alloc, void *virt,
+                            uint64_t *phys) {
+  size_t offset;
+
+  if (!alloc || !virt || !phys)
+    return -EINVAL;
+
+  if ((char *)virt < (char *)alloc->heap.virt ||
+      (char *)virt >= (char *)alloc->heap.virt + alloc->heap.size) {
+    return -EINVAL;
+  }
+
+  offset = (char *)virt - (char *)alloc->heap.virt;
+  *phys = alloc->heap.phys + offset;
 
   return 0;
 }
