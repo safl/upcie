@@ -1,12 +1,13 @@
 /**
   Memory allocator using hugepages for DMA in user-space drivers and host IPC
+  ===========================================================================
 
   The library provides two sets of APIs for host memory. The first, a foundation for interaction
   with hugepages. The second, a malloc-like buffer-allocator which makes use of the first API for
   its backing memory, for the purpose of DMA.
 
   API: Hugepages
-  ==============
+  --------------
 
   * hostmem_hugepage_init()
     - Checks environment variables and sets up state
@@ -21,16 +22,16 @@
     - De-allocate memory obtained with with hostmem_hugepage_{alloc,import}()
 
   API: Buffer Allocator using a pre-allocated and hugepage-backed heap
-  ====================================================================
+  --------------------------------------------------------------------
 
   * hostmem_heap_init() / hostmem_heap_term()
   * hostmem_buffer_alloc() / hostmem_buffer_free()
   * hostmem_buffer_virt_to_phys()
 
   Caveat: system setup
-  ====================
+  --------------------
 
-  The library makes use of memfd_create(MFC_HUGETLB), however, you still need to allocate them
+  The library makes use of memfd_create(MFD_HUGETLB), however, you still need to allocate them
   yourself. That is, have a system setup step than makes hugepages available, such as:
 
     echo 128 | tee -a /proc/sys/vm/nr_hugepages
@@ -40,16 +41,18 @@
   'xnvme-driver', however, we want something simpler.
 
   Caveat: CAP_SYS_ADMIN
-  =====================
+  ---------------------
 
-  Seems like the reading(/proc/self/pagemap) requires CAP_SYS_ADMIN. This means that
-  hostmem_virt_to_phys() is not possible as a non-privileged user. Which is very annoying. Thus,
-  whatever runs that needs DMA via this allocator must run as "root".
+  Reading /proc/self/pagemap requires CAP_SYS_ADMIN, so hostmem_virt_to_phys() cannot be used by
+  non-privileged users. Therefore, any process needing DMA via this allocator must run as root.
 
-  Potential work-around; since the allocator does everything with MAP_SHARED, then another process
-  could attach to an "allocator-daemon", the allocator could have privileges, and attaching client
-  could be without. Then the allocator can do the entire virt_to_phys and expose that to the client
-  via shared memory.
+  Possible Workaround: Since the allocator uses MAP_SHARED, a privileged "allocator-daemon" could
+  handle virt_to_phys translations and share the results via shared memory with unprivileged
+  clients. This allows integration into the heap with minimal complexity. Example:
+
+  After heap initialization, write the heap structure into hugepage memory. Because phys_lut[]
+  resolves all physical addresses of the backing hugepages, any process that imports the hugepage
+  also gains access to those physical addresses—without needing CAP_SYS_ADMIN.
 
   @file hostmem.h
 */
@@ -130,8 +133,8 @@ struct hostmem_buffer {
 struct hostmem_heap {
 	struct hostmem_hugepage memory;	 ///< A hugepage-allocation; can span multiple hugepages
 	struct hostmem_buffer *freelist; ///< Pointers to description of free memory in the heap
-	size_t nphys;			 ///< Number of physical addresses / hugepages
-	uint64_t *phys; ///< An array of physical addresses; on for each hugepage in 'memory'
+	size_t nphys;			 ///< Number of hugepages backing 'memory'
+	uint64_t *phys_lut; ///< An array of physical addresses; on for each hugepage in 'memory'
 };
 
 /**
@@ -508,7 +511,7 @@ hostmem_heap_pp(struct hostmem_heap *heap)
 	wrtn += printf("  nphys: '%zu'\n", heap->nphys);
 	wrtn += printf("  phys:\n");
 	for (size_t i = 0; i < heap->nphys; ++i) {
-		wrtn += printf("  - 0x%" PRIx64 "\n", heap->phys[i]);
+		wrtn += printf("  - 0x%" PRIx64 "\n", heap->phys_lut[i]);
 	}
 
 	wrtn += printf("  freelist:\n");
@@ -528,7 +531,7 @@ hostmem_heap_term(struct hostmem_heap *heap)
 		return;
 	}
 
-	free(heap->phys);
+	free(heap->phys_lut);
 	hostmem_hugepage_free(&heap->memory);
 }
 
@@ -566,19 +569,19 @@ hostmem_heap_init(struct hostmem_heap *heap, size_t size)
 
 	// Setup the LUT
 	heap->nphys = size / g_hostmem_state.hugepgsz;
-	heap->phys = calloc(heap->nphys, sizeof(uint64_t));
+	heap->phys_lut = calloc(heap->nphys, sizeof(uint64_t));
 
 	for (size_t i = 0; i < heap->nphys; ++i) {
 		void *vaddr = (char *)heap->memory.virt + i * g_hostmem_state.hugepgsz;
 
-		err = hostmem_pagemap_virt_to_phys(vaddr, &heap->phys[i]);
+		err = hostmem_pagemap_virt_to_phys(vaddr, &heap->phys_lut[i]);
 		if (err) {
 			hostmem_heap_term(heap);
 			return err;
 		}
 	}
 
-	if (heap->memory.phys != heap->phys[0]) {
+	if (heap->memory.phys != heap->phys_lut[0]) {
 		hostmem_heap_term(heap);
 		return -ENOMEM;
 	}
@@ -646,18 +649,31 @@ hostmem_buffer_alloc(struct hostmem_heap *heap, size_t size)
 static inline int
 hostmem_buffer_virt_to_phys(struct hostmem_heap *heap, void *virt, uint64_t *phys)
 {
-	size_t offset;
+	size_t offset, hpage_idx, in_hpage_offset;
 
-	if (!heap || !virt || !phys)
+	if (!heap || !heap->phys_lut || !virt || !phys) {
 		return -EINVAL;
+	}
 
 	if ((char *)virt < (char *)heap->memory.virt ||
 	    (char *)virt >= (char *)heap->memory.virt + heap->memory.size) {
 		return -EINVAL;
 	}
 
+	// Compute byte offset from base of heap
 	offset = (char *)virt - (char *)heap->memory.virt;
-	*phys = heap->memory.phys + offset;
+
+	// Determine which hugepage this address falls into
+	hpage_idx = offset / g_hostmem_state.hugepgsz;
+
+	// Offset within that hugepage
+	in_hpage_offset = offset % g_hostmem_state.hugepgsz;
+
+	if (hpage_idx >= heap->nphys) {
+		return -EINVAL;
+	}
+
+	*phys = heap->phys_lut[hpage_idx] + in_hpage_offset;
 
 	return 0;
 }
