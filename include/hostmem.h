@@ -23,9 +23,8 @@
   API: Buffer Allocator using a pre-allocated and hugepage-backed heap
   ====================================================================
 
-  * hostmem_heap_init()
-  * hostmem_buffer_alloc()
-  * hostmem_buffer_free()
+  * hostmem_heap_init() / hostmem_heap_term()
+  * hostmem_buffer_alloc() / hostmem_buffer_free()
   * hostmem_buffer_virt_to_phys()
 
   Caveat: system setup
@@ -129,8 +128,10 @@ struct hostmem_buffer {
  * A pre-allocated heap providing memory for a buffer-allocator
  */
 struct hostmem_heap {
-	struct hostmem_hugepage memory;
-	struct hostmem_buffer *freelist;
+	struct hostmem_hugepage memory;	 ///< A hugepage-allocation; can span multiple hugepages
+	struct hostmem_buffer *freelist; ///< Pointers to description of free memory in the heap
+	size_t nphys;			 ///< Number of physical addresses / hugepages
+	uint64_t *phys; ///< An array of physical addresses; on for each hugepage in 'memory'
 };
 
 /**
@@ -490,9 +491,56 @@ hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage)
 	return 0;
 }
 
+static inline int
+hostmem_heap_pp(struct hostmem_heap *heap)
+{
+	int wrtn = 0;
+
+	wrtn += printf("hostmem_heap:");
+
+	if (!heap) {
+		wrtn += printf(" ~\n");
+		return 0;
+	}
+
+	wrtn += printf("\n");
+
+	wrtn += printf("  nphys: '%zu'\n", heap->nphys);
+	wrtn += printf("  phys:\n");
+	for (size_t i = 0; i < heap->nphys; ++i) {
+		wrtn += printf("  - 0x%" PRIx64 "\n", heap->phys[i]);
+	}
+
+	wrtn += printf("  freelist:\n");
+	for (struct hostmem_buffer *block = heap->freelist; block; block = block->next) {
+		wrtn += printf("  - {size: %zu, free: %d}\n", block->size, block->free);
+	}
+
+	wrtn += hostmem_hugepage_pp(&heap->memory);
+
+	return wrtn;
+}
+
+static inline void
+hostmem_heap_term(struct hostmem_heap *heap)
+{
+	if (!heap) {
+		return;
+	}
+
+	free(heap->phys);
+	hostmem_hugepage_free(&heap->memory);
+}
+
 /**
- * Initialize the given heap, that is, pre-allocate a large hugepage-backed
- * va-space
+ * Initialize the given heap
+ *
+ * - Pre-allocate a va-space of 'size' bytes backend by hugepage(s)
+ * - Setup the LUT / physical address for hugepage backing the va-space
+ *
+ * TODO: use the hugepage memory for the heap-description! By doing so, then a helper process can
+ *       do all the hugepage lookup-work, and then anybody who imports it, will be able to, as a
+ *       non-privileged user to know of the virt-to-phys mapping
  */
 static inline int
 hostmem_heap_init(struct hostmem_heap *heap, size_t size)
@@ -515,6 +563,25 @@ hostmem_heap_init(struct hostmem_heap *heap, size_t size)
 	heap->freelist->size = size;
 	heap->freelist->free = 1;
 	heap->freelist->next = NULL;
+
+	// Setup the LUT
+	heap->nphys = size / g_hostmem_state.hugepgsz;
+	heap->phys = calloc(heap->nphys, sizeof(uint64_t));
+
+	for (size_t i = 0; i < heap->nphys; ++i) {
+		void *vaddr = (char *)heap->memory.virt + i * g_hostmem_state.hugepgsz;
+
+		err = hostmem_pagemap_virt_to_phys(vaddr, &heap->phys[i]);
+		if (err) {
+			hostmem_heap_term(heap);
+			return err;
+		}
+	}
+
+	if (heap->memory.phys != heap->phys[0]) {
+		hostmem_heap_term(heap);
+		return -ENOMEM;
+	}
 
 	return 0;
 }
