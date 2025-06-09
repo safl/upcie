@@ -95,3 +95,14 @@ physical memory.
 However, this is by default not possible unless the memory is being mapped into
 the process in a form where it is flagged for sharing. Thus, IPC via shared
 memory can be obtained via 
+
+System Setup
+============
+
+Ensure drivers are loaded::
+
+  sudo modprobe vfio-pci
+  sudo modprobe uio_pci_generic
+
+Stuff about the IOMMU enabled/disabled.
+Binding drivers.
