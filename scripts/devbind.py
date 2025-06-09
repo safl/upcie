@@ -106,9 +106,9 @@ class Device:
 
         try:
             self.iommugroup = int(
-                Path(f"/sys/bus/pci/devices/{self.slot}/iommu_group").resolve(
-                    strict=True
-                )
+                Path(f"/sys/bus/pci/devices/{self.slot}/iommu_group")
+                .resolve(strict=True)
+                .name
             )
         except FileNotFoundError:
             self.iommugroup = None
