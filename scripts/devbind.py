@@ -251,7 +251,7 @@ def main(args):
     devices = [
         device
         for device in device_scan(args)
-        if not args.device or (args.device == device["slot"])
+        if not args.device or (args.device == device.slot)
     ]
 
     for cur, device in enumerate(devices, 1):
