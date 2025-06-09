@@ -25,6 +25,7 @@ import os
 import subprocess
 import argparse
 import errno
+import logging as log
 from itertools import chain
 from typing import Optional
 from pprint import pprint
@@ -36,13 +37,12 @@ PCIE_DEFAULT_CLASSCODE = 0x0108  # Mass Storage - NVM
 
 def run(cmd: str):
     """Run a command and capture the output"""
-
-    print(f"cmd({cmd})")
+    log.info(f"cmd({cmd})")
     return subprocess.run(cmd, capture_output=True, shell=True, text=True)
 
 
 def sysfs_write(path: Path, text):
-
+    log.info(f'{path} "{text}"')
     with os.fdopen(os.open(path, os.O_WRONLY), "w") as f:
         f.write(f"{text}\n")
 
@@ -98,8 +98,7 @@ class Device:
             )
         except FileNotFoundError:
             pass
-
-        return self.driver != None
+        return self.driver is not None
 
     def probe_iommugroup(self):
         """Populate iommugroup via sysfs; returns False if no iommugroup is found"""
@@ -112,8 +111,7 @@ class Device:
             )
         except FileNotFoundError:
             self.iommugroup = None
-
-        return self.iommugroup != None
+        return self.iommugroup is not None
 
     def probe_handles(self):
         """Determine possible handles to the NVMe device"""
@@ -174,13 +172,12 @@ def print_props(args, device: Device):
 
 
 def unbind(args, device: Device):
-
-    print(f"Unbinding; from('{device.driver}')")
+    log.info(f"Unbinding({device.slot}) from '{device.driver}'")
     sysfs = Path("/sys") / "bus" / "pci"
 
     unbind = sysfs / "devices" / device.slot / "driver" / "unbind"
     if not unbind.exists():
-        print("Not bound; skipping unbind()")
+        log.info("Not bound; skipping unbind()")
         return
 
     sysfs_write(unbind, device.slot)
@@ -189,9 +186,9 @@ def unbind(args, device: Device):
 def bind(args, device: Device, driver_name: str):
     """Bind the driver named 'driver_name' with 'device'"""
 
-    print(f"Binding; from('{device.driver}') to ('{driver_name}')")
-
     unbind(args, device)
+
+    log.info(f"Binding({device.slot}) to '{driver_name}'")
 
     sysfs = Path("/sys") / "bus" / "pci"
 
@@ -243,6 +240,10 @@ def parse_args():
         help="Unbind if bound; then bind to the given driver-name [nvme, vfio-pci, uio-pci-generic] or to a .ko driver file (path)",
     )
 
+    parser.add_argument(
+        "--verbose", action="store_true", help="Print log-messages beyond errors"
+    )
+
     args = parser.parse_args()
 
     return args
@@ -260,29 +261,35 @@ def main(args):
     ]
 
     for cur, device in enumerate(devices, 1):
-        print(f"# Device({device.slot}) -- {cur}/{len(devices)}")
+        log.info(f"Device({device.slot}) -- {cur}/{len(devices)}")
 
         if args.props:
             print_props(args, device)
 
         if args.unbind:
             if device.is_used:
-                print(f"Skipping unbind({device.driver}); device is in use.")
+                log.info(f"Skipping unbind({device.driver}); device is in use.")
             else:
                 unbind(args, device)
 
         if args.bind:
             if device.is_used:
-                print(f"Skipping bind({args.bind}); device is in use.")
+                log.info(f"Skipping bind({args.bind}); device is in use.")
             else:
                 bind(args, device, args.bind)
 
 
 if __name__ == "__main__":
     ARGS = parse_args()
+
+    log.basicConfig(
+        level=log.DEBUG if ARGS.verbose else log.INFO,
+        format="%(levelname)s: %(message)s",
+    )
+
     try:
         sys.exit(main(ARGS))
     except PermissionError as exc:
-        print(str(exc))
-        print("You need to have CAP_SYS_ADMIN e.g. run as 'root' or with 'sudo'")
+        log.error(str(exc))
+        log.error("You need to have CAP_SYS_ADMIN e.g. run as 'root' or with 'sudo'")
         sys.exit(errno.EPERM)
