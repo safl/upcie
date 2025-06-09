@@ -48,7 +48,7 @@ def sysfs_write(path: Path, text):
 
 class System(object):
 
-    DRIVERS = {"nvme", "vfio-pci", "vfio-noiommu", "uio-pci-generic"}
+    DRIVERS = {"nvme", "vfio-pci", "vfio-noiommu", "uio_pci_generic"}
 
     drivers: dict = {}
 
