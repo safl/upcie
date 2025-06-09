@@ -24,6 +24,7 @@ import sys
 import os
 import subprocess
 import argparse
+import errno
 from itertools import chain
 from typing import Optional
 from pprint import pprint
@@ -274,4 +275,9 @@ def main(args):
 
 if __name__ == "__main__":
     ARGS = parse_args()
-    main(ARGS)
+    try:
+        sys.exit(main(ARGS))
+    except PermissionError as exc:
+        print(str(exc))
+        print("You need to have CAP_SYS_ADMIN e.g. run as 'root' or with 'sudo'")
+        sys.exit(errno.EPERM)
