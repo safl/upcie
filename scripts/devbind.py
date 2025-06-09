@@ -54,7 +54,26 @@ class System(object):
     drivers: dict = {}
 
     def probe_drivers(self):
-        pass
+
+        loaded = set(
+            (
+                path.name
+                for path in Path(f"/sys/bus/pci/drivers").resolve(strict=True).glob("*")
+            )
+        )
+
+        missing = self.DRIVERS - loaded
+
+        for driver_name in self.DRIVERS:
+            self.drivers[driver_name] = {
+                "available": driver_name not in missing,
+            }
+
+    def pp(self):
+        print("system:")
+        print("  drivers:")
+        for driver_name, props in self.drivers.items():
+            print(f"  - {driver_name}: {props}")
 
 
 @dataclass
@@ -253,6 +272,9 @@ def main(args):
 
     system = System()
     system.probe_drivers()
+
+    if args.props:
+        system.pp()
 
     devices = [
         device
