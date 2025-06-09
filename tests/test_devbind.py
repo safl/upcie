@@ -13,6 +13,11 @@ def test_devbind_bind_nvme(cijoe):
     assert not err
 
 
+def test_devbind_bind_uio(cijoe):
+    err, _ = cijoe.run("devbind --bind uio_pci_generic")
+    assert not err
+
+
 def test_devbind_bind_vfio(cijoe):
     err, _ = cijoe.run("devbind --bind vfio-pci")
     assert not err
