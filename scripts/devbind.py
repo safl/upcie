@@ -192,9 +192,10 @@ def print_props(args, device: Device):
 
 def unbind(args, device: Device):
     log.info(f"Unbinding({device.slot}) from '{device.driver}'")
-    sysfs = Path("/sys") / "bus" / "pci"
 
-    unbind = sysfs / "devices" / device.slot / "driver" / "unbind"
+    driver_path = Path("/sys") / "bus" / "pci" / "devices" / device.slot / "driver"
+
+    unbind = driver_path / "unbind"
     if not unbind.exists():
         log.info("Not bound; skipping unbind()")
         return
