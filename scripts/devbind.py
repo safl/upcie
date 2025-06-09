@@ -25,6 +25,7 @@ import os
 import subprocess
 import argparse
 import errno
+import time
 import logging as log
 from itertools import chain
 from typing import Optional
@@ -214,18 +215,18 @@ def bind(args, device: Device, driver_name: str):
 
     sysfs_write(sysfs / "devices" / device.slot / "driver_override", driver_name)
 
-    try:
-        sysfs_write(
-            sysfs / "drivers" / driver_name / "new_id",
-            f"{device.vendor} {device.device}",
-        )
-    except FileExistsError:
-        # print(f"Already known({device.vendor} {device.device})")
-        pass
-
-    sysfs_write(sysfs / "drivers" / driver_name / "bind", device.slot)
-
-    sysfs_write(sysfs / "drivers_probe", device.slot)
+    max_attempts = 10
+    for attempt in range(1, max_attempts + 1):
+        try:
+            sysfs_write(sysfs / "drivers" / driver_name / "bind", device.slot)
+            return
+        except OSError as exc:
+            if attempt == max_attempts or exc.errno != errno.EBUSY:
+                log.error(f"Could not bind despite {max_attempts} retries.")
+                raise
+            delay = attempt * 1
+            log.info(f"Retrying in in {delay} second(s)")
+            time.sleep(delay)
 
 
 def parse_args():
