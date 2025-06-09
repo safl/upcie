@@ -17,6 +17,10 @@
 # * /sys/bus/pci/devices/{slot}/nvme/nvme*/ng*
 # * /sys/bus/pci/devices/{slot}/nvme/nvme*/nvme*
 # * /sys/bus/pci/drivers/{driver_name}/bind
+# 
+# The following could, but currently are not, be used for automatic detection based on
+# class-code etc.
+#
 # * /sys/bus/pci/drivers/{driver_name}/new_id
 # * /sys/bus/pci/drivers_probe
 #
