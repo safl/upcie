@@ -49,7 +49,7 @@ steps:
     modprobe vfio-pci || true
 
 - name: hugepages
-  run:
+  run: |
     echo 128 | tee -a /proc/sys/vm/nr_hugepages
 
 - name: test
