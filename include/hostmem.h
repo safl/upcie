@@ -480,6 +480,7 @@ hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage)
 		volatile char sink;
 		for (size_t i = 0; i < hugepage->size; i += g_hostmem_state.pagesize) {
 			sink = p[i];
+			(void)sink; ///< Avoid compiler-warnings "unused-but-set-variable"
 		}
 	}
 
