@@ -8,6 +8,7 @@ fs = import('fs')
 incdir = include_directories('include')
 
 install_headers('include/hostmem.h')
+install_headers('include/pci.h')
 install_headers('include/vfioctl.h')
 
 # Optional dependency for other Meson projects

@@ -2,6 +2,7 @@ test_sources = files(
   'test_vfioctl.c',
   'test_hostmem_shared.c',
   'test_hostmem_heap.c',
+  'test_pci.c',
 )
 
 incdir = include_directories('../include')

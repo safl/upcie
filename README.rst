@@ -31,6 +31,10 @@ vfioctl.h
   with helper-functions wrapping the various **ioctl** along with structs for
   encapsulating containers, groups, and devices.
 
+pci.h
+  A header-only library providing functions to mmap() PCI function BARs and a
+  couple of helpers parsing PCI addresses from textual representations.
+
 devbind
   A utility to list PCIe devices and their current driver association,
   along with functionality to unbind and bind drivers. This is currently a
