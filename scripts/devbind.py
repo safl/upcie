@@ -197,9 +197,14 @@ def bind(args, device: Device, driver_name: str):
 
     sysfs_write(sysfs / "devices" / device.slot / "driver_override", driver_name)
 
-    sysfs_write(
-        sysfs / "drivers" / driver_name / "new_id", f"{device.vendor} {device.device}"
-    )
+    try:
+        sysfs_write(
+            sysfs / "drivers" / driver_name / "new_id",
+            f"{device.vendor} {device.device}",
+        )
+    except FileExistsError:
+        # print(f"Already known({device.vendor} {device.device})")
+        pass
 
     sysfs_write(sysfs / "drivers" / driver_name / "bind", device.slot)
 
