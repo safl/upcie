@@ -43,6 +43,15 @@ steps:
   with:
     source: '{{ config.upcie.repository.sync.remote_path }}'
 
+- name: modprobe
+  run: |
+    modprobe uio_pci_generic || true
+    modprobe vfio-pci || true
+
+- name: hugepages
+  run:
+    echo 128 | tee -a /proc/sys/vm/nr_hugepages
+
 - name: test
   uses: core.testrunner
   with:
