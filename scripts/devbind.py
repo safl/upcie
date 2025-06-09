@@ -306,7 +306,7 @@ if __name__ == "__main__":
 
     log.basicConfig(
         level=log.DEBUG if ARGS.verbose else log.INFO,
-        format="%(levelname)s: %(message)s",
+        format="# %(levelname)s: %(message)s",
     )
 
     try:
