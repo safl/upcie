@@ -10,10 +10,8 @@
  *
  * - Does BAR region mapping via /sys/bus/pci/devices/<PCI_ADDR>/resourceX
  *
- * Future
- * ------
- *
- * - add accessors (e.g., pci_bar_read32()) using 'volatile' casts
+ * - Provides MMIO accessor functions: pci_region_read32, pci_region_read64, pci_region_write32,
+ *   and pci_region_write64
  *
  * @file pci.h
  */
@@ -64,6 +62,58 @@ struct pci_func_bar {
 	uint8_t id;	 ///< One of the six BARs; [0-5]
 	int fd;		 ///< Handle to file-representation
 };
+
+/**
+ * MMIO accessor for mapped PCI BAR regions; read32
+ *
+ * This helper operates on a `region` pointer obtained from 'struct pci_func_bar.region'; see
+ * also ::pci_func_bar. Uses `volatile` to ensure the access is not optimized away and to preserve
+ * correct access ordering to memory-mapped I/O regions.
+ */
+static inline uint32_t
+pci_region_read32(uint8_t *region, uint32_t offset)
+{
+	return *(volatile uint32_t *)(region + offset);
+}
+
+/**
+ * MMIO accessor for mapped PCI BAR regions; write32
+ *
+ * This helper operates on a `region` pointer obtained from 'struct pci_func_bar.region'; see
+ * also ::pci_func_bar. Uses `volatile` to ensure the access is not optimized away and to preserve
+ * correct access ordering to memory-mapped I/O regions.
+ */
+static inline void
+pci_region_write32(uint8_t *region, uint32_t offset, uint32_t value)
+{
+	*(volatile uint32_t *)(region + offset) = value;
+}
+
+/**
+ * MMIO accessor for mapped PCI BAR regions; read64
+ *
+ * This helper operates on a `region` pointer obtained from 'struct pci_func_bar.region'; see
+ * also ::pci_func_bar. Uses `volatile` to ensure the access is not optimized away and to preserve
+ * correct access ordering to memory-mapped I/O regions.
+ */
+static inline uint64_t
+pci_region_read64(uint8_t *region, uint32_t offset)
+{
+	return *(volatile uint64_t *)(region + offset);
+}
+
+/**
+ * MMIO accessor for mapped PCI BAR regions; write64
+ *
+ * This helper operates on a `region` pointer obtained from 'struct pci_func_bar.region'; see
+ * also ::pci_func_bar. Uses `volatile` to ensure the access is not optimized away and to preserve
+ * correct access ordering to memory-mapped I/O regions.
+ */
+static inline void
+pci_region_write64(uint8_t *region, uint32_t offset, uint64_t value)
+{
+	*(volatile uint64_t *)(region + offset) = value;
+}
 
 struct pci_func {
 	struct pci_addr addr;		     ///< The address of the PCI device function
@@ -243,10 +293,6 @@ pci_bar_unmap(struct pci_func_bar *bar)
 	return 0;
 }
 
-/**
- * TODO: Add helpers reading / writing the bar, that is something which explicitly casts the access
- * to volatile to ensure the access is not optimized away by the compiler.
- */
 static inline int
 pci_bar_map(const char *bdf, uint8_t id, struct pci_func_bar *bar)
 {
