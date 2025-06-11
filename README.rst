@@ -22,28 +22,59 @@ The intent is to keep things general, however, there are things which favors
 NVMe such as the ``devbind`` tool.
 
 Tools
------
+=====
 
-So far, then two tools are materializing:
+So far, tools described in the following subsections have materialized. The
+**C** tools are:
+
+- **Header-only**
+- **Idiomatic**
+- **Zero-dependency**
+- **C99/C11** compatible
+
+These are intended as small, drop-in components for **C** projects, providing
+convenient access to the functionality they encapsulate.
+
+The **devbind** tool is a Python-based CLI utility. It is designed to be usable
+as a self-contained, standalone script that you can download and run with a
+reasonably modern Python interpreter on your system.
 
 vfioctl.h
-  A header-only library which extents the Linux **UAPI** for ``VFIO`` **ioctl**
-  with helper-functions wrapping the various **ioctl** along with structs for
-  encapsulating containers, groups, and devices.
+---------
+
+An extension of the Linux **UAPI** for ``VFIO``, providing helper functions that
+wrap the various **IOCTLs**, along with structs for encapsulating containers,
+groups, and devices.
+
+hostmem.h
+---------
+
+A helper that provides a hugepage allocator, along with a malloc-like buffer
+allocator built on top of it. The result is convenient allocation of
+DMA-capable buffers.
 
 pci.h
-  A header-only library providing functions to mmap() PCI function BARs and a
-  couple of helpers parsing PCI addresses from textual representations.
+-----
+
+A collection of functions to "scan" for PCI devices, obtain handles to them,
+and map their BAR regions. Includes helpers for converting between textual and
+structured BDF representations.
 
 devbind
-  A utility to list PCIe devices and their current driver association,
-  along with functionality to unbind and bind drivers. This is currently a
-  self-contained Python script, the intent is that this script should turn into
-  something that can replace the ``xnvme-driver`` script.
+-------
 
-I would expect a header-only equivalent for ``uio-pci`` would be added, along
-with a minimal memory-allocator based on ``HUGEPAGES``. And possibly other
-things as well. Also, this should also be investigated for FreeBSD.
+A utility to list PCIe devices and their current driver association, with
+functionality to unbind and bind drivers. This is currently a self-contained
+Python script, with the intent of evolving it into a replacement for the
+``xnvme-driver`` script.
+
+Planned Additions
+-----------------
+
+A header-only equivalent for ``uio-pci`` is expected to be added, along with a
+minimal memory allocator based on **hugepages**. Additional tools may follow.
+There is also an interest in investigating support for FreeBSD.
+
 
 Host Memory for DMA
 -------------------
