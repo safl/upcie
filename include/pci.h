@@ -316,7 +316,9 @@ pci_scan(pci_func_callback callback, void *callback_arg)
 			return -errno;
 		}
 
-		if (pci_func_open(entry->d_name, func)) {
+		err = pci_func_open(entry->d_name, func);
+		if (err) {
+			free(func);
 			continue;
 		}
 
@@ -326,9 +328,11 @@ pci_scan(pci_func_callback callback, void *callback_arg)
 			break;
 		case PCI_SCAN_ACTION_RELEASE_FUNC:
 			pci_func_close(func);
+			free(func);
 			break;
 		default:
 			pci_func_close(func);
+			free(func);
 			err = -EIO;
 			goto exit;
 		}
