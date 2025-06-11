@@ -3,7 +3,6 @@
 int main(void) {
   struct vfio_container container = {0};
   struct vfio_group group = {0};
-  struct vfio_device dev = {0};
   int err, api_version;
 
   err = vfio_container_open(&container);
