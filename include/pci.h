@@ -221,6 +221,7 @@ pci_func_open(const char *bdf, struct pci_func *func)
 
 	for (int id = 0; id < PCI_NBARS; ++id) {
 		func->bars[id].id = id;
+		func->bars[id].fd = -1;
 	}
 
 	return 0;
@@ -237,6 +238,9 @@ pci_bar_unmap(struct pci_func_bar *bar)
 		munmap(bar->region, bar->size);
 		close(bar->fd);
 	}
+
+	bar->fd = -1;
+	bar->region = NULL;
 
 	return 0;
 }
