@@ -75,7 +75,10 @@ struct pci_func {
 };
 
 /**
- * Callback function definition for pci_scan(); must return
+ * Callback function definition for pci_scan(); must return a 'pci_scan_action'
+ *
+ * Return PCI_SCAN_ACTION_CLAIM_FUNC to take ownership of the struct pci_func,
+ * or PCI_SCAN_ACTION_RELEASE_FUNC to have pci_scan() clean it up.
  */
 typedef int (*pci_func_callback)(struct pci_func *func, void *callback_arg);
 
