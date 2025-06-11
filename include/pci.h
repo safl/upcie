@@ -1,11 +1,23 @@
 /**
- * Helpers making use of mapping BAR regions via /sys/bus/pci/devices/<PCI_ADDR>/resourceX
+ * Helpers for Linux PCI interface via sysfs
+ * =========================================
+ *
+ * - Retrieve "handles" to PCI devices via pci_func_{open,close} using PCI BDF
+ *  - Handles provide PCI addresses, identifiers, and a container for BAR regons
+ * - Does BAR region mapping via /sys/bus/pci/devices/<PCI_ADDR>/resourceX
+ *
+ * TODO
+ * ====
+ *
+ * - Add a pci_scan() helper with a call-back function
+ * - Review...
  *
  * @file pci.h
  */
 #ifndef PCI_H
 #define PCI_H
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -18,6 +30,8 @@
 
 #define PCI_BDF_LEN 12
 #define PCI_NBARS 6
+
+enum pci_scan_action { PCI_SCAN_ACTION_CLAIM_FUNC = 0x1, PCI_SCAN_ACTION_RELEASE_FUNC = 0x2 };
 
 /**
  * Representation of a bar-address
@@ -56,6 +70,11 @@ struct pci_func {
 	struct pci_idents ident;   ///< Describes who made it and what it is
 	struct pci_func_bar bars[PCI_NBARS]; ///< The six BARs associated with a PCI Function
 };
+
+/**
+ * Callback function definition for pci_scan(); must return
+ */
+typedef int (*pci_func_callback)(struct pci_func *func, void *callback_arg);
 
 static inline int
 pci_bar_pr(struct pci_func_bar *bar)
@@ -260,5 +279,57 @@ pci_func_close(struct pci_func *func)
 	for (int id = 0; id < PCI_NBARS; ++id) {
 		pci_bar_unmap(&func->bars[id]);
 	}
+}
+
+/**
+ * Scans /sys/bus/pci/devices for PCI functions and calls the provided callback for each one
+ */
+static inline int
+pci_scan(pci_func_callback callback, void *callback_arg)
+{
+	const char *sysfs_path = "/sys/bus/pci/devices";
+	int err = 0;
+	struct dirent *entry;
+	DIR *dir;
+
+	dir = opendir(sysfs_path);
+	if (!dir) {
+		return -errno;
+	}
+
+	while ((entry = readdir(dir))) {
+		struct pci_func *func;
+		int action;
+
+		if (entry->d_name[0] == '.') {
+			continue;
+		}
+
+		func = calloc(1, sizeof(*func));
+		if (!func) {
+			return -errno;
+		}
+
+		if (pci_func_open(entry->d_name, func)) {
+			continue;
+		}
+
+		action = callback(func, callback_arg);
+		switch (action) {
+		case PCI_SCAN_ACTION_CLAIM_FUNC:
+			break;
+		case PCI_SCAN_ACTION_RELEASE_FUNC:
+			pci_func_close(func);
+			break;
+		default:
+			pci_func_close(func);
+			err = -EIO;
+			goto exit;
+		}
+	}
+
+exit:
+	closedir(dir);
+	return err;
 }
 #endif
