@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
+
 /**
  * Helpers for Linux PCI interface via sysfs
  * =========================================
@@ -391,4 +394,4 @@ exit:
 	closedir(dir);
 	return err;
 }
-#endif
+#endif // UPCIE_PCI_H

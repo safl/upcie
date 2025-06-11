@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
+
 /**
   Memory allocator using hugepages for DMA in user-space drivers and host IPC
   ===========================================================================
@@ -679,4 +682,4 @@ hostmem_buffer_virt_to_phys(struct hostmem_heap *heap, void *virt, uint64_t *phy
 	return 0;
 }
 
-#endif
+#endif // UPCIE_HOSTMEM_H

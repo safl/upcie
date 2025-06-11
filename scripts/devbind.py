@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
 #
 # Get info about and control driver associcated with NVMe devices
 #
@@ -17,7 +19,7 @@
 # * /sys/bus/pci/devices/{slot}/nvme/nvme*/ng*
 # * /sys/bus/pci/devices/{slot}/nvme/nvme*/nvme*
 # * /sys/bus/pci/drivers/{driver_name}/bind
-# 
+#
 # The following could, but currently are not, be used for automatic detection based on
 # class-code etc.
 #

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
+
 /**
   VFIO helper for user-space -- header-only library
 
@@ -252,4 +255,4 @@ vfio_device_pci_hot_reset(struct vfio_device *dev, struct vfio_pci_hot_reset *re
 	return ioctl(dev->fd, VFIO_DEVICE_PCI_HOT_RESET, reset);
 }
 
-#endif // VFIOCTL_H
+#endif // UPCIE_VFIOCTL_H
