@@ -163,7 +163,7 @@ pci_func_open(const char *bdf, struct pci_func *func)
 	if (err) {
 		return err;
 	}
-	sprintf(func->bdf, "%.*s", PCI_BDF_LEN, bdf);
+	snprintf(func->bdf, sizeof(func->bdf), "%.*s", PCI_BDF_LEN, bdf);
 
 	// vendor_id
 	snprintf(path, sizeof(path), "%s/%s/vendor", sysfs_root, func->bdf);
@@ -254,7 +254,8 @@ pci_bar_map(const char *bdf, uint8_t id, struct pci_func_bar *bar)
 	char path[256] = {0};
 	int err;
 
-	sprintf(path, "/sys/bus/pci/devices/%.*s/resource%" PRIu8, PCI_BDF_LEN, bdf, id);
+	snprintf(path, sizeof(path), "/sys/bus/pci/devices/%.*s/resource%" PRIu8, PCI_BDF_LEN, bdf,
+		 id);
 
 	err = stat(path, &barstat);
 	if (err) {
