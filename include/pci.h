@@ -11,6 +11,7 @@
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -29,6 +30,15 @@ struct pci_addr {
 };
 
 /**
+ * Representation of PCI identifiers
+ */
+struct pci_idents {
+	uint16_t vendor_id; ///< Device vendor; e.g. Samsung, QEMU
+	uint16_t device_id; ///< Device identifier;
+	uint32_t classcode; ///< Base, sub, and programming-interface
+};
+
+/**
  * Encapsulation of a PCI BAR region mapping
  *
  * Add bar-accesors casting the access to 'volatile'
@@ -43,6 +53,7 @@ struct pci_func_bar {
 struct pci_func {
 	struct pci_addr addr;	   ///< The address of the PCI device function
 	char bdf[PCI_BDF_LEN + 1]; ///< PCI address as a nul-string full-BDF; e.g. "0000:05:00.0"
+	struct pci_idents ident;   ///< Describes who made it and what it is
 	struct pci_func_bar bars[PCI_NBARS]; ///< The six BARs associated with a PCI Function
 };
 
@@ -59,6 +70,24 @@ pci_bar_pr(struct pci_func_bar *bar)
 
 	return wrtn;
 };
+
+static inline int
+pci_func_pr(struct pci_func *func)
+{
+	int wrtn = 0;
+
+	printf("pci_func:\n");
+	printf("  addr: '%04" PRIx16 ":%02" PRIx8 ":%02" PRIx8 ".%01" PRIx8
+	       "' # numerical representation printed as string\n",
+	       func->addr.domain, func->addr.bus, func->addr.device, func->addr.function);
+	printf("  bfd: '%.*s'  # string representation printed as is\n", PCI_BDF_LEN, func->bdf);
+	printf("  ident:\n");
+	printf("    vendor_id: 0x%" PRIx8 "\n", func->ident.vendor_id);
+	printf("    device_id: 0x%" PRIx8 "\n", func->ident.device_id);
+	printf("    classcode: 0x%" PRIx8 "\n", func->ident.classcode);
+
+	return wrtn;
+}
 
 /**
  * Fills the given 'addr' with parts found when scanning a text repr. on the form '0000:05:00.0'
@@ -92,7 +121,7 @@ pci_addr_from_text(const char *text, struct pci_addr *addr)
 static inline int
 pci_addr_to_text(struct pci_addr *addr, char *text)
 {
-	sprintf(text, "%" PRIu16 ":%" PRIu8 ":%" PRIu8 ".%" PRIu8, addr->domain, addr->bus,
+	sprintf(text, "%04" PRIx16 ":%02" PRIx8 ":%02" PRIx8 ".%01" PRIx8, addr->domain, addr->bus,
 		addr->device, addr->function);
 
 	return 0;
@@ -101,13 +130,69 @@ pci_addr_to_text(struct pci_addr *addr, char *text)
 static inline int
 pci_func_open(const char *bdf, struct pci_func *func)
 {
-	int err;
+	const char *sysfs_root = "/sys/bus/pci/devices";
+	char path[256] = {0};
+	char buf[16] = {0};
+	ssize_t ret;
+	int fd, err;
 
 	err = pci_addr_from_text(bdf, &func->addr);
 	if (err) {
 		return err;
 	}
 	sprintf(func->bdf, "%.*s", PCI_BDF_LEN, bdf);
+
+	// vendor_id
+	snprintf(path, sizeof(path), "%s/%s/vendor", sysfs_root, func->bdf);
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0) {
+		return -errno;
+	}
+
+	ret = read(fd, buf, sizeof(buf));
+	if (ret < 0) {
+		close(fd);
+		return -errno;
+	}
+
+	buf[sizeof(buf) - 1] = 0;
+	func->ident.vendor_id = strtoul(buf, NULL, 16);
+	close(fd);
+
+	// device_id
+	snprintf(path, sizeof(path), "%s/%s/device", sysfs_root, func->bdf);
+	fd = open(path, O_RDONLY);
+	if (fd < 0) {
+		return -errno;
+	}
+
+	ret = read(fd, buf, sizeof(buf));
+	if (ret < 0) {
+		close(fd);
+		return -errno;
+	}
+
+	buf[sizeof(buf) - 1] = 0;
+	func->ident.device_id = strtoul(buf, NULL, 16);
+	close(fd);
+
+	// classcode
+	snprintf(path, sizeof(path), "%s/%s/class", sysfs_root, func->bdf);
+	fd = open(path, O_RDONLY);
+	if (fd < 0) {
+		return -errno;
+	}
+
+	ret = read(fd, buf, sizeof(buf));
+	if (ret < 0) {
+		close(fd);
+		return -errno;
+	}
+
+	buf[sizeof(buf) - 1] = 0;
+	func->ident.classcode = strtoul(buf, NULL, 16);
+	close(fd);
 
 	for (int id = 0; id < PCI_NBARS; ++id) {
 		func->bars[id].id = id;

@@ -25,6 +25,8 @@ main(int argc, char **argv)
 		return -err;
 	}
 
+	pci_func_pr(&func);
+
 	for (int id = 0; id < PCI_NBARS; ++id) {
 		err = pci_bar_map(func.bdf, id, &func.bars[id]);
 		if (err && (errno != ENOENT)) {
