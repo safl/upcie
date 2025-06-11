@@ -2,15 +2,18 @@
  * Helpers for Linux PCI interface via sysfs
  * =========================================
  *
+ * - Scan system for PCI devices / functions
+ *   - Callback invocation on each discovered function
+ *
  * - Retrieve "handles" to PCI devices via pci_func_{open,close} using PCI BDF
- *  - Handles provide PCI addresses, identifiers, and a container for BAR regons
+ *  - Handles provide PCI addresses, identifiers, and a container for BAR regions
+ *
  * - Does BAR region mapping via /sys/bus/pci/devices/<PCI_ADDR>/resourceX
  *
- * TODO
- * ====
+ * Future
+ * ------
  *
- * - Add a pci_scan() helper with a call-back function
- * - Review...
+ * - add accessors (e.g., pci_bar_read32()) using 'volatile' casts
  *
  * @file pci.h
  */
