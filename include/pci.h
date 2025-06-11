@@ -83,7 +83,7 @@ pci_bar_pr(struct pci_func_bar *bar)
 
 	printf("pci_bar:\n");
 	printf("  id: %" PRIu8 "\n", bar->id);
-	printf("  fd: %" PRIu8 "\n", bar->fd);
+	printf("  fd: %d\n", bar->fd);
 	printf("  size: %" PRIu64 "\n", bar->size);
 	printf("  region: %p\n", bar->region);
 
@@ -99,11 +99,11 @@ pci_func_pr(struct pci_func *func)
 	printf("  addr: '%04" PRIx16 ":%02" PRIx8 ":%02" PRIx8 ".%01" PRIx8
 	       "' # numerical representation printed as string\n",
 	       func->addr.domain, func->addr.bus, func->addr.device, func->addr.function);
-	printf("  bfd: '%.*s'  # string representation printed as is\n", PCI_BDF_LEN, func->bdf);
+	printf("  bdf: '%.*s'  # string representation printed as is\n", PCI_BDF_LEN, func->bdf);
 	printf("  ident:\n");
-	printf("    vendor_id: 0x%" PRIx8 "\n", func->ident.vendor_id);
-	printf("    device_id: 0x%" PRIx8 "\n", func->ident.device_id);
-	printf("    classcode: 0x%" PRIx8 "\n", func->ident.classcode);
+	printf("    vendor_id: 0x%" PRIx16 "\n", func->ident.vendor_id);
+	printf("    device_id: 0x%" PRIx16 "\n", func->ident.device_id);
+	printf("    classcode: 0x%" PRIx32 "\n", func->ident.classcode);
 
 	return wrtn;
 }
@@ -140,8 +140,8 @@ pci_addr_from_text(const char *text, struct pci_addr *addr)
 static inline int
 pci_addr_to_text(struct pci_addr *addr, char *text)
 {
-	sprintf(text, "%04" PRIx16 ":%02" PRIx8 ":%02" PRIx8 ".%01" PRIx8, addr->domain, addr->bus,
-		addr->device, addr->function);
+	snprintf(text, PCI_BDF_LEN + 1, "%04" PRIx16 ":%02" PRIx8 ":%02" PRIx8 ".%01" PRIx8,
+		 addr->domain, addr->bus, addr->device, addr->function);
 
 	return 0;
 }
