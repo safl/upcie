@@ -175,13 +175,13 @@ pci_func_open(const char *bdf, struct pci_func *func)
 		return -errno;
 	}
 
-	ret = read(fd, buf, sizeof(buf));
+	ret = read(fd, buf, sizeof(buf) - 1);
 	if (ret < 0) {
 		close(fd);
 		return -errno;
 	}
+	buf[ret] = 0;
 
-	buf[sizeof(buf) - 1] = 0;
 	func->ident.vendor_id = strtoul(buf, NULL, 16);
 	close(fd);
 
@@ -192,13 +192,13 @@ pci_func_open(const char *bdf, struct pci_func *func)
 		return -errno;
 	}
 
-	ret = read(fd, buf, sizeof(buf));
+	ret = read(fd, buf, sizeof(buf) - 1);
 	if (ret < 0) {
 		close(fd);
 		return -errno;
 	}
+	buf[ret] = 0;
 
-	buf[sizeof(buf) - 1] = 0;
 	func->ident.device_id = strtoul(buf, NULL, 16);
 	close(fd);
 
@@ -209,13 +209,13 @@ pci_func_open(const char *bdf, struct pci_func *func)
 		return -errno;
 	}
 
-	ret = read(fd, buf, sizeof(buf));
+	ret = read(fd, buf, sizeof(buf) - 1);
 	if (ret < 0) {
 		close(fd);
 		return -errno;
 	}
+	buf[ret] = 0;
 
-	buf[sizeof(buf) - 1] = 0;
 	func->ident.classcode = strtoul(buf, NULL, 16);
 	close(fd);
 
