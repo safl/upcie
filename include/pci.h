@@ -17,8 +17,8 @@
  *
  * @file pci.h
  */
-#ifndef PCI_H
-#define PCI_H
+#ifndef UPCIE_PCI_H
+#define UPCIE_PCI_H
 
 #include <dirent.h>
 #include <errno.h>
