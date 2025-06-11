@@ -92,7 +92,7 @@ pci_bar_pr(struct pci_func_bar *bar)
 	printf("  region: %p\n", bar->region);
 
 	return wrtn;
-};
+}
 
 static inline int
 pci_func_pr(struct pci_func *func)
