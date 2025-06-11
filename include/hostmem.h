@@ -56,8 +56,8 @@
 
   @file hostmem.h
 */
-#ifndef HOSTMEM_H
-#define HOSTMEM_H
+#ifndef UPCIE_HOSTMEM_H
+#define UPCIE_HOSTMEM_H
 
 #define _GNU_SOURCE
 #include <errno.h>

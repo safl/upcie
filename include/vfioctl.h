@@ -13,7 +13,7 @@
   introduction to the data structures:
 
    VFIO Container (/dev/vfio/vfio)
-                 |
+		 |
        ---------------------
        |                   |
   IOMMU Group 5       IOMMU Group 6
@@ -28,8 +28,8 @@
 
   @file vfioctl.h
 */
-#ifndef VFIOCTL_H
-#define VFIOCTL_H
+#ifndef UPCIE_VFIOCTL_H
+#define UPCIE_VFIOCTL_H
 
 #include <errno.h>
 #include <fcntl.h>
