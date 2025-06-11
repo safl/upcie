@@ -4,6 +4,7 @@ test_sources = files(
   'test_hostmem_heap.c',
   'test_pci_bars.c',
   'test_pci_scan.c',
+  'test_nvme_init.c',
 )
 
 incdir = include_directories('../include')
