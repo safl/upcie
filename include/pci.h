@@ -57,8 +57,6 @@ struct pci_idents {
 
 /**
  * Encapsulation of a PCI BAR region mapping
- *
- * Add bar-accesors casting the access to 'volatile'
  */
 struct pci_func_bar {
 	uint64_t size;	 ///< The size of the BAR region
@@ -68,9 +66,9 @@ struct pci_func_bar {
 };
 
 struct pci_func {
-	struct pci_addr addr;	   ///< The address of the PCI device function
-	char bdf[PCI_BDF_LEN + 1]; ///< PCI address as a nul-string full-BDF; e.g. "0000:05:00.0"
-	struct pci_idents ident;   ///< Describes who made it and what it is
+	struct pci_addr addr;		     ///< The address of the PCI device function
+	char bdf[PCI_BDF_LEN + 1];	     ///< PCI address as a null-terminated full BDF string
+	struct pci_idents ident;	     ///< Describes who made it and what it is
 	struct pci_func_bar bars[PCI_NBARS]; ///< The six BARs associated with a PCI Function
 };
 
