@@ -68,6 +68,13 @@ functionality to unbind and bind drivers. This is currently a self-contained
 Python script, with the intent of evolving it into a replacement for the
 ``xnvme-driver`` script.
 
+hugepages
+---------
+
+A command-line tool for inspecting hugepage support, reserving hugepages, and
+mounting hugetlbfs. It is not sophisticated, just a convenient alternative to
+manually working with sysfs paths.
+
 Planned Additions
 -----------------
 
