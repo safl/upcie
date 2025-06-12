@@ -682,4 +682,25 @@ hostmem_buffer_virt_to_phys(struct hostmem_heap *heap, void *virt, uint64_t *phy
 	return 0;
 }
 
+/**
+ * Same as hostmem_buffer_virt_to_phys() but without any error-handling, thus return the phys
+ * address instead of error
+ */
+static inline uint64_t
+hostmem_buffer_vtp(struct hostmem_heap *heap, void *virt)
+{
+	size_t offset, hpage_idx, in_hpage_offset;
+
+	// Compute byte offset from base of heap
+	offset = (char *)virt - (char *)heap->memory.virt;
+
+	// Determine which hugepage this address falls into
+	hpage_idx = offset / g_hostmem_state.hugepgsz;
+
+	// Offset within that hugepage
+	in_hpage_offset = offset % g_hostmem_state.hugepgsz;
+
+	return heap->phys_lut[hpage_idx] + in_hpage_offset;
+}
+
 #endif // UPCIE_HOSTMEM_H
