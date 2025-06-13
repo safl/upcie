@@ -7,6 +7,7 @@ fs = import('fs')
 
 incdir = include_directories('include')
 
+install_headers('include/bits.h')
 install_headers('include/hostmem.h')
 install_headers('include/mmio.h')
 install_headers('include/nvme.h')
