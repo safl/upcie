@@ -21,11 +21,10 @@ depending on its utility.
 The intent is to keep things general, however, there are things which favors
 NVMe such as the ``devbind`` tool.
 
-Tools
-=====
+Libraries
+=========
 
-So far, tools described in the following subsections have materialized. The
-**C** tools are:
+The **C** libraries are:
 
 - **Header-only**
 - **Idiomatic**
@@ -34,17 +33,6 @@ So far, tools described in the following subsections have materialized. The
 
 These are intended as small, drop-in components for **C** projects, providing
 convenient access to the functionality they encapsulate.
-
-The **devbind** tool is a Python-based CLI utility. It is designed to be usable
-as a self-contained, standalone script that you can download and run with a
-reasonably modern Python interpreter on your system.
-
-vfioctl.h
----------
-
-An extension of the Linux **UAPI** for ``VFIO``, providing helper functions that
-wrap the various **IOCTLs**, along with structs for encapsulating containers,
-groups, and devices.
 
 bits.h
 ------
@@ -76,6 +64,20 @@ A collection of functions to: "scan" for PCI devices, obtain handles to them,
 and map their BAR regions. Includes helpers for converting between textual and
 structured BDF representations.
 
+vfioctl.h
+---------
+
+An extension of the Linux **UAPI** for ``VFIO``, providing helper functions that
+wrap the various **IOCTLs**, along with structs for encapsulating containers,
+groups, and devices.
+
+Tools
+=====
+
+The **devbind** tool is a Python-based CLI utility. It is designed to be usable
+as a self-contained, standalone script that you can download and run with a
+reasonably modern Python interpreter on your system.
+
 devbind
 -------
 
@@ -91,12 +93,8 @@ A command-line tool for inspecting hugepage support, reserving hugepages, and
 mounting hugetlbfs. It is not sophisticated, just a convenient alternative to
 manually working with sysfs paths.
 
-Planned Additions
------------------
-
-A header-only equivalent for ``uio-pci`` is expected to be added, along with a
-minimal memory allocator based on **hugepages**. Additional tools may follow.
-There is also an interest in investigating support for FreeBSD.
+Background
+==========
 
 
 Host Memory for DMA
