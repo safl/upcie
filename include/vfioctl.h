@@ -2,35 +2,36 @@
 // Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
 
 /**
-  VFIO helper for user-space -- header-only library
-
-  The intent is for this library to be vendored by who-ever needs it. Possibly also its companion
-  driver-script.
-
-  The documentation for using vfio-pci is to my knowledge split between:
-
-  - UAPI:
-  - Kernel docs: https://docs.kernel.org/driver-api/vfio.html
-
-  Most of the functions here are simply wrappers of the IOCTLs of the same name. And a brief
-  introduction to the data structures:
-
-   VFIO Container (/dev/vfio/vfio)
-		 |
-       ---------------------
-       |                   |
-  IOMMU Group 5       IOMMU Group 6
-   (/dev/vfio/5)       (/dev/vfio/6)
-       |                   |
-    ---------          -----------
-    | Dev A |          | Dev C   |
-    | Dev B |          |         |
-    ---------          -----------
-
-  The above is the essential modeling of the isolation-level of memory among devices.
-
-  @file vfioctl.h
-*/
+ * VFIO helper for user-space
+ * ==========================
+ *
+ * The intent is for this library to be vendored by who-ever needs it. Possibly also its companion
+ * driver-script.
+ *
+ * The documentation for using vfio-pci is to my knowledge split between:
+ *
+ * - UAPI:
+ * - Kernel docs: https://docs.kernel.org/driver-api/vfio.html
+ *
+ * Most of the functions here are simply wrappers of the IOCTLs of the same name. And a brief
+ * introduction to the data structures:
+ *
+ *  VFIO Container (/dev/vfio/vfio)
+ *              |
+ *      ---------------------
+ *      |                   |
+ * IOMMU Group 5       IOMMU Group 6
+ *  (/dev/vfio/5)       (/dev/vfio/6)
+ *      |                   |
+ *   ---------          -----------
+ *   | Dev A |          | Dev C   |
+ *   | Dev B |          |         |
+ *   ---------          -----------
+ *
+ * The above is the essential modeling of the isolation-level of memory among devices.
+ *
+ * @file vfioctl.h
+ */
 #ifndef UPCIE_VFIOCTL_H
 #define UPCIE_VFIOCTL_H
 
