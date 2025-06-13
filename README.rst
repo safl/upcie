@@ -46,6 +46,14 @@ An extension of the Linux **UAPI** for ``VFIO``, providing helper functions that
 wrap the various **IOCTLs**, along with structs for encapsulating containers,
 groups, and devices.
 
+bits.h
+------
+
+A minimal header-only utility providing a single helper function: bits(). This
+function extracts a right-aligned bitfield from a 64-bit integer. It is designed
+for use in low-level systems programming where precise bit manipulation is
+required, such as parsing hardware registers or protocol descriptors.
+
 mmio.h
 ------
 
