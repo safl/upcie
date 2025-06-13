@@ -8,9 +8,10 @@ fs = import('fs')
 incdir = include_directories('include')
 
 install_headers('include/hostmem.h')
+install_headers('include/mmio.h')
+install_headers('include/nvme.h')
 install_headers('include/pci.h')
 install_headers('include/vfioctl.h')
-install_headers('include/nvme.h')
 
 # Optional dependency for other Meson projects
 upcie_dep = declare_dependency(

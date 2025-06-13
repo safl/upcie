@@ -4,6 +4,7 @@
 #define _GNU_SOURCE
 #include <assert.h>
 #include <hostmem.h>
+#include <mmio.h>
 #include <pci.h>
 #include <nvme.h>
 #include <string.h>
@@ -121,16 +122,16 @@ nvme_ctrlr_init(uint8_t *mmio, struct nvme_controller *ctrlr)
 	int err;
 
 	// Disable controller if needed
-	if (pci_region_read32(mmio, NVME_REG_CSTS) & 1) {
-		pci_region_write32(mmio, NVME_REG_CC, 0);
+	if (mmio_read32(mmio, NVME_REG_CSTS) & 1) {
+		mmio_write32(mmio, NVME_REG_CC, 0);
 
 		int timeout_us = 1000 * 1000; // 1 second
 		for (int i = 0; i < timeout_us / 1000; ++i) {
-			if ((pci_region_read32(mmio, NVME_REG_CSTS) & 1) == 0)
+			if ((mmio_read32(mmio, NVME_REG_CSTS) & 1) == 0)
 				break;
 			usleep(1000);
 		}
-		if (pci_region_read32(mmio, NVME_REG_CSTS) & 1) {
+		if (mmio_read32(mmio, NVME_REG_CSTS) & 1) {
 			fprintf(stderr, "WARN: Controller did not disable (CSTS.RDY still set)\n");
 		}
 	}
@@ -143,7 +144,7 @@ nvme_ctrlr_init(uint8_t *mmio, struct nvme_controller *ctrlr)
 	{
 		int timeout_us = 1000 * 1000; // 1 second
 		for (int i = 0; i < timeout_us / 1000; ++i) {
-			if (pci_region_read32(mmio, NVME_REG_CSTS) & 1) {
+			if (mmio_read32(mmio, NVME_REG_CSTS) & 1) {
 				return 0; // ready
 			}
 			usleep(1000);
@@ -165,11 +166,11 @@ nvme_identify_ctrlr(uint8_t *mmio, struct nvme_controller *ctrlr)
 
 	memcpy(ctrlr->asq, &cmd, 64);
 
-	pci_region_write32(mmio, NVME_REG_SQ0TDBL, 1);
+	mmio_write32(mmio, NVME_REG_SQ0TDBL, 1);
 
 	// Wait for completion
 	for (int i = 0; i < 10000; ++i) {
-		if (pci_region_read32(mmio, NVME_REG_CQ0HDBL) != 0)
+		if (mmio_read32(mmio, NVME_REG_CQ0HDBL) != 0)
 			break;
 		usleep(1000);
 	}
@@ -242,9 +243,9 @@ main(int argc, char **argv)
 		uint64_t v64;
 		uint32_t v32;
 
-		nvme_reg_cap_pr(pci_region_read64(mmio, NVME_REG_CAP));
+		nvme_reg_cap_pr(mmio_read64(mmio, NVME_REG_CAP));
 
-		v32 = pci_region_read64(mmio, NVME_REG_VS);
+		v32 = mmio_read32(mmio, NVME_REG_VS);
 		printf("VS(0x%" PRIx32 ")\n", v32);
 	}
 

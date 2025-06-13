@@ -57,9 +57,9 @@
 static inline void
 nvme_controller_adminq_setup(void *bar0, uint64_t asq, uint64_t acq)
 {
-	pci_region_write32(bar0, NVME_REG_AQA, (0 << 16) | 0); // 1-entry queues
-	pci_region_write64(bar0, NVME_REG_ASQ, asq);
-	pci_region_write64(bar0, NVME_REG_ACQ, acq);
+	mmio_write32(bar0, NVME_REG_AQA, (0 << 16) | 0); // 1-entry queues
+	mmio_write64(bar0, NVME_REG_ASQ, asq);
+	mmio_write64(bar0, NVME_REG_ACQ, acq);
 }
 
 /**
@@ -80,7 +80,7 @@ nvme_controller_enable(uint8_t *bar0)
 {
 	uint32_t cc = (6 << 20) | (4 << 16) | 0x1;
 
-	pci_region_write32(bar0, NVME_REG_CC, cc);
+	mmio_write32(bar0, NVME_REG_CC, cc);
 }
 
 /**
@@ -91,11 +91,10 @@ nvme_controller_enable(uint8_t *bar0)
  * @param bar0 A memory-mapped region pointing to the start of bar0
  */
 
-
 static inline int
 nvme_controller_is_enabled(void *bar0)
 {
-	return pci_region_read32(bar0, NVME_REG_CSTS) & 1;
+	return mmio_read32(bar0, NVME_REG_CSTS) & 1;
 }
 
 #endif ///< UPCIE_NVME_H

@@ -46,6 +46,14 @@ An extension of the Linux **UAPI** for ``VFIO``, providing helper functions that
 wrap the various **IOCTLs**, along with structs for encapsulating containers,
 groups, and devices.
 
+mmio.h
+------
+
+A library providing helpers for 32-bit and 64-bit reads and writes to
+memory-mapped I/O regions. These functions use volatile access to ensure correct
+ordering and visibility, making them suitable for device register access through
+PCI BAR mappings. Ideal for user-space drivers or prototyping with VFIO or UIO.
+
 hostmem.h
 ---------
 
@@ -56,7 +64,7 @@ DMA-capable buffers.
 pci.h
 -----
 
-A collection of functions to "scan" for PCI devices, obtain handles to them,
+A collection of functions to: "scan" for PCI devices, obtain handles to them,
 and map their BAR regions. Includes helpers for converting between textual and
 structured BDF representations.
 
