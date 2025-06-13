@@ -7,11 +7,12 @@
  *
  * This header provides simple helper functions for interacting with NVMe controller
  * registers using memory-mapped I/O (MMIO). It assumes the availability of PCIe MMIO
- * primitives defined in "pci.h".
+ * primitives defined in "mmio.h".
  *
  * Custom MMIO support
  * ===================
- * If you want to use your own MMIO access functions instead of those in "pci.h", define
+ *
+ * If you want to use your own MMIO access functions instead of those in "mmio.h", define
  * the preprocessor symbol `UPCIE_NVME_PCI_INTERFACE` before including this header. Doing
  * so will prevent inclusion of "pci.h", allowing your own definitions to take effect.
  *
@@ -19,13 +20,15 @@
  *     #define UPCIE_NVME_PCI_INTERFACE
  *     #include "my_mmio.h"
  *     #include "nvme.h"
+ *
+ * @file nvme.h
  */
 #ifndef UPCIE_NVME_H
 #define UPCIE_NVME_H
 
 #ifndef UPCIE_NVME_PCI_INTERFACE
 #define UPCIE_NVME_PCI_INTERFACE
-#include <pci.h>
+#include <mmio.h>
 #endif
 
 #define NVME_REG_CAP 0x00
@@ -90,7 +93,6 @@ nvme_controller_enable(uint8_t *bar0)
  *
  * @param bar0 A memory-mapped region pointing to the start of bar0
  */
-
 static inline int
 nvme_controller_is_enabled(void *bar0)
 {

@@ -3,10 +3,11 @@
 
 #define _GNU_SOURCE
 #include <assert.h>
+#include <bits.h>
 #include <hostmem.h>
 #include <mmio.h>
-#include <pci.h>
 #include <nvme.h>
+#include <pci.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -39,29 +40,21 @@ struct nvme_completion {
 };
 
 struct nvme_controller {
+	uint64_t cap;
+	uint32_t vs;
+
 	void *asq; ///< Admin submission queue
 	void *acq; ///< Admin completion queue
 	void *buf; ///< Payload buffer -- now for identify command result
 };
 
 /**
- * Extracts a bitfield from a 64-bit integer.
- *
- * @param val    The input 64-bit value to extract bits from.
- * @param offset The bit offset (starting from LSB at position 0).
- * @param width  The width of the bitfield in bits (1–64).
- *
- * @return The extracted bitfield, right-aligned to bit position 0.
- *
- * Example:
- *   bits(0xFF00, 8, 8) → 0xFF
- *
- * Note: Behavior is undefined if width is 0 or offset + width > 64.
+ * Translate the given address in VA-space to DMA-able space via the hostmem-heap.
  */
 static inline uint64_t
-bits(uint64_t val, uint8_t offset, uint8_t width)
+v2p(void *virt)
 {
-	return (val >> offset) & ((1ULL << width) - 1);
+	return hostmem_buffer_vtp(&g_hostmem_state.heap, virt);
 }
 
 static inline int
@@ -84,22 +77,8 @@ nvme_reg_cap_pr(uint64_t val)
 	return wrtn;
 }
 
-uint64_t
-vtp(void *virt)
-{
-	uint64_t phys;
-	int err;
-
-	err = hostmem_buffer_virt_to_phys(&g_hostmem_state.heap, virt, &phys);
-	assert(!err);
-
-	printf("phys(%" PRIu64 ")\n", phys);
-
-	return phys;
-}
-
 void
-nvme_ctrlr_term(struct nvme_controller *ctrlr)
+nvme_controller_term(struct nvme_controller *ctrlr)
 {
 	if (ctrlr->acq) {
 		hostmem_buffer_free(&g_hostmem_state.heap, ctrlr->acq);
@@ -116,35 +95,35 @@ nvme_ctrlr_term(struct nvme_controller *ctrlr)
 }
 
 int
-nvme_ctrlr_init(uint8_t *mmio, struct nvme_controller *ctrlr)
+nvme_controller_init(void *bar0, struct nvme_controller *ctrlr)
 {
 	uint32_t cc;
 	int err;
 
 	// Disable controller if needed
-	if (mmio_read32(mmio, NVME_REG_CSTS) & 1) {
-		mmio_write32(mmio, NVME_REG_CC, 0);
+	if (mmio_read32(bar0, NVME_REG_CSTS) & 1) {
+		mmio_write32(bar0, NVME_REG_CC, 0);
 
 		int timeout_us = 1000 * 1000; // 1 second
 		for (int i = 0; i < timeout_us / 1000; ++i) {
-			if ((mmio_read32(mmio, NVME_REG_CSTS) & 1) == 0)
+			if ((mmio_read32(bar0, NVME_REG_CSTS) & 1) == 0)
 				break;
 			usleep(1000);
 		}
-		if (mmio_read32(mmio, NVME_REG_CSTS) & 1) {
+		if (mmio_read32(bar0, NVME_REG_CSTS) & 1) {
 			fprintf(stderr, "WARN: Controller did not disable (CSTS.RDY still set)\n");
 		}
 	}
 
-	nvme_controller_adminq_setup(mmio, vtp(ctrlr->asq), vtp(ctrlr->acq));
+	nvme_controller_adminq_setup(bar0, v2p(ctrlr->asq), v2p(ctrlr->acq));
 
-	nvme_controller_enable(mmio);
+	nvme_controller_enable(bar0);
 
 	// Wait for CSTS.RDY == 1
 	{
 		int timeout_us = 1000 * 1000; // 1 second
 		for (int i = 0; i < timeout_us / 1000; ++i) {
-			if (mmio_read32(mmio, NVME_REG_CSTS) & 1) {
+			if (mmio_read32(bar0, NVME_REG_CSTS) & 1) {
 				return 0; // ready
 			}
 			usleep(1000);
@@ -155,16 +134,18 @@ nvme_ctrlr_init(uint8_t *mmio, struct nvme_controller *ctrlr)
 }
 
 int
-nvme_identify_ctrlr(uint8_t *mmio, struct nvme_controller *ctrlr)
+nvme_identify_controller(uint8_t *mmio, struct nvme_controller *controller)
 {
 	struct nvme_command cmd = {0};
 
 	cmd.opc = NVME_ADMIN_IDENTIFY;
 	cmd.cid = 0x1234;
-	cmd.prp1 = vtp(ctrlr->buf);
+	cmd.prp1 = v2p(controller->buf);
 	cmd.cdw10 = 1; // CNS=1: Identify Controller
 
-	memcpy(ctrlr->asq, &cmd, 64);
+	memcpy(controller->asq, &cmd, 64);
+
+	mmio_read64(mmio, NVME_REG_CAP);
 
 	mmio_write32(mmio, NVME_REG_SQ0TDBL, 1);
 
@@ -175,14 +156,14 @@ nvme_identify_ctrlr(uint8_t *mmio, struct nvme_controller *ctrlr)
 		usleep(1000);
 	}
 
-	struct nvme_completion *cpl = ctrlr->acq;
+	struct nvme_completion *cpl = controller->acq;
 	if ((cpl->status & 0xFFFE) != 0) {
 		fprintf(stderr, "ERR: Identify failed, status=0x%04x\n", cpl->status);
 		return -EIO;
 	}
 
 	char mn[41] = {0};
-	memcpy(mn, (char *)ctrlr->buf + 24, 40);
+	memcpy(mn, (char *)controller->buf + 24, 40);
 	printf("Identify Controller: MN = %.40s\n", mn);
 	return 0;
 }
@@ -190,7 +171,7 @@ nvme_identify_ctrlr(uint8_t *mmio, struct nvme_controller *ctrlr)
 int
 main(int argc, char **argv)
 {
-	struct nvme_controller ctrlr = {0};
+	struct nvme_controller controller = {0};
 	struct pci_func func = {0};
 	uint8_t *mmio;
 	int err;
@@ -224,55 +205,48 @@ main(int argc, char **argv)
 		return 1;
 	}
 
-	ctrlr.asq = hostmem_buffer_alloc(&g_hostmem_state.heap, 4096);
-	ctrlr.acq = hostmem_buffer_alloc(&g_hostmem_state.heap, 4096);
-	ctrlr.buf = hostmem_buffer_alloc(&g_hostmem_state.heap, 4096);
+	controller.asq = hostmem_buffer_alloc(&g_hostmem_state.heap, 4096);
+	controller.acq = hostmem_buffer_alloc(&g_hostmem_state.heap, 4096);
+	controller.buf = hostmem_buffer_alloc(&g_hostmem_state.heap, 4096);
 
-	assert(ctrlr.asq);
-	assert(ctrlr.acq);
-	assert(ctrlr.buf);
+	assert(controller.asq);
+	assert(controller.acq);
+	assert(controller.buf);
 
-	memset(ctrlr.asq, 0, 4096);
-	memset(ctrlr.acq, 0, 4096);
-	memset(ctrlr.buf, 0, 4096);
+	memset(controller.asq, 0, 4096);
+	memset(controller.acq, 0, 4096);
+	memset(controller.buf, 0, 4096);
 
 	mmio = func.bars[0].region;
 
-	// Verify mmio is functional
-	{
-		uint64_t v64;
-		uint32_t v32;
+	// If this works; then MMIO is functional
+	nvme_reg_cap_pr(mmio_read64(mmio, NVME_REG_CAP));
+	printf("VS(0x%" PRIx32 ")\n", mmio_read32(mmio, NVME_REG_VS));
 
-		nvme_reg_cap_pr(mmio_read64(mmio, NVME_REG_CAP));
-
-		v32 = mmio_read32(mmio, NVME_REG_VS);
-		printf("VS(0x%" PRIx32 ")\n", v32);
-	}
-
-	err = nvme_ctrlr_init(mmio, &ctrlr);
+	err = nvme_controller_init(mmio, &controller);
 	if (err) {
 		printf("nvme_ctrlr_init(); failed\n");
 		return -err;
 	}
 
-	err = nvme_identify_ctrlr(mmio, &ctrlr);
+	err = nvme_identify_controller(mmio, &controller);
 	if (err) {
 		printf("FAILED: nvme_identify_ctrlr()\n");
 		return -err;
 	}
 
 	for (int i = 0; i < 4096; ++i) {
-		printf("i(%d): 0x%d\n", i, ((uint8_t *)ctrlr.buf)[i]);
+		printf("i(%d): 0x%d\n", i, ((uint8_t *)controller.buf)[i]);
 	}
 
 	// Cleanup
 	pci_func_close(&func);
 
-	nvme_ctrlr_term(&ctrlr);
+	nvme_controller_term(&controller);
 
-	hostmem_buffer_free(&g_hostmem_state.heap, ctrlr.acq);
-	hostmem_buffer_free(&g_hostmem_state.heap, ctrlr.asq);
-	hostmem_buffer_free(&g_hostmem_state.heap, ctrlr.buf);
+	hostmem_buffer_free(&g_hostmem_state.heap, controller.acq);
+	hostmem_buffer_free(&g_hostmem_state.heap, controller.asq);
+	hostmem_buffer_free(&g_hostmem_state.heap, controller.buf);
 
 	return 0;
 }
