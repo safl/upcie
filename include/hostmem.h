@@ -140,6 +140,8 @@ struct hostmem_heap {
 	uint64_t *phys_lut; ///< An array of physical addresses; on for each hugepage in 'memory'
 };
 
+struct hostmem_heap g_hostmem_heap_dma = {0};
+
 /**
  * A representation of a various host memory properties, primarly for hugepages
  */
@@ -150,7 +152,6 @@ struct hostmem_state {
 	int count;
 	int pagesize;		  ///< Host memory pagesize (not HUGEPAGE size)
 	int hugepgsz;		  ///< THIS, is the HUGEPAGE size
-	struct hostmem_heap heap; ///< A heap to serve a buffer-allocator
 };
 
 /**
