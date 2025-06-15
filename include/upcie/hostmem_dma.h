@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
 
-#ifndef UPCIE_HOSTMEM_DMA_H
-#define UPCIE_HOSTMEM_DMA_H
-
 /**
  * Hugepage-backed malloc-like allocator for DMA in userspace
  * ===========================================================
@@ -63,22 +60,6 @@
  * @file hostmem_dma.h
  */
 
-#define _GNU_SOURCE
-#include <fcntl.h>
-#include <hostmem.h>
-#include <hostmem_heap.h>
-#include <inttypes.h>
-#include <linux/memfd.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/syscall.h>
-#include <sys/types.h>
-#include <unistd.h>
-
 struct hostmem_heap g_hostmem_dma = {0};
 
 /**
@@ -101,6 +82,13 @@ hostmem_dma_term(void)
 static inline int
 hostmem_dma_init(size_t size)
 {
+	int err;
+
+	err = hostmem_state_init(&g_hostmem_state);
+	if (err) {
+		return err;
+	}
+
 	return hostmem_heap_init(&g_hostmem_dma, size);
 }
 
@@ -151,5 +139,3 @@ hostmem_dma_v2p(void *virt)
 
 	return g_hostmem_dma.phys_lut[hpage_idx] + in_hpage_offset;
 }
-
-#endif // UPCIE_HOSTMEM_DMA_H

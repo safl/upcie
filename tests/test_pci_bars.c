@@ -1,12 +1,4 @@
-#include <hostmem.h>
-#include <pci.h>
-
-#include <assert.h>
-#include <fcntl.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <sys/mman.h>
-#include <unistd.h>
+#include <upcie/upcie.h>
 
 int
 main(int argc, char **argv)

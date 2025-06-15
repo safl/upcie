@@ -32,20 +32,6 @@
  *
  * @file vfioctl.h
  */
-#ifndef UPCIE_VFIOCTL_H
-#define UPCIE_VFIOCTL_H
-
-#include <errno.h>
-#include <fcntl.h>
-#include <linux/vfio.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
-#include <unistd.h>
-
 struct vfio_group {
 	int fd;
 	int id;
@@ -69,7 +55,7 @@ struct vfio_device {
  * @return On success, 0 is returned. On error, negative errno is set to
  * indicate the error.
  */
-static int
+static inline int
 vfio_container_close(struct vfio_container *container)
 {
 	int err;
@@ -255,5 +241,3 @@ vfio_device_pci_hot_reset(struct vfio_device *dev, struct vfio_pci_hot_reset *re
 {
 	return ioctl(dev->fd, VFIO_DEVICE_PCI_HOT_RESET, reset);
 }
-
-#endif // UPCIE_VFIOCTL_H

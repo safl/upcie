@@ -18,20 +18,6 @@
  *
  * @file pci.h
  */
-#ifndef UPCIE_PCI_H
-#define UPCIE_PCI_H
-
-#include <dirent.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <inttypes.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
-
 #define PCI_BDF_LEN 12
 #define PCI_NBARS 6
 
@@ -342,4 +328,3 @@ exit:
 	closedir(dir);
 	return err;
 }
-#endif // UPCIE_PCI_H

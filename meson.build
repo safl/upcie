@@ -5,20 +5,23 @@ project('upcie', 'c',
 
 fs = import('fs')
 
-incdir = include_directories('include')
-
-install_headers('include/bits.h')
-install_headers('include/hostmem.h')
-install_headers('include/hostmem_heap.h')
-install_headers('include/hostmem_dma.h')
-install_headers('include/mmio.h')
-install_headers('include/nvme.h')
-install_headers('include/pci.h')
-install_headers('include/vfioctl.h')
+install_headers(
+  [
+    'include/upcie/upcie.h',
+    'include/upcie/hostmem.h',
+    'include/upcie/hostmem_dma.h',
+    'include/upcie/hostmem_heap.h',
+    'include/upcie/mmio.h',
+    'include/upcie/nvme.h',
+    'include/upcie/pci.h',
+    'include/upcie/vfioctl.h',
+  ],
+  subdir: 'upcie'
+)
 
 # Optional dependency for other Meson projects
 upcie_dep = declare_dependency(
-  include_directories: incdir
+  include_directories: include_directories('include')
 )
 
 # Add the test programs

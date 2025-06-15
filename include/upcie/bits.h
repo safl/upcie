@@ -12,10 +12,6 @@
  * This header currently includes a bitfield extraction function and is intended to grow with
  * additional bit manipulation utilities over time.
  */
-#include <stdint.h>
-
-#ifndef UPCIE_BITS_H
-#define UPCIE_BITS_H
 
 /**
  * Extracts a bitfield from a 64-bit integer.
@@ -36,5 +32,3 @@ bits(uint64_t val, uint8_t offset, uint8_t width)
 {
 	return (val >> offset) & ((1ULL << width) - 1);
 }
-
-#endif ///< UPCIE_BITS_H

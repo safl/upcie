@@ -23,14 +23,6 @@
  *
  * @file nvme.h
  */
-#ifndef UPCIE_NVME_H
-#define UPCIE_NVME_H
-
-#ifndef UPCIE_NVME_PCI_INTERFACE
-#define UPCIE_NVME_PCI_INTERFACE
-#include <mmio.h>
-#endif
-
 #define NVME_REG_CAP 0x00
 #define NVME_REG_VS 0x08
 #define NVME_REG_INTMS 0x0C
@@ -98,5 +90,3 @@ nvme_controller_is_enabled(void *bar0)
 {
 	return mmio_read32(bar0, NVME_REG_CSTS) & 1;
 }
-
-#endif ///< UPCIE_NVME_H

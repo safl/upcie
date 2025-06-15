@@ -52,24 +52,6 @@
 
   @file hostmem.h
 */
-#ifndef UPCIE_HOSTMEM_H
-#define UPCIE_HOSTMEM_H
-
-#define _GNU_SOURCE
-#include <errno.h>
-#include <fcntl.h>
-#include <inttypes.h>
-#include <linux/memfd.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/syscall.h>
-#include <sys/types.h>
-#include <unistd.h>
-
 #ifndef MFD_HUGE_2MB
 #define MFD_HUGE_2MB (21 << 26)
 #endif
@@ -469,5 +451,3 @@ hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage)
 
 	return 0;
 }
-
-#endif // UPCIE_HOSTMEM_H

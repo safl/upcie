@@ -37,23 +37,6 @@
 
   @file hostmem.h
 */
-#ifndef UPCIE_HOSTMEM_HEAP_H
-#define UPCIE_HOSTMEM_HEAP_H
-
-#define _GNU_SOURCE
-#include <fcntl.h>
-#include <hostmem.h>
-#include <inttypes.h>
-#include <linux/memfd.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/syscall.h>
-#include <sys/types.h>
-#include <unistd.h>
 
 /**
  * Representation of a memory-allocation as produced by
@@ -281,5 +264,3 @@ hostmem_heap_block_vtp(struct hostmem_heap *heap, void *virt)
 
 	return heap->phys_lut[hpage_idx] + in_hpage_offset;
 }
-
-#endif // UPCIE_HOSTMEM_HEAP_H

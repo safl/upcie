@@ -1,12 +1,4 @@
-#include <hostmem.h>
-#include <pci.h>
-
-#include <assert.h>
-#include <fcntl.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <sys/mman.h>
-#include <unistd.h>
+#include <upcie/upcie.h>
 
 int
 func_printer(struct pci_func *func, void *callback_arg)

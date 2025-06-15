@@ -14,10 +14,6 @@
  * @file mmio.h
  *
  */
-#ifndef UPCIE_MMIO_H
-#define UPCIE_MMIO_H
-
-#include <stdint.h>
 
 /**
  * Read a 32-bit value from an MMIO region at the given offset
@@ -70,5 +66,3 @@ mmio_write64(void *region, uint32_t offset, uint64_t value)
 {
 	*(volatile uint64_t *)((uintptr_t)region + offset) = value;
 }
-
-#endif // UPCIE_MMIO_H

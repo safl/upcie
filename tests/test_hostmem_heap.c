@@ -1,5 +1,4 @@
-#include <hostmem.h>
-#include <hostmem_heap.h>
+#include <upcie/upcie.h>
 
 int
 main(int argc, const char *argv[])

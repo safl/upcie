@@ -1,16 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
 
-#define _GNU_SOURCE
-#include <assert.h>
-#include <bits.h>
-#include <hostmem.h>
-#include <hostmem_heap.h>
-#include <mmio.h>
-#include <nvme.h>
-#include <pci.h>
-#include <string.h>
-#include <unistd.h>
+
+#include <upcie/upcie.h>
 
 #define NVME_ADMIN_IDENTIFY 0x06
 
