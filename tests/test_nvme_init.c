@@ -55,7 +55,7 @@ struct nvme_controller {
 static inline uint64_t
 v2p(void *virt)
 {
-	return hostmem_buffer_vtp(&g_hostmem_heap_dma, virt);
+	return hostmem_heap_block_vtp(&g_hostmem_heap_dma, virt);
 }
 
 static inline int
@@ -82,15 +82,15 @@ void
 nvme_controller_term(struct nvme_controller *ctrlr)
 {
 	if (ctrlr->acq) {
-		hostmem_buffer_free(&g_hostmem_heap_dma, ctrlr->acq);
+		hostmem_heap_block_free(&g_hostmem_heap_dma, ctrlr->acq);
 		ctrlr->acq = NULL;
 	}
 	if (ctrlr->asq) {
-		hostmem_buffer_free(&g_hostmem_heap_dma, ctrlr->asq);
+		hostmem_heap_block_free(&g_hostmem_heap_dma, ctrlr->asq);
 		ctrlr->asq = NULL;
 	}
 	if (ctrlr->buf) {
-		hostmem_buffer_free(&g_hostmem_heap_dma, ctrlr->buf);
+		hostmem_heap_block_free(&g_hostmem_heap_dma, ctrlr->buf);
 		ctrlr->buf = NULL;
 	}
 }
@@ -206,9 +206,9 @@ main(int argc, char **argv)
 		return 1;
 	}
 
-	controller.asq = hostmem_buffer_alloc(&g_hostmem_heap_dma, 4096);
-	controller.acq = hostmem_buffer_alloc(&g_hostmem_heap_dma, 4096);
-	controller.buf = hostmem_buffer_alloc(&g_hostmem_heap_dma, 4096);
+	controller.asq = hostmem_heap_block_alloc(&g_hostmem_heap_dma, 4096);
+	controller.acq = hostmem_heap_block_alloc(&g_hostmem_heap_dma, 4096);
+	controller.buf = hostmem_heap_block_alloc(&g_hostmem_heap_dma, 4096);
 
 	assert(controller.asq);
 	assert(controller.acq);
@@ -245,9 +245,9 @@ main(int argc, char **argv)
 
 	nvme_controller_term(&controller);
 
-	hostmem_buffer_free(&g_hostmem_heap_dma, controller.acq);
-	hostmem_buffer_free(&g_hostmem_heap_dma, controller.asq);
-	hostmem_buffer_free(&g_hostmem_heap_dma, controller.buf);
+	hostmem_heap_block_free(&g_hostmem_heap_dma, controller.acq);
+	hostmem_heap_block_free(&g_hostmem_heap_dma, controller.asq);
+	hostmem_heap_block_free(&g_hostmem_heap_dma, controller.buf);
 
 	return 0;
 }

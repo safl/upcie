@@ -2,12 +2,12 @@
 // Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
 
 /**
-  Malloc-like allocator backed by hugepages for DMA in user-space drivers
-  -----------------------------------------------------------------------
+  Heap-based memory allocator backed by hugepages for DMA in user-space drivers
+  -----------------------------------------------------------------------------
 
   * hostmem_heap_init() / hostmem_heap_term()
-  * hostmem_buffer_alloc() / hostmem_buffer_free()
-  * hostmem_buffer_virt_to_phys()
+  * hostmem_heap_block_alloc() / hostmem_heap_block_free()
+  * hostmem_heap_block_virt_to_phys()
 
   Caveat: system setup
   --------------------
@@ -41,7 +41,6 @@
 #define UPCIE_HOSTMEM_HEAP_H
 
 #define _GNU_SOURCE
-#include <errno.h>
 #include <fcntl.h>
 #include <hostmem.h>
 #include <inttypes.h>
@@ -60,19 +59,19 @@
  * Representation of a memory-allocation as produced by
  * hostmem_buffer_alloc(...)
  */
-struct hostmem_buffer {
+struct hostmem_heap_block {
 	size_t size;
 	int free;
-	struct hostmem_buffer *next;
+	struct hostmem_heap_block *next;
 };
 
 /**
  * A pre-allocated heap providing memory for a buffer-allocator
  */
 struct hostmem_heap {
-	struct hostmem_hugepage memory;	 ///< A hugepage-allocation; can span multiple hugepages
-	struct hostmem_buffer *freelist; ///< Pointers to description of free memory in the heap
-	size_t nphys;			 ///< Number of hugepages backing 'memory'
+	struct hostmem_hugepage memory;	     ///< A hugepage-allocation; can span multiple hugepages
+	struct hostmem_heap_block *freelist; ///< Pointers to description of free memory in the heap
+	size_t nphys;			     ///< Number of hugepages backing 'memory'
 	uint64_t *phys_lut; ///< An array of physical addresses; on for each hugepage in 'memory'
 };
 
@@ -99,7 +98,7 @@ hostmem_heap_pp(struct hostmem_heap *heap)
 	}
 
 	wrtn += printf("  freelist:\n");
-	for (struct hostmem_buffer *block = heap->freelist; block; block = block->next) {
+	for (struct hostmem_heap_block *block = heap->freelist; block; block = block->next) {
 		wrtn += printf("  - {size: %zu, free: %d}\n", block->size, block->free);
 	}
 
@@ -146,7 +145,7 @@ hostmem_heap_init(struct hostmem_heap *heap, size_t size)
 	}
 
 	// Initialize a single free block spanning the entire heap
-	heap->freelist = (struct hostmem_buffer *)heap->memory.virt;
+	heap->freelist = (struct hostmem_heap_block *)heap->memory.virt;
 	heap->freelist->size = size;
 	heap->freelist->free = 1;
 	heap->freelist->next = NULL;
@@ -174,15 +173,15 @@ hostmem_heap_init(struct hostmem_heap *heap, size_t size)
 }
 
 static inline void
-hostmem_buffer_free(struct hostmem_heap *heap, void *ptr)
+hostmem_heap_block_free(struct hostmem_heap *heap, void *ptr)
 {
-	struct hostmem_buffer *block = NULL;
+	struct hostmem_heap_block *block = NULL;
 
 	if (!ptr) {
 		return;
 	}
 
-	block = (struct hostmem_buffer *)((char *)ptr - sizeof(*block));
+	block = (struct hostmem_heap_block *)((char *)ptr - sizeof(*block));
 	block->free = 1;
 
 	block = heap->freelist;
@@ -197,9 +196,9 @@ hostmem_buffer_free(struct hostmem_heap *heap, void *ptr)
 }
 
 static inline void *
-hostmem_buffer_alloc(struct hostmem_heap *heap, size_t size)
+hostmem_heap_block_alloc(struct hostmem_heap *heap, size_t size)
 {
-	struct hostmem_buffer *block = heap->freelist;
+	struct hostmem_heap_block *block = heap->freelist;
 	size_t pagesize = g_hostmem_state.pagesize;
 
 	size = (size + pagesize - 1) & ~(pagesize - 1);
@@ -209,7 +208,7 @@ hostmem_buffer_alloc(struct hostmem_heap *heap, size_t size)
 			size_t remaining = block->size - size - sizeof(*block);
 
 			if (remaining > sizeof(*block)) {
-				struct hostmem_buffer *newblock;
+				struct hostmem_heap_block *newblock;
 
 				newblock = (void *)((char *)block + sizeof(*block) + size);
 				newblock->size = remaining;
@@ -231,7 +230,7 @@ hostmem_buffer_alloc(struct hostmem_heap *heap, size_t size)
 }
 
 static inline int
-hostmem_buffer_virt_to_phys(struct hostmem_heap *heap, void *virt, uint64_t *phys)
+hostmem_heap_block_virt_to_phys(struct hostmem_heap *heap, void *virt, uint64_t *phys)
 {
 	size_t offset, hpage_idx, in_hpage_offset;
 
@@ -267,7 +266,7 @@ hostmem_buffer_virt_to_phys(struct hostmem_heap *heap, void *virt, uint64_t *phy
  * address instead of error
  */
 static inline uint64_t
-hostmem_buffer_vtp(struct hostmem_heap *heap, void *virt)
+hostmem_heap_block_vtp(struct hostmem_heap *heap, void *virt)
 {
 	size_t offset, hpage_idx, in_hpage_offset;
 
@@ -283,4 +282,4 @@ hostmem_buffer_vtp(struct hostmem_heap *heap, void *virt)
 	return heap->phys_lut[hpage_idx] + in_hpage_offset;
 }
 
-#endif // UPCIE_HOSTMEM_H
+#endif // UPCIE_HOSTMEM_HEAP_H

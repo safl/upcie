@@ -26,7 +26,7 @@ main(int argc, const char *argv[])
 
 	for (int i = 0; i < nbuffers; i++) {
 
-		buffers[i] = hostmem_buffer_alloc(&g_hostmem_heap_dma, 4);
+		buffers[i] = hostmem_heap_block_alloc(&g_hostmem_heap_dma, 4);
 		if (!buffers[i]) {
 			return -errno;
 		}
@@ -35,7 +35,7 @@ main(int argc, const char *argv[])
 	hostmem_heap_pp(&g_hostmem_heap_dma);
 
 	for (int i = 0; i < nbuffers; i++) {
-		hostmem_buffer_free(&g_hostmem_heap_dma, buffers[i]);
+		hostmem_heap_block_free(&g_hostmem_heap_dma, buffers[i]);
 	}
 
 	hostmem_heap_pp(&g_hostmem_heap_dma);
