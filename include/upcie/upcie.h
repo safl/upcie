@@ -55,6 +55,7 @@ extern "C" {
 // uPCIe libraries
 #include <upcie/bits.h>
 #include <upcie/hostmem.h>
+#include <upcie/hostmem_hugepage.h>
 #include <upcie/hostmem_heap.h>
 #include <upcie/hostmem_dma.h>
 #include <upcie/mmio.h>

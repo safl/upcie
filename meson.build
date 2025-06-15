@@ -9,6 +9,7 @@ install_headers(
   [
     'include/upcie/upcie.h',
     'include/upcie/hostmem.h',
+    'include/upcie/hostmem_hugepage.h',
     'include/upcie/hostmem_dma.h',
     'include/upcie/hostmem_heap.h',
     'include/upcie/mmio.h',
