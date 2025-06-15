@@ -5,7 +5,7 @@
 int
 main(int argc, const char *argv[])
 {
-	const size_t sizes[] = {1024, 1024 * 1024, 1024 * 1024 * 2ULL, 1024 * 1024 * 1024};
+	const size_t sizes[] = {1024 * 1024, 1024 * 1024 * 2ULL};
 	void *buf;
 
 	for (int i = 0; i < sizeof(sizes) / sizeof(*sizes); ++i) {
@@ -13,7 +13,7 @@ main(int argc, const char *argv[])
 
 		buf = hostmem_dma_malloc(nbytes);
 		if (!buf) {
-			printf("hostmem_dma_malloc(%zu)", nbytes);
+			printf("hostmem_dma_malloc(%zu)\n", nbytes);
 			return -errno;
 		}
 

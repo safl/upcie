@@ -1,45 +1,67 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
 
-/**
-  Malloc-like memory allocator backed by hugepages for DMA in user-space drivers
-  ==============================================================================
-
-  * hostmem_dma_malloc()
-  * hostmem_dma_free()
-  * hostmem_dma_v2p()
-
-  Behavior
-  --------
-
-  By default 1GB of hugepages are reserved. To control this, then invoke hostmem_dma_init() before
-  any calls to hostmem_dma_alloc().
-
-  CAVEAT
-  ------
-
-  The allocator will provide you with an allocation which is contig. in VA-space. However, the
-  same contig. property can only be guaranteed up to the size of a hugepage on the system. In case
-  you do no explicit setup then the default for hugepages are 2MB. Thus, you are only guaranteed
-  physical contig. up to 2MB. Be aware of this.
-
-  Also, currently, then the allocations provided by the head does not check for hugepage
-  boundaries, thus, you will most likely have an allocation with even less guarantee contig.
-  PA-space. This latter part should be fixed. E.g. when one allocates less than hugepage-size, then
-  it should not split it over a hugepage boundary.
-
-  Future
-  ------
-
-  This is still not a complete malloc-replacement, for that the following must be implemented.
-
-  * Add calloc
-  * Add alligned-alloc -- current alignment is to host pagesize
-
-  @file hostmem_dma.h
-*/
 #ifndef UPCIE_HOSTMEM_DMA_H
 #define UPCIE_HOSTMEM_DMA_H
+
+/**
+ * Hugepage-backed malloc-like allocator for DMA in userspace
+ * ===========================================================
+ *
+ * This header provides a minimal, header-only allocator for use in user-space drivers
+ * requiring DMA-capable memory. Allocations are backed by hugepages and are guaranteed
+ * to be contiguous in both virtual and physical address space — up to hugepage granularity.
+ *
+ * All allocations are managed through a global `hostmem_heap` instance:
+ *
+ *     struct hostmem_heap g_hostmem_dma;
+ *
+ * Interface
+ * ---------
+ *
+ *  - int hostmem_dma_init(size_t size);
+ *    Initialize the allocator and reserve a contiguous region of hugepage-backed memory.
+ *
+ *  - void *hostmem_dma_malloc(size_t size);
+ *    Allocate a block of memory of the given size.
+ *
+ *  - void hostmem_dma_free(void *ptr);
+ *    Frees a block previously returned by hostmem_dma_malloc().
+ *
+ *  - uint64_t hostmem_dma_v2p(void *virt);
+ *    Resolve a virtual address to its corresponding physical address.
+ *
+ *  - void hostmem_dma_term(void);
+ *    Release all memory and internal structures associated with the allocator.
+ *
+ * Usage
+ * -----
+ *
+ * You must call `hostmem_dma_init()` before any allocation is made, and `hostmem_dma_term()` after
+ * all memory has been freed. The allocator does not support lazy initialization.
+ *
+ * Caveats
+ * -------
+ *
+ * - Physical contiguity is guaranteed only up to the system's hugepage size. On most systems, this
+ *   is 2MB.
+ *
+ * - Sub-hugepage allocations may span multiple hugepages, resulting in reduced physical
+ *   contiguity. This may be addressed in a future update.
+ *
+ * - Alignment is currently to the system's page size (typically 4KB).
+ *
+ * Roadmap
+ * -------
+ *
+ * Planned improvements include:
+ *
+ *   - hostmem_dma_calloc() for zero-initialized memory
+ *   - hostmem_dma_aligned_alloc() for custom alignment
+ *   - Sub-hugepage contiguity enforcement
+ *
+ * @file hostmem_dma.h
+ */
 
 #define _GNU_SOURCE
 #include <fcntl.h>
@@ -57,32 +79,62 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define HOSTMEM_DMA_DEFAULT_REGION_SIZE 1024 * 1024 * 1024ULL
-
 struct hostmem_heap g_hostmem_dma = {0};
 
+/**
+ * Release all memory and internal metadata associated with the DMA allocator.
+ *
+ * This must be called after all allocations have been freed via hostmem_dma_free().
+ */
+static inline void
+hostmem_dma_term(void)
+{
+	hostmem_heap_term(&g_hostmem_dma);
+}
+
+/**
+ * Initialize the DMA allocator and reserve hugepage-backed memory.
+ *
+ * @param size Number of bytes to reserve from hugepage memory.
+ * @return On success, 0 is returned. On error, negative errno is returned to indicate the error.
+ */
 static inline int
 hostmem_dma_init(size_t size)
 {
 	return hostmem_heap_init(&g_hostmem_dma, size);
 }
 
+/**
+ * Free the DMA-capable memory pointed to by `ptr`
+ *
+ * If `ptr` is NULL, no operation is performed.
+ *
+ * @param ptr Pointer previously returned by hostmem_dma_malloc().
+ */
 static inline void
 hostmem_dma_free(void *ptr)
 {
 	hostmem_heap_block_free(&g_hostmem_dma, ptr);
 }
 
+/**
+ * Allocate `size` bytes of DMA-capable memory
+ *
+ * @param size Number of bytes to allocate.
+ * @return Pointer to the allocated memory, or NULL on failure.
+ */
 static inline void *
 hostmem_dma_malloc(size_t size)
 {
-	if (!g_hostmem_dma.nphys) {
-		hostmem_dma_init(HOSTMEM_DMA_DEFAULT_REGION_SIZE);
-	}
-
 	return hostmem_heap_block_alloc(&g_hostmem_dma, size);
 }
 
+/**
+ * Resolve the physical address of a given virtual address.
+ *
+ * @param virt Pointer to memory previously allocated by hostmem_dma_malloc().
+ * @return Physical address corresponding to the given virtual address.
+ */
 static inline uint64_t
 hostmem_dma_v2p(void *virt)
 {
