@@ -1,4 +1,5 @@
 #include <hostmem.h>
+#include <hostmem_heap.h>
 
 int
 main(int argc, const char *argv[])

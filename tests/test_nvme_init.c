@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <bits.h>
 #include <hostmem.h>
+#include <hostmem_heap.h>
 #include <mmio.h>
 #include <nvme.h>
 #include <pci.h>
