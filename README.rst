@@ -1,3 +1,7 @@
+.. image:: https://raw.githubusercontent.com/safl/upcie/main/upcie.png
+   :alt: uPCIe
+
+
 uPCIe: notes on exploration of BAR-space-mapping, and DMA-able memory
 =====================================================================
 
