@@ -2,6 +2,7 @@ test_sources = files(
   'test_vfioctl.c',
   'test_hostmem_shared.c',
   'test_hostmem_heap.c',
+  'test_hostmem_dma.c',
   'test_pci_bars.c',
   'test_pci_scan.c',
   'test_nvme_init.c',
