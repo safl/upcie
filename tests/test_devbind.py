@@ -1,3 +1,5 @@
+import pytest
+
 def test_devbind_props(cijoe):
     err, _ = cijoe.run("devbind --props")
     assert not err
@@ -18,6 +20,7 @@ def test_devbind_bind_uio(cijoe):
     assert not err
 
 
+@pytest.mark.skip(reason="The current test-setup does not support vfio-pci / iommu")
 def test_devbind_bind_vfio(cijoe):
     err, _ = cijoe.run("devbind --bind vfio-pci")
     assert not err
