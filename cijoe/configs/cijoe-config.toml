@@ -49,7 +49,6 @@ system_args.kwa = {cpu = "host", smp = 4, m = "6G", accel = "kvm"}
 system_args.raw = """\
 -M "type=q35,kernel_irqchip=split" \
 -device "intel-iommu,pt=on,intremap=on" \
--trace events=/tmp/nvme_trace.events -D /tmp/qemu.trace.log
 """
 
 # TCP_FORWARD: Setup ssh forward from host to guest

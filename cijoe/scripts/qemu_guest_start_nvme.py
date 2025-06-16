@@ -274,6 +274,16 @@ def main(args, cijoe):
             guest.image_create(drive["file"], drive["format"], drive_size)
         err, _ = cijoe.run_local(f"[ -f {drive['file']} ]")
 
+    trace_log = Path(guest.guest_path / "trace.log")
+    trace_events = Path(guest.guest_path / "trace.events")
+    if trace_events.exists():
+        trace_args = [
+            "-trace",
+            "events={trace_events}",
+            "-D",
+            "{trace_log}",
+        ]
+
     err = guest.start(extra_args=nvme_args)
     if err:
         log.error(f"guest.start() : err({err})")
