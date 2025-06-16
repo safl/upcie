@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
 
-
 #include <upcie/upcie.h>
 
 #define NVME_ADMIN_IDENTIFY 0x06
@@ -32,23 +31,24 @@ struct nvme_completion {
 	uint16_t status;
 };
 
+/**
+ * These values are derived from the capbilities register but provided here for convenience
+ */
+struct nvme_controller_capabilities {
+	uint8_t doorbell_stride;
+};
+
 struct nvme_controller {
-	uint64_t cap;
-	uint32_t vs;
+	uint64_t cap; ///< Controller-capabilities register
+
+	uint32_t vs;   ///< Controller version
+	uint32_t cc;   ///< Controller configuration
+	uint32_t csts; ///< Controller state
 
 	void *asq; ///< Admin submission queue
 	void *acq; ///< Admin completion queue
 	void *buf; ///< Payload buffer -- now for identify command result
 };
-
-/**
- * Translate the given address in VA-space to DMA-able space via the hostmem-heap.
- */
-static inline uint64_t
-v2p(void *virt)
-{
-	return hostmem_heap_block_vtp(&g_hostmem_heap_dma, virt);
-}
 
 static inline int
 nvme_reg_cap_pr(uint64_t val)
@@ -56,16 +56,34 @@ nvme_reg_cap_pr(uint64_t val)
 	int wrtn = 0;
 
 	wrtn += printf("nvme_reg_cap:\n");
-	wrtn += printf("  mqes   : %u\n", (unsigned)bits(val, 0, 16));
-	wrtn += printf("  to     : %u   # %.1f seconds\n", (unsigned)bits(val, 32, 8),
-		       bits(val, 32, 8) * 0.5);
-	wrtn += printf("  dstrd  : %u    # stride=%u bytes\n", (unsigned)bits(val, 37, 4),
-		       4 * (1U << bits(val, 37, 4)));
-	wrtn += printf("  css    : %#x\n", (unsigned)bits(val, 43, 4));
-	wrtn += printf("  mpsmin : %u    # page=%u KiB\n", (unsigned)bits(val, 48, 4),
-		       1U << (12 + bits(val, 48, 4)));
-	wrtn += printf("  mpsmax : %u    # page=%u KiB\n", (unsigned)bits(val, 52, 4),
-		       1U << (12 + bits(val, 52, 4)));
+	wrtn += printf("  mqes   : %u\n", (unsigned)bitfield_get(val, 0, 16));
+	wrtn += printf("  to     : %u   # %.1f seconds\n", (unsigned)bitfield_get(val, 32, 8),
+		       bitfield_get(val, 32, 8) * 0.5);
+	wrtn += printf("  dstrd  : %u    # stride=%u bytes\n", (unsigned)bitfield_get(val, 37, 4),
+		       4 * (1U << bitfield_get(val, 37, 4)));
+	wrtn += printf("  css    : %#x\n", (unsigned)bitfield_get(val, 43, 4));
+	wrtn += printf("  mpsmin : %u    # page=%u KiB\n", (unsigned)bitfield_get(val, 48, 4),
+		       1U << (12 + bitfield_get(val, 48, 4)));
+	wrtn += printf("  mpsmax : %u    # page=%u KiB\n", (unsigned)bitfield_get(val, 52, 4),
+		       1U << (12 + bitfield_get(val, 52, 4)));
+
+	return wrtn;
+}
+
+static inline int
+nvme_reg_csts_pr(uint64_t val)
+{
+	int wrtn = 0;
+
+	wrtn += printf("nvme_reg_csts:\n");
+	wrtn += printf("  rdy    : %u   # Controller Ready\n", (unsigned)bitfield_get(val, 0, 1));
+	wrtn += printf("  cfs    : %u   # Controller Fatal Status\n",
+		       (unsigned)bitfield_get(val, 1, 1));
+	wrtn += printf("  shst   : %u   # Shutdown Status\n", (unsigned)bitfield_get(val, 2, 2));
+	wrtn += printf("  nssro  : %u   # NVM Subsystem Reset Occurred\n",
+		       (unsigned)bitfield_get(val, 4, 1));
+	wrtn += printf("  pp     : %u   # Processing Pause\n", (unsigned)bitfield_get(val, 5, 1));
+	wrtn += printf("  st     : %u   # Shutdown Type\n", (unsigned)bitfield_get(val, 6, 1));
 
 	return wrtn;
 }
@@ -74,56 +92,53 @@ void
 nvme_controller_term(struct nvme_controller *ctrlr)
 {
 	if (ctrlr->acq) {
-		hostmem_heap_block_free(&g_hostmem_heap_dma, ctrlr->acq);
+		hostmem_dma_free(ctrlr->acq);
 		ctrlr->acq = NULL;
 	}
 	if (ctrlr->asq) {
-		hostmem_heap_block_free(&g_hostmem_heap_dma, ctrlr->asq);
+		hostmem_dma_free(ctrlr->asq);
 		ctrlr->asq = NULL;
 	}
 	if (ctrlr->buf) {
-		hostmem_heap_block_free(&g_hostmem_heap_dma, ctrlr->buf);
+		hostmem_dma_free(ctrlr->buf);
 		ctrlr->buf = NULL;
 	}
 }
 
 int
-nvme_controller_init(void *bar0, struct nvme_controller *ctrlr)
+nvme_controller_init(void *bar0, struct nvme_controller *controller)
 {
-	uint32_t cc;
 	int err;
 
-	// Disable controller if needed
-	if (mmio_read32(bar0, NVME_REG_CSTS) & 1) {
-		mmio_write32(bar0, NVME_REG_CC, 0);
+	printf("# Starting controller initialization...\n");
 
-		int timeout_us = 1000 * 1000; // 1 second
-		for (int i = 0; i < timeout_us / 1000; ++i) {
-			if ((mmio_read32(bar0, NVME_REG_CSTS) & 1) == 0)
-				break;
-			usleep(1000);
-		}
-		if (mmio_read32(bar0, NVME_REG_CSTS) & 1) {
-			fprintf(stderr, "WARN: Controller did not disable (CSTS.RDY still set)\n");
-		}
+	controller->cc = mmio_read32(bar0, NVME_REG_CC);
+	controller->csts = mmio_read32(bar0, NVME_REG_CSTS);
+
+	nvme_reg_csts_pr(controller->csts);
+
+	nvme_mmio_cc_disable(bar0);
+
+	err = nvme_mmio_csts_wait_until_not_ready(bar0, 1000);
+	if (err) {
+		printf("FAILED: nvme_mmio_csts_wait_until_ready(); err(%d)\n", err);
+		return -err;
 	}
 
-	nvme_controller_adminq_setup(bar0, v2p(ctrlr->asq), v2p(ctrlr->acq));
+	nvme_reg_csts_pr(controller->csts);
 
-	nvme_controller_enable(bar0);
+	nvme_mmio_aq_setup(bar0, hostmem_dma_v2p(controller->asq),
+			   hostmem_dma_v2p(controller->acq));
 
-	// Wait for CSTS.RDY == 1
-	{
-		int timeout_us = 1000 * 1000; // 1 second
-		for (int i = 0; i < timeout_us / 1000; ++i) {
-			if (mmio_read32(bar0, NVME_REG_CSTS) & 1) {
-				return 0; // ready
-			}
-			usleep(1000);
-		}
-		fprintf(stderr, "ERR: Controller failed to become ready\n");
-		return -ETIMEDOUT;
+	nvme_mmio_cc_enable(bar0);
+
+	err = nvme_mmio_csts_wait_until_ready(bar0, 1000);
+	if (err) {
+		printf("FAILED: nvme_mmio_csts_wait_until_ready(); err(%d)\n", err);
+		return -err;
 	}
+
+	return 0;
 }
 
 int
@@ -133,7 +148,7 @@ nvme_identify_controller(uint8_t *mmio, struct nvme_controller *controller)
 
 	cmd.opc = NVME_ADMIN_IDENTIFY;
 	cmd.cid = 0x1234;
-	cmd.prp1 = v2p(controller->buf);
+	cmd.prp1 = hostmem_dma_v2p(controller->buf);
 	cmd.cdw10 = 1; // CNS=1: Identify Controller
 
 	memcpy(controller->asq, &cmd, 64);
@@ -151,7 +166,7 @@ nvme_identify_controller(uint8_t *mmio, struct nvme_controller *controller)
 
 	struct nvme_completion *cpl = controller->acq;
 	if ((cpl->status & 0xFFFE) != 0) {
-		fprintf(stderr, "ERR: Identify failed, status=0x%04x\n", cpl->status);
+		printf("ERR: Identify failed, status=0x%04x\n", cpl->status);
 		return -EIO;
 	}
 
@@ -170,47 +185,49 @@ main(int argc, char **argv)
 	int err;
 
 	if (argc != 2) {
-		fprintf(stderr, "Usage: %s <PCI-BDF>\n", argv[0]);
+		printf("Usage: %s <PCI-BDF>\n", argv[0]);
 		return 1;
 	}
 
 	err = pci_func_open(argv[1], &func);
 	if (err) {
-		fprintf(stderr, "Failed to open PCI device: %s\n", argv[1]);
+		printf("Failed to open PCI device: %s\n", argv[1]);
 		return -err;
 	}
 
 	err = pci_bar_map(func.bdf, 0, &func.bars[0]);
 	if (err) {
-		fprintf(stderr, "Failed to map BAR0\n");
-		return 1;
+		printf("Failed to map BAR0\n");
+		return -err;
 	}
-
-	err = hostmem_state_init(&g_hostmem_state);
-	if (err) {
-		fprintf(stderr, "Failed to init hugepages\n");
-		return 1;
-	}
-
-	err = hostmem_heap_init(&g_hostmem_heap_dma, 1024 * 1024 * 1024 * 1ULL);
-	if (err) {
-		fprintf(stderr, "Failed to init heap\n");
-		return 1;
-	}
-
-	controller.asq = hostmem_heap_block_alloc(&g_hostmem_heap_dma, 4096);
-	controller.acq = hostmem_heap_block_alloc(&g_hostmem_heap_dma, 4096);
-	controller.buf = hostmem_heap_block_alloc(&g_hostmem_heap_dma, 4096);
-
-	assert(controller.asq);
-	assert(controller.acq);
-	assert(controller.buf);
-
-	memset(controller.asq, 0, 4096);
-	memset(controller.acq, 0, 4096);
-	memset(controller.buf, 0, 4096);
-
 	mmio = func.bars[0].region;
+
+	err = hostmem_dma_init(1024 * 1024 * 128ULL);
+	if (err) {
+		printf("failed hostmem_dma_init(); err(%d)\n", err);
+		return -err;
+	}
+
+	controller.asq = hostmem_dma_malloc(4096);
+	if (!controller.asq) {
+		printf("failed hostmem_dma_malloc(asq); errno(%d)\n", errno);
+		return -errno;
+	}
+	memset(controller.asq, 0, 4096);
+
+	controller.acq = hostmem_dma_malloc(4096);
+	if (!controller.acq) {
+		printf("failed hostmem_dma_malloc(acq); errno(%d)\n", errno);
+		return -errno;
+	}
+	memset(controller.acq, 0, 4096);
+
+	controller.buf = hostmem_dma_malloc(4096);
+	if (!controller.buf) {
+		printf("failed hostmem_dma_malloc(buf); errno(%d)\n", errno);
+		return -errno;
+	}
+	memset(controller.buf, 0, 4096);
 
 	// If this works; then MMIO is functional
 	nvme_reg_cap_pr(mmio_read64(mmio, NVME_REG_CAP));
@@ -228,18 +245,23 @@ main(int argc, char **argv)
 		return -err;
 	}
 
+	printf("DATA\n");
 	for (int i = 0; i < 4096; ++i) {
-		printf("i(%d): 0x%d\n", i, ((uint8_t *)controller.buf)[i]);
+		uint8_t val = ((uint8_t *)controller.buf)[i];
+
+		if (val) {
+			printf("i(%d): 0x%d\n", i, val);
+		}
 	}
 
-	// Cleanup
+exit:
 	pci_func_close(&func);
 
 	nvme_controller_term(&controller);
 
-	hostmem_heap_block_free(&g_hostmem_heap_dma, controller.acq);
-	hostmem_heap_block_free(&g_hostmem_heap_dma, controller.asq);
-	hostmem_heap_block_free(&g_hostmem_heap_dma, controller.buf);
+	hostmem_dma_free(controller.asq);
+	hostmem_dma_free(controller.acq);
+	hostmem_dma_free(controller.buf);
 
 	return 0;
 }
