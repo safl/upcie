@@ -1,2 +1,5 @@
 CompileFlags:
-  Add: [-x, c, -std=c11]
+  Add: [-x, c, -std=c11, -Iinclude, -include, upcie/upcie.h]
+
+Index:
+  Background: true
