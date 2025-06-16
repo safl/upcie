@@ -1,0 +1,25 @@
+---
+doc: |
+  This use of the 'qemu' shows how to initialize, start, and stop a qemu guest
+
+  * Start the guest
+  * Run a command within the guest (via SSH)
+  * Stop the guest again
+
+  This is done via scripts, which in turn are utilizing helper-functions from
+  cijoe.qemu.wrapper.
+
+steps:
+- name: guest_kill
+  uses: qemu.guest_kill
+  with:
+    guest_name: generic-bios-kvm-x86_64
+  
+- name: guest_start
+  uses: qemu_guest_start_nvme
+  with:
+    guest_name: generic-bios-kvm-x86_64
+
+- name: guest_check
+  run: |
+    hostname

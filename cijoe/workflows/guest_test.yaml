@@ -10,16 +10,6 @@ doc: |
   cijoe.qemu.wrapper.
 
 steps:
-- name: guest_kill
-  uses: qemu.guest_kill
-  with:
-    guest_name: generic-bios-kvm-x86_64
-  
-- name: guest_start
-  uses: qemu_guest_start_nvme
-  with:
-    guest_name: generic-bios-kvm-x86_64
-
 - name: guest_check
   run: |
     hostname
@@ -57,13 +47,3 @@ steps:
   with:
     args: '{{ config.upcie.repository.path }}/tests'
     random_order: false
-#
-#- name: guest_shutdown
-#  run: |
-#    sudo shutdown -h now
-#
-#- name: guest_wait
-#  uses: qemu.guest_wait_for_termination
-#  with:
-#    guest_name: generic-bios-kvm-x86_64
-#    timeout: 60
