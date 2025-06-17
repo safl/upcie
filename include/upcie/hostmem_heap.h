@@ -158,19 +158,20 @@ hostmem_heap_init(struct hostmem_heap *heap, size_t size)
 static inline void
 hostmem_heap_block_free(struct hostmem_heap *heap, void *ptr)
 {
+	size_t alignment = g_hostmem_state.pagesize;
 	struct hostmem_heap_block *block = NULL;
 
 	if (!ptr) {
 		return;
 	}
 
-	block = (struct hostmem_heap_block *)((char *)ptr - sizeof(*block));
+	block = (struct hostmem_heap_block *)((char *)ptr - alignment);
 	block->free = 1;
 
 	block = heap->freelist;
 	while (block && block->next) {
 		if (block->free && block->next->free) {
-			block->size += sizeof(*block) + block->next->size;
+			block->size += alignment + block->next->size;
 			block->next = block->next->next;
 		} else {
 			block = block->next;
@@ -182,18 +183,20 @@ static inline void *
 hostmem_heap_block_alloc(struct hostmem_heap *heap, size_t size)
 {
 	struct hostmem_heap_block *block = heap->freelist;
-	size_t pagesize = g_hostmem_state.pagesize;
+	size_t alignment = g_hostmem_state.pagesize;
 
-	size = (size + pagesize - 1) & ~(pagesize - 1);
+	assert(sizeof(*block) < alignment);
+
+	size = (size + alignment - 1) & ~(alignment - 1);
 
 	while (block) {
-		if (block->free && block->size >= size + sizeof(*block)) {
-			size_t remaining = block->size - size - sizeof(*block);
+		if (block->free && block->size >= (size + alignment)) {
+			size_t remaining = block->size - size - alignment;
 
 			if (remaining > sizeof(*block)) {
 				struct hostmem_heap_block *newblock;
 
-				newblock = (void *)((char *)block + sizeof(*block) + size);
+				newblock = (void *)((char *)block + alignment + size);
 				newblock->size = remaining;
 				newblock->free = 1;
 				newblock->next = block->next;
@@ -204,7 +207,7 @@ hostmem_heap_block_alloc(struct hostmem_heap *heap, size_t size)
 
 			block->free = 0;
 
-			return (char *)block + sizeof(*block);
+			return (char *)block + alignment;
 		}
 		block = block->next;
 	}
