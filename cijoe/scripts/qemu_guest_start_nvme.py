@@ -279,12 +279,12 @@ def main(args, cijoe):
     if trace_events.exists():
         trace_args = [
             "-trace",
-            "events={trace_events}",
+            f"events={trace_events}",
             "-D",
-            "{trace_log}",
+            f"{trace_log}",
         ]
 
-    err = guest.start(extra_args=nvme_args)
+    err = guest.start(extra_args=nvme_args + trace_args)
     if err:
         log.error(f"guest.start() : err({err})")
         return err
