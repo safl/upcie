@@ -200,19 +200,19 @@ nvme_mmio_aq_setup(void *bar0, uint64_t asq, uint64_t acq)
 }
 
 static inline uint32_t
-nvme_mmio_cc_read(uint8_t *bar0)
+nvme_mmio_cc_read(void *bar0)
 {
 	return mmio_read32(bar0, NVME_REG_CC);
 }
 
 static inline uint64_t
-nvme_mmio_cap_read(uint8_t *bar0)
+nvme_mmio_cap_read(void *bar0)
 {
 	return mmio_read64(bar0, NVME_REG_CAP);
 }
 
 static inline uint32_t
-nvme_mmio_csts_read(uint8_t *bar0)
+nvme_mmio_csts_read(void *bar0)
 {
 	return mmio_read32(bar0, NVME_REG_CSTS);
 }
@@ -221,7 +221,7 @@ nvme_mmio_csts_read(uint8_t *bar0)
  * Enable the current controller configuration
  */
 static inline void
-nvme_mmio_cc_write(uint8_t *bar0, uint32_t cc)
+nvme_mmio_cc_write(void *bar0, uint32_t cc)
 {
 	mmio_write32(bar0, NVME_REG_CC, cc);
 }
@@ -230,7 +230,7 @@ nvme_mmio_cc_write(uint8_t *bar0, uint32_t cc)
  * Enable the current controller configuration
  */
 static inline void
-nvme_mmio_cc_enable(uint8_t *bar0)
+nvme_mmio_cc_enable(void *bar0)
 {
 	uint32_t cc = nvme_mmio_cc_read(bar0);
 
@@ -245,7 +245,7 @@ nvme_mmio_cc_enable(uint8_t *bar0)
  * value.
  */
 static inline void
-nvme_mmio_cc_disable(uint8_t *bar0)
+nvme_mmio_cc_disable(void *bar0)
 {
 	uint32_t cc = nvme_mmio_cc_read(bar0);
 
@@ -259,10 +259,10 @@ nvme_mmio_cc_disable(uint8_t *bar0)
  * timeout choices based on CC.CRIME and CRTO.CRWMT.
  */
 static inline int
-nvme_mmio_csts_wait_until_ready(uint8_t *mmio, int timeout_ms)
+nvme_mmio_csts_wait_until_ready(void *mmio, int timeout_ms)
 {
 	for (uint64_t elapsed = 0; elapsed < timeout_ms; ++elapsed) {
-		if ((mmio_read32(mmio, NVME_REG_CSTS) & 0x1) == 0x1) {
+		if ((nvme_mmio_csts_read(mmio) & 0x1) == 0x1) {
 			return 0;
 		}
 		usleep(1000);
@@ -277,10 +277,10 @@ nvme_mmio_csts_wait_until_ready(uint8_t *mmio, int timeout_ms)
  * timeout choices based on CC.CRIME and CRTO.CRWMT.
  */
 static inline int
-nvme_mmio_csts_wait_until_not_ready(uint8_t *mmio, int timeout_ms)
+nvme_mmio_csts_wait_until_not_ready(void *mmio, int timeout_ms)
 {
 	for (uint64_t elapsed = 0; elapsed < timeout_ms; ++elapsed) {
-		if ((mmio_read32(mmio, NVME_REG_CSTS) & 0x1) == 0x0) {
+		if ((nvme_mmio_csts_read(mmio) & 0x1) == 0x0) {
 			return 0;
 		}
 		usleep(1000);
