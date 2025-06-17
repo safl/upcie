@@ -34,44 +34,6 @@
 #define NVME_REG_SQ0TDBL 0x1000
 #define NVME_REG_CQ0HDBL 0x1004
 
-static inline int
-nvme_reg_cap_pr(uint64_t val)
-{
-	int wrtn = 0;
-
-	wrtn += printf("nvme_reg_cap:\n");
-	wrtn += printf("  mqes   : %u\n", (unsigned)bitfield_get(val, 0, 16));
-	wrtn += printf("  to     : %u   # %.1f seconds\n", (unsigned)bitfield_get(val, 32, 8),
-		       bitfield_get(val, 32, 8) * 0.5);
-	wrtn += printf("  dstrd  : %u    # stride=%u bytes\n", (unsigned)bitfield_get(val, 37, 4),
-		       4 * (1U << bitfield_get(val, 37, 4)));
-	wrtn += printf("  css    : %#x\n", (unsigned)bitfield_get(val, 43, 4));
-	wrtn += printf("  mpsmin : %u    # page=%u KiB\n", (unsigned)bitfield_get(val, 48, 4),
-		       1U << (12 + bitfield_get(val, 48, 4)));
-	wrtn += printf("  mpsmax : %u    # page=%u KiB\n", (unsigned)bitfield_get(val, 52, 4),
-		       1U << (12 + bitfield_get(val, 52, 4)));
-
-	return wrtn;
-}
-
-static inline int
-nvme_reg_csts_pr(uint64_t val)
-{
-	int wrtn = 0;
-
-	wrtn += printf("nvme_reg_csts:\n");
-	wrtn += printf("  rdy    : %u   # Controller Ready\n", (unsigned)bitfield_get(val, 0, 1));
-	wrtn += printf("  cfs    : %u   # Controller Fatal Status\n",
-		       (unsigned)bitfield_get(val, 1, 1));
-	wrtn += printf("  shst   : %u   # Shutdown Status\n", (unsigned)bitfield_get(val, 2, 2));
-	wrtn += printf("  nssro  : %u   # NVM Subsystem Reset Occurred\n",
-		       (unsigned)bitfield_get(val, 4, 1));
-	wrtn += printf("  pp     : %u   # Processing Pause\n", (unsigned)bitfield_get(val, 5, 1));
-	wrtn += printf("  st     : %u   # Shutdown Type\n", (unsigned)bitfield_get(val, 6, 1));
-
-	return wrtn;
-}
-
 /**
  * Controller Capabilities: Maximum Queue Entries Supported (MQES)
  */
@@ -325,4 +287,230 @@ nvme_mmio_csts_wait_until_not_ready(void *mmio, int timeout_ms)
 		usleep(1000);
 	}
 	return -ETIMEDOUT;
+}
+
+static inline int
+nvme_reg_cap_pr(uint64_t cap)
+{
+	int wrtn = 0;
+
+	wrtn += printf("CAP = 0x%016" PRIx64 "\n", cap);
+	wrtn += printf("  mqes:   %u # max queue entries supported\n", nvme_reg_cap_get_mqes(cap));
+	wrtn += printf("  cqr:    %u # contiguous queues required\n", nvme_reg_cap_get_cqr(cap));
+	wrtn +=
+	    printf("  ams:    %u # arbitration mechanisms supported\n", nvme_reg_cap_get_ams(cap));
+	wrtn += printf("  to:     %u # timeout in 500ms units (=> %u ms)\n",
+		       nvme_reg_cap_get_to(cap), nvme_reg_cap_get_to(cap) * 500);
+	wrtn += printf("  dstrd:  %u # doorbell stride (2^n bytes)\n", nvme_reg_cap_get_dstrd(cap));
+	wrtn +=
+	    printf("  nssrs:  %u # NVM subsystem reset supported\n", nvme_reg_cap_get_nssrs(cap));
+	wrtn += printf("  css:    0x%02x # command sets supported\n", nvme_reg_cap_get_css(cap));
+	wrtn += printf("  bps:    %u # boot partition support\n", nvme_reg_cap_get_bps(cap));
+	wrtn += printf("  cps:    %u # controller power scope\n", nvme_reg_cap_get_cps(cap));
+	wrtn += printf("  mpsmin: %u # memory page size min (2^(12+mpsmin))\n",
+		       nvme_reg_cap_get_mpsmin(cap));
+	wrtn += printf("  mpsmax: %u # memory page size max (2^(12+mpsmax))\n",
+		       nvme_reg_cap_get_mpsmax(cap));
+	wrtn += printf("  pmrs:   %u # persistent memory region supported\n",
+		       nvme_reg_cap_get_pmrs(cap));
+	wrtn += printf("  cmbs:   %u # controller memory buffer supported\n",
+		       nvme_reg_cap_get_cmbs(cap));
+	wrtn +=
+	    printf("  nsss:   %u # NVM subsystem shutdown supported\n", nvme_reg_cap_get_nsss(cap));
+	wrtn +=
+	    printf("  crms:   %u # controller ready modes supported\n", nvme_reg_cap_get_crms(cap));
+	wrtn +=
+	    printf("  nsses:  %u # shutdown enhancements supported\n", nvme_reg_cap_get_nsses(cap));
+
+	return wrtn;
+}
+
+static inline int
+nvme_reg_csts_pr(uint32_t val)
+{
+	int wrtn = 0;
+
+	wrtn += printf("nvme_reg_csts:\n");
+	wrtn += printf("  rdy    : %u   # Controller Ready\n", (unsigned)bitfield_get(val, 0, 1));
+	wrtn += printf("  cfs    : %u   # Controller Fatal Status\n",
+		       (unsigned)bitfield_get(val, 1, 1));
+	wrtn += printf("  shst   : %u   # Shutdown Status\n", (unsigned)bitfield_get(val, 2, 2));
+	wrtn += printf("  nssro  : %u   # NVM Subsystem Reset Occurred\n",
+		       (unsigned)bitfield_get(val, 4, 1));
+	wrtn += printf("  pp     : %u   # Processing Pause\n", (unsigned)bitfield_get(val, 5, 1));
+	wrtn += printf("  st     : %u   # Shutdown Type\n", (unsigned)bitfield_get(val, 6, 1));
+
+	return wrtn;
+}
+
+/**
+ * Controller Configuration: Enable (EN)
+ * Bit 0
+ */
+static inline uint8_t
+nvme_reg_cc_get_en(uint32_t cc)
+{
+	return bitfield_get(cc, 0, 1);
+}
+
+/**
+ * Controller Configuration: I/O Command Set Selected (CSS)
+ * Bits 4–7
+ */
+static inline uint8_t
+nvme_reg_cc_get_css(uint32_t cc)
+{
+	return bitfield_get(cc, 4, 4);
+}
+
+/**
+ * Controller Configuration: Memory Page Size (MPS)
+ * Bits 7–10
+ */
+static inline uint8_t
+nvme_reg_cc_get_mps(uint32_t cc)
+{
+	return bitfield_get(cc, 7, 4);
+}
+
+/**
+ * Controller Configuration: Arbitration Mechanism Selected (AMS)
+ * Bits 11–13
+ */
+static inline uint8_t
+nvme_reg_cc_get_ams(uint32_t cc)
+{
+	return bitfield_get(cc, 11, 3);
+}
+
+/**
+ * Controller Configuration: Contiguous Queues Required (CQR)
+ * Bit 16
+ */
+static inline uint8_t
+nvme_reg_cc_get_cqr(uint32_t cc)
+{
+	return bitfield_get(cc, 16, 1);
+}
+
+/**
+ * Controller Configuration: Shutdown Notification (SHN)
+ * Bits 14–15
+ */
+static inline uint8_t
+nvme_reg_cc_get_shn(uint32_t cc)
+{
+	return bitfield_get(cc, 14, 2);
+}
+
+/**
+ * Controller Configuration: I/O Completion Queue Entry Size (IOCQES)
+ * Bits 20–23
+ */
+static inline uint8_t
+nvme_reg_cc_get_iocqes(uint32_t cc)
+{
+	return bitfield_get(cc, 20, 4);
+}
+
+/**
+ * Controller Configuration: I/O Submission Queue Entry Size (IOSQES)
+ * Bits 24–27
+ */
+static inline uint8_t
+nvme_reg_cc_get_iosqes(uint32_t cc)
+{
+	return bitfield_get(cc, 24, 4);
+}
+
+static inline int
+nvme_reg_cc_pr(uint32_t cc)
+{
+	int wrtn = 0;
+
+	wrtn += printf("CC  = 0x%08" PRIx32 "\n", cc);
+	wrtn += printf("  en:     %u # enable\n", nvme_reg_cc_get_en(cc));
+	wrtn += printf("  cqr:    %u # contiguous queues required\n", nvme_reg_cc_get_cqr(cc));
+	wrtn += printf("  ams:    %u # arbitration mechanism selected\n", nvme_reg_cc_get_ams(cc));
+	wrtn += printf("  shn:    %u # shutdown notification\n", nvme_reg_cc_get_shn(cc));
+	wrtn += printf("  iosqes: %u # I/O submission queue entry size (2^(n+2))\n",
+		       nvme_reg_cc_get_iosqes(cc));
+	wrtn += printf("  iocqes: %u # I/O completion queue entry size (2^(n+2))\n",
+		       nvme_reg_cc_get_iocqes(cc));
+	wrtn += printf("  mps:    %u # memory page size (2^(12+mps))\n", nvme_reg_cc_get_mps(cc));
+	wrtn += printf("  css:    %u # command set selected\n", nvme_reg_cc_get_css(cc));
+
+	return wrtn;
+}
+
+/**
+ * Set the Enable (EN) field (bit 0)
+ */
+static inline uint32_t
+nvme_reg_cc_set_en(uint32_t cc, uint8_t val)
+{
+	return bitfield_set(cc, 0, 1, val);
+}
+
+/**
+ * Set the I/O Command Set Selected (CSS) field (bits 4–7)
+ */
+static inline uint32_t
+nvme_reg_cc_set_css(uint32_t cc, uint8_t val)
+{
+	return bitfield_set(cc, 4, 4, val);
+}
+
+/**
+ * Set the Memory Page Size (MPS) field (bits 7–10)
+ */
+static inline uint32_t
+nvme_reg_cc_set_mps(uint32_t cc, uint8_t val)
+{
+	return bitfield_set(cc, 7, 4, val);
+}
+
+/**
+ * Set the Arbitration Mechanism Selected (AMS) field (bits 11–13)
+ */
+static inline uint32_t
+nvme_reg_cc_set_ams(uint32_t cc, uint8_t val)
+{
+	return bitfield_set(cc, 11, 3, val);
+}
+
+/**
+ * Set the Shutdown Notification (SHN) field (bits 14–15)
+ */
+static inline uint32_t
+nvme_reg_cc_set_shn(uint32_t cc, uint8_t val)
+{
+	return bitfield_set(cc, 14, 2, val);
+}
+
+/**
+ * Set the Contiguous Queues Required (CQR) field (bit 16)
+ */
+static inline uint32_t
+nvme_reg_cc_set_cqr(uint32_t cc, uint8_t val)
+{
+	return bitfield_set(cc, 16, 1, val);
+}
+
+/**
+ * Set the I/O Completion Queue Entry Size (IOCQES) field (bits 20–23)
+ */
+static inline uint32_t
+nvme_reg_cc_set_iocqes(uint32_t cc, uint8_t val)
+{
+	return bitfield_set(cc, 20, 4, val);
+}
+
+/**
+ * Set the I/O Submission Queue Entry Size (IOSQES) field (bits 24–27)
+ */
+static inline uint32_t
+nvme_reg_cc_set_iosqes(uint32_t cc, uint8_t val)
+{
+	return bitfield_set(cc, 24, 4, val);
 }
