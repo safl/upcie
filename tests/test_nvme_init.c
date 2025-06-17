@@ -50,44 +50,6 @@ struct nvme_controller {
 	void *buf; ///< Payload buffer -- now for identify command result
 };
 
-static inline int
-nvme_reg_cap_pr(uint64_t val)
-{
-	int wrtn = 0;
-
-	wrtn += printf("nvme_reg_cap:\n");
-	wrtn += printf("  mqes   : %u\n", (unsigned)bitfield_get(val, 0, 16));
-	wrtn += printf("  to     : %u   # %.1f seconds\n", (unsigned)bitfield_get(val, 32, 8),
-		       bitfield_get(val, 32, 8) * 0.5);
-	wrtn += printf("  dstrd  : %u    # stride=%u bytes\n", (unsigned)bitfield_get(val, 37, 4),
-		       4 * (1U << bitfield_get(val, 37, 4)));
-	wrtn += printf("  css    : %#x\n", (unsigned)bitfield_get(val, 43, 4));
-	wrtn += printf("  mpsmin : %u    # page=%u KiB\n", (unsigned)bitfield_get(val, 48, 4),
-		       1U << (12 + bitfield_get(val, 48, 4)));
-	wrtn += printf("  mpsmax : %u    # page=%u KiB\n", (unsigned)bitfield_get(val, 52, 4),
-		       1U << (12 + bitfield_get(val, 52, 4)));
-
-	return wrtn;
-}
-
-static inline int
-nvme_reg_csts_pr(uint64_t val)
-{
-	int wrtn = 0;
-
-	wrtn += printf("nvme_reg_csts:\n");
-	wrtn += printf("  rdy    : %u   # Controller Ready\n", (unsigned)bitfield_get(val, 0, 1));
-	wrtn += printf("  cfs    : %u   # Controller Fatal Status\n",
-		       (unsigned)bitfield_get(val, 1, 1));
-	wrtn += printf("  shst   : %u   # Shutdown Status\n", (unsigned)bitfield_get(val, 2, 2));
-	wrtn += printf("  nssro  : %u   # NVM Subsystem Reset Occurred\n",
-		       (unsigned)bitfield_get(val, 4, 1));
-	wrtn += printf("  pp     : %u   # Processing Pause\n", (unsigned)bitfield_get(val, 5, 1));
-	wrtn += printf("  st     : %u   # Shutdown Type\n", (unsigned)bitfield_get(val, 6, 1));
-
-	return wrtn;
-}
-
 void
 nvme_controller_term(struct nvme_controller *ctrlr)
 {
