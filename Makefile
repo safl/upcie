@@ -13,6 +13,13 @@ build:
 install:
 	meson install -C $(BUILD_DIR)
 
+guest:
+	@cd cijoe && cijoe \
+		--config configs/cijoe-config.toml \
+		--workflow workflows/guest_setup.yaml \
+		-l \
+		-m
+
 test:
 	@cd cijoe && cijoe \
 		--config configs/cijoe-config.toml \
