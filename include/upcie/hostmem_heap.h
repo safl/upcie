@@ -6,7 +6,7 @@
   -----------------------------------------------------------------------------
 
   * hostmem_heap_init() / hostmem_heap_term()
-  * hostmem_heap_block_alloc() / hostmem_heap_block_free()
+  * hostmem_heap_block_alloc() / hostmem_heap_block_alloc_aligned() / hostmem_heap_block_free()
   * hostmem_heap_block_virt_to_phys()
 
   Caveat: system setup
@@ -180,10 +180,9 @@ hostmem_heap_block_free(struct hostmem_heap *heap, void *ptr)
 }
 
 static inline void *
-hostmem_heap_block_alloc(struct hostmem_heap *heap, size_t size)
+hostmem_heap_block_alloc_aligned(struct hostmem_heap *heap, size_t size, size_t alignment)
 {
 	struct hostmem_heap_block *block = heap->freelist;
-	size_t alignment = g_hostmem_state.pagesize;
 
 	assert(sizeof(*block) < alignment);
 
@@ -213,6 +212,12 @@ hostmem_heap_block_alloc(struct hostmem_heap *heap, size_t size)
 	}
 
 	return NULL;
+}
+
+static inline void *
+hostmem_heap_block_alloc(struct hostmem_heap *heap, size_t size)
+{
+	return hostmem_heap_block_alloc_aligned(heap, size, g_hostmem_state.pagesize);
 }
 
 static inline int
