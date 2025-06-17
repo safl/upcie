@@ -118,6 +118,19 @@ hostmem_dma_malloc(size_t size)
 }
 
 /**
+ * Allocate `size` bytes of DMA-capable memory aligned to given 'alignment'
+ *
+ * @param size Number of bytes to allocate.
+ * @param alignment Boundary to align to.
+ * @return Pointer to the allocated memory, or NULL on failure.
+ */
+static inline void *
+hostmem_dma_malloc_aligned(size_t size, size_t alignment)
+{
+	return hostmem_heap_block_alloc_aligned(&g_hostmem_dma, size, alignment);
+}
+
+/**
  * Resolve the physical address of a given virtual address.
  *
  * @param virt Pointer to memory previously allocated by hostmem_dma_malloc().
