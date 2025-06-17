@@ -259,9 +259,9 @@ nvme_mmio_cc_disable(uint8_t *bar0)
  * timeout choices based on CC.CRIME and CRTO.CRWMT.
  */
 static inline int
-nvme_mmio_csts_wait_until_ready(uint8_t *mmio, int timeout_us)
+nvme_mmio_csts_wait_until_ready(uint8_t *mmio, int timeout_ms)
 {
-	for (uint64_t elapsed = 0; elapsed < timeout_us; elapsed += 1000) {
+	for (uint64_t elapsed = 0; elapsed < timeout_ms; ++elapsed) {
 		if ((mmio_read32(mmio, NVME_REG_CSTS) & 0x1) == 0x1) {
 			return 0;
 		}
@@ -277,9 +277,9 @@ nvme_mmio_csts_wait_until_ready(uint8_t *mmio, int timeout_us)
  * timeout choices based on CC.CRIME and CRTO.CRWMT.
  */
 static inline int
-nvme_mmio_csts_wait_until_not_ready(uint8_t *mmio, int timeout_us)
+nvme_mmio_csts_wait_until_not_ready(uint8_t *mmio, int timeout_ms)
 {
-	for (uint64_t elapsed = 0; elapsed < timeout_us; elapsed += 1000) {
+	for (uint64_t elapsed = 0; elapsed < timeout_ms; ++elapsed) {
 		if ((mmio_read32(mmio, NVME_REG_CSTS) & 0x1) == 0x0) {
 			return 0;
 		}
