@@ -199,15 +199,42 @@ nvme_mmio_aq_setup(void *bar0, uint64_t asq, uint64_t acq)
 	mmio_write64(bar0, NVME_REG_ACQ, acq);
 }
 
+static inline uint32_t
+nvme_mmio_cc_read(uint8_t *bar0)
+{
+	return mmio_read32(bar0, NVME_REG_CC);
+}
+
+static inline uint64_t
+nvme_mmio_cap_read(uint8_t *bar0)
+{
+	return mmio_read64(bar0, NVME_REG_CAP);
+}
+
+static inline uint32_t
+nvme_mmio_csts_read(uint8_t *bar0)
+{
+	return mmio_read32(bar0, NVME_REG_CSTS);
+}
+
+/**
+ * Enable the current controller configuration
+ */
+static inline void
+nvme_mmio_cc_write(uint8_t *bar0, uint32_t cc)
+{
+	mmio_write32(bar0, NVME_REG_CC, cc);
+}
+
 /**
  * Enable the current controller configuration
  */
 static inline void
 nvme_mmio_cc_enable(uint8_t *bar0)
 {
-	uint32_t cc = mmio_read32(bar0, NVME_REG_CC);
+	uint32_t cc = nvme_mmio_cc_read(bar0);
 
-	mmio_write64(bar0, NVME_REG_CC, cc | 0x1);
+	nvme_mmio_cc_write(bar0, cc | 0x1);
 }
 
 /**
@@ -220,9 +247,9 @@ nvme_mmio_cc_enable(uint8_t *bar0)
 static inline void
 nvme_mmio_cc_disable(uint8_t *bar0)
 {
-	uint32_t cc = mmio_read32(bar0, NVME_REG_CC);
+	uint32_t cc = nvme_mmio_cc_read(bar0);
 
-	mmio_write32(bar0, NVME_REG_CC, cc & ~0x1);
+	nvme_mmio_cc_write(bar0, cc & ~0x1);
 }
 
 /**
