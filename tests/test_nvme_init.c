@@ -108,35 +108,48 @@ nvme_controller_term(struct nvme_controller *ctrlr)
 int
 nvme_controller_init(void *bar0, struct nvme_controller *controller)
 {
+	int timeout;
 	int err;
 
 	printf("# Starting controller initialization...\n");
 
-	controller->cc = mmio_read32(bar0, NVME_REG_CC);
-	controller->csts = mmio_read32(bar0, NVME_REG_CSTS);
+	controller->cc = nvme_mmio_cc_read(bar0);
+	controller->cap = nvme_mmio_cap_read(bar0);
 
+	controller->csts = nvme_mmio_csts_read(bar0);
 	nvme_reg_csts_pr(controller->csts);
 
+	timeout = nvme_reg_cap_get_to(controller->cap) * 500;
+
+
+	printf("# Disabling...\n");
 	nvme_mmio_cc_disable(bar0);
 
-	err = nvme_mmio_csts_wait_until_not_ready(bar0, 1000);
+	printf("# Disabling... wait for it...\n");
+	err = nvme_mmio_csts_wait_until_not_ready(bar0, timeout);
 	if (err) {
 		printf("FAILED: nvme_mmio_csts_wait_until_ready(); err(%d)\n", err);
 		return -err;
 	}
+	printf("# Disabled!\n");
 
+	controller->csts = nvme_mmio_csts_read(bar0);
 	nvme_reg_csts_pr(controller->csts);
 
 	nvme_mmio_aq_setup(bar0, hostmem_dma_v2p(controller->asq),
 			   hostmem_dma_v2p(controller->acq));
 
+	printf("# Enabling...\n");
+
 	nvme_mmio_cc_enable(bar0);
 
-	err = nvme_mmio_csts_wait_until_ready(bar0, 1000);
+	printf("# Enabling... wait for it...\n");
+	err = nvme_mmio_csts_wait_until_ready(bar0, timeout);
 	if (err) {
 		printf("FAILED: nvme_mmio_csts_wait_until_ready(); err(%d)\n", err);
 		return -err;
 	}
+	printf("# Enabled!\n");
 
 	return 0;
 }
