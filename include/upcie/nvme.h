@@ -226,13 +226,14 @@ nvme_reg_cap_get_nsses(uint64_t cap)
  *
  * @param bar0 A memory-mapped region pointing to the start of bar0
  * @param asq DMA-able address pointing to the start of the admin submission queue
- * @param acq DMA-able address pointing to the start of the admin completion queue
- *
+ * @param aqsize Must be power-of-two and less than or equal to MQES + 1
  */
 static inline void
-nvme_mmio_aq_setup(void *bar0, uint64_t asq, uint64_t acq)
+nvme_mmio_aq_setup(void *bar0, uint64_t asq, uint64_t acq, uint32_t aqsize)
 {
-	mmio_write32(bar0, NVME_REG_AQA, (0 << 16) | 0); // 1-entry queues
+	uint32_t aqa = ((aqsize - 1) << 16) | (aqsize - 1);
+
+	mmio_write32(bar0, NVME_REG_AQA, aqa);
 	mmio_write64(bar0, NVME_REG_ASQ, asq);
 	mmio_write64(bar0, NVME_REG_ACQ, acq);
 }
