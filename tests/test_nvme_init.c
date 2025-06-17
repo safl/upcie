@@ -83,7 +83,6 @@ nvme_controller_init(void *bar0, struct nvme_controller *controller)
 
 	timeout = nvme_reg_cap_get_to(controller->cap) * 500;
 
-
 	printf("# Disabling...\n");
 	nvme_mmio_cc_disable(bar0);
 
@@ -98,12 +97,30 @@ nvme_controller_init(void *bar0, struct nvme_controller *controller)
 	controller->csts = nvme_mmio_csts_read(bar0);
 	nvme_reg_csts_pr(controller->csts);
 
-	nvme_mmio_aq_setup(bar0, hostmem_dma_v2p(controller->asq),
-			   hostmem_dma_v2p(controller->acq));
+	{
+		uint64_t asq, acq;
 
-	printf("# Enabling...\n");
+		asq = hostmem_dma_v2p(controller->asq);
+		acq = hostmem_dma_v2p(controller->acq);
 
-	nvme_mmio_cc_enable(bar0);
+		nvme_mmio_aq_setup(bar0, asq, acq, 32);
+
+		printf("asq(0x%"PRIx64"), acq(0x%"PRIx64")\n", asq, acq);
+	}
+
+	{
+		uint32_t cc = 0x0;
+
+		cc |= nvme_reg_cc_set_css(cc, 0x0);
+		cc |= nvme_reg_cc_set_mps(cc, 0x0);
+		cc |= nvme_reg_cc_set_ams(cc, 0x0);
+		cc |= nvme_reg_cc_set_iosqes(cc, 6);
+		cc |= nvme_reg_cc_set_iocqes(cc, 4);
+		cc |= nvme_reg_cc_set_en(cc, 0x1);
+
+		printf("# Enabling cc(0x%" PRIx32 ")...\n", cc);
+		nvme_mmio_cc_write(bar0, cc);
+	}
 
 	printf("# Enabling... wait for it...\n");
 	err = nvme_mmio_csts_wait_until_ready(bar0, timeout);
