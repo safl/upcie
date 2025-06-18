@@ -33,10 +33,11 @@ struct nvme_qp {
 	void *cq;	///< VA-Pointer to DMA-capable memory backing the Completion Queue (CQ)
 	void *sqdb;	///< Pointer to Submission Queue Doorbell Register in bar0
 	void *cqdb;	///< Pointer to Completion Queue Doorbell Register in bar0
+	uint32_t qid;	///< The admin: queue-id == 0 ; io: queue-id > 0;
+	uint16_t depth; ///< Length of the queue-pair
 	uint16_t tail;	///< Submissin Queue Tail Pointer
 	uint16_t head;	///< Completion Queue Head Pointer
-	uint16_t depth; ///< Length of the queue-pair
-	uint32_t qid;	///< The admin: queue-id == 0 ; io: queue-id > 0;
+	uint8_t phase;
 };
 
 static inline void
