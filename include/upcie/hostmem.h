@@ -26,8 +26,9 @@ hostmem_pagemap_virt_to_phys(void *virt, uint64_t *phys)
 {
 	const int pagemap_entry_bytes = 8;
 	const uint64_t pfn_mask = ((1ULL << 55) - 1);
+	const int pgsz = getpagesize();
 	uint64_t entry = 0;
-	uint64_t virt_pfn = (uint64_t)virt / getpagesize();
+	uint64_t virt_pfn = (uint64_t)virt / pgsz;
 	uint64_t phys_pfn;
 	int fd;
 
@@ -51,7 +52,7 @@ hostmem_pagemap_virt_to_phys(void *virt, uint64_t *phys)
 	}
 
 	phys_pfn = entry & pfn_mask;
-	*phys = (phys_pfn * getpagesize()) + ((uint64_t)virt % getpagesize());
+	*phys = (phys_pfn * pgsz) + ((uint64_t)virt % pgsz);
 
 	close(fd);
 
