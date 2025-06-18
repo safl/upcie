@@ -31,9 +31,6 @@
 #define NVME_REG_ASQ 0x28
 #define NVME_REG_ACQ 0x30
 
-#define NVME_REG_SQ0TDBL 0x1000
-#define NVME_REG_CQ0HDBL 0x1004
-
 /**
  * Controller Capabilities: Maximum Queue Entries Supported (MQES)
  */
