@@ -192,9 +192,9 @@ nvme_mmio_aq_setup(void *bar0, uint64_t asq, uint64_t acq, uint32_t aqsize)
 {
 	uint32_t aqa = ((aqsize - 1) << 16) | (aqsize - 1);
 
-	mmio_write32(bar0, NVME_REG_AQA, aqa);
 	mmio_write64(bar0, NVME_REG_ASQ, asq);
 	mmio_write64(bar0, NVME_REG_ACQ, acq);
+	mmio_write32(bar0, NVME_REG_AQA, aqa);
 }
 
 static inline uint32_t
