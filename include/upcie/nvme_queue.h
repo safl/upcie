@@ -1,3 +1,12 @@
+struct nvme_completion {
+	uint32_t cdw0;
+	uint32_t rsvd;
+	uint16_t sqhd;
+	uint16_t sqid;
+	uint16_t cid;
+	uint16_t status;
+};
+
 struct nvme_command {
 	uint8_t opc; ///< opcode
 	uint8_t fuse;
