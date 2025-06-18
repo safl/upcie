@@ -458,7 +458,7 @@ nvme_reg_cc_set_en(uint32_t cc, uint8_t val)
 static inline uint32_t
 nvme_reg_cc_set_css(uint32_t cc, uint8_t val)
 {
-	return bitfield_set(cc, 4, 4, val);
+	return bitfield_set(cc, 4, 3, val);
 }
 
 /**
@@ -489,12 +489,12 @@ nvme_reg_cc_set_shn(uint32_t cc, uint8_t val)
 }
 
 /**
- * Set the Contiguous Queues Required (CQR) field (bit 16)
+ * Set the I/O Submission Queue Entry Size (IOSQES) field (bits 16-19)
  */
 static inline uint32_t
-nvme_reg_cc_set_cqr(uint32_t cc, uint8_t val)
+nvme_reg_cc_set_iosqes(uint32_t cc, uint8_t val)
 {
-	return bitfield_set(cc, 16, 1, val);
+	return bitfield_set(cc, 16, 4, val);
 }
 
 /**
@@ -507,10 +507,10 @@ nvme_reg_cc_set_iocqes(uint32_t cc, uint8_t val)
 }
 
 /**
- * Set the I/O Submission Queue Entry Size (IOSQES) field (bits 24–27)
+ * Controller Ready Independent of Media Enable (CRIME) field (bit 24)
  */
 static inline uint32_t
-nvme_reg_cc_set_iosqes(uint32_t cc, uint8_t val)
+nvme_reg_cc_set_crime(uint32_t cc, uint8_t val)
 {
-	return bitfield_set(cc, 24, 4, val);
+	return bitfield_set(cc, 24, 1, val);
 }
