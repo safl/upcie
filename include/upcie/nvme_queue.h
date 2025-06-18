@@ -103,6 +103,45 @@ nvme_qp_submit(struct nvme_qp *qp, const struct nvme_cmd *cmd)
 }
 
 /**
+ * Polls for a valid completion on a given NVMe CQ.
+ *
+ * @param qp Virtual address of the CQ memory (from DMA)
+ * @param timeout_us Timeout in microseconds
+ *
+ * @return Pointer to a valid completion, or NULL on timeout.
+ */
+static inline struct nvme_completion *
+nvme_qp_poll_cpl(struct nvme_qp *qp, int timeout_us)
+{
+	struct nvme_completion *cq = qp->cq;
+
+	for (int i = 0; i < timeout_us / 1000; ++i) {
+		volatile struct nvme_completion *cpl = &cq[qp->head];
+
+		if ((cpl->cid) && ((cpl->status & 0x1) == qp->phase)) {
+			// Valid completion found
+			struct nvme_completion *ret = (struct nvme_completion *)cpl;
+
+			// Advance CQ head and toggle phase if wrapping
+			qp->head++;
+			if (qp->head == qp->depth) {
+				qp->head = 0;
+				qp->phase ^= 1;
+			}
+
+			// Write doorbell to acknowledge to device
+			mmio_write32(qp->cqdb, 0, qp->head);
+
+			return ret;
+		}
+
+		usleep(1000);
+	}
+
+	return NULL; // timeout
+}
+
+/**
  * Write the SQ doorbell
  */
 static inline void
