@@ -47,8 +47,7 @@ system_args.kwa = {cpu = "host", smp = 4, m = "6G", accel = "kvm"}
 
 # Raw arguments: passed without modification to qemu-system-{arch}
 system_args.raw = """\
--M "type=q35,kernel_irqchip=split" \
--device "intel-iommu,pt=on,intremap=on" \
+-M q35,default_bus_bypass_iommu=true
 """
 
 # TCP_FORWARD: Setup ssh forward from host to guest
