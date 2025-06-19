@@ -276,6 +276,7 @@ def main(args, cijoe):
 
     trace_log = Path(guest.guest_path / "trace.log")
     trace_events = Path(guest.guest_path / "trace.events")
+    trace_args = []
     if trace_events.exists():
         trace_args = [
             "-trace",
