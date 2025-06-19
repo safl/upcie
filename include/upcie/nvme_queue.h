@@ -60,17 +60,17 @@ nvme_qp_init(struct nvme_qp *qp, uint32_t qid, uint16_t depth, struct nvme_contr
 	qp->depth = depth;
 
 	// NOTE: strictly speaking then these values should adhere to the IOSQES
-	qp->sq = hostmem_dma_malloc(64 * depth);
+	qp->sq = hostmem_dma_malloc(1024 * 64);
 	if (!qp->sq) {
 		return -errno;
 	}
-	memset(qp->sq, 0, 4096);
+	memset(qp->sq, 0, 1024 * 64);
 
-	qp->cq = hostmem_dma_malloc(64 * depth);
+	qp->cq = hostmem_dma_malloc(1024 * 64);
 	if (!qp->cq) {
 		return -errno;
 	}
-	memset(qp->cq, 0, 4096);
+	memset(qp->cq, 0, 1024 * 64);
 
 	return 0;
 }
