@@ -24,10 +24,6 @@ struct nvme_command {
 	uint32_t cdw15;
 };
 
-struct nvme_cmd {
-	uint32_t cdw[16];
-};
-
 struct nvme_qp {
 	void *sq;	///< VA-Pointer to DMA-capable memory backing the Submission Queue (SQ)
 	void *cq;	///< VA-Pointer to DMA-capable memory backing the Completion Queue (CQ)
@@ -90,9 +86,9 @@ nvme_qp_init(struct nvme_qp *qp, uint32_t qid, uint16_t depth, struct nvme_contr
  * @param cmd     Command to submit
  */
 static inline void
-nvme_qp_submit(struct nvme_qp *qp, const struct nvme_cmd *cmd)
+nvme_qp_submit(struct nvme_qp *qp, const struct nvme_command *cmd)
 {
-	volatile struct nvme_cmd *sq = qp->sq;
+	volatile struct nvme_command *sq = qp->sq;
 
 	sq[qp->tail] = *cmd;
 
