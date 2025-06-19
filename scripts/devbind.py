@@ -225,7 +225,7 @@ def bind(args, device: Device, driver_name: str):
     for attempt in range(1, max_attempts + 1):
         try:
             sysfs_write(sysfs / "drivers" / driver_name / "bind", device.slot)
-            return
+            break
         except OSError as exc:
             if attempt == max_attempts or exc.errno != errno.EBUSY:
                 log.error(f"Could not bind despite {max_attempts} retries.")
@@ -233,6 +233,13 @@ def bind(args, device: Device, driver_name: str):
             delay = attempt * 1
             log.info(f"Retrying in in {delay} second(s)")
             time.sleep(delay)
+
+    # Enable BUS-mastering (tell it that it can initiate DMA)
+    if driver_name == "uio_pci_generic":
+        log.info(f"Running setpci to enable bus-mastering; driver_name({driver_name})")
+        proc = run(f"setpci -s {device.slot} COMMAND=0x06")
+    else:
+        log.info(f"Not running setpci; driver_name({driver_name})")
 
 
 def parse_args():
