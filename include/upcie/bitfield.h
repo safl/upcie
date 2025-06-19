@@ -9,8 +9,25 @@
  * low-level code. Designed for clarity and performance in systems, protocol, and register-level
  * programming.
  *
- * This header currently includes a bitfield extraction function and is intended to grow with
- * additional bit manipulation utilities over time.
+ * Features
+ * --------
+ *
+ * - bitfield_get(): Extracts a bitfield from a 64-bit value
+ * - bitfield_set(): Inserts a bitfield into a 64-bit value
+ *
+ * Intended usage includes manipulating hardware registers, encoding protocol fields, or
+ * packing/unpacking structured data into compact bit layouts.
+ *
+ * Example usage (chaining bitfield_set to build a value):
+ *
+ *   uint64_t reg = 0;
+ *   reg = bitfield_set(reg,  0, 4, 0x5);   // Set bits 0–3
+ *   reg = bitfield_set(reg,  4, 4, 0xA);   // Set bits 4–7
+ *   reg = bitfield_set(reg,  8, 8, 0xFF);  // Set bits 8–15
+ *
+ *   // Result: reg == 0x000000000000FFA5
+ *
+ * This header is intended to grow with additional bit manipulation utilities over time.
  */
 
 /**
