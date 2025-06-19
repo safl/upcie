@@ -276,11 +276,22 @@ def main(args, cijoe):
 
     trace_log = Path(guest.guest_path / "trace.log")
     trace_events = Path(guest.guest_path / "trace.events")
+    trace_wc = Path(guest.guest_path / "wc.events")
+
     trace_args = []
+
+    if trace_wc.exists():
+        for line in trace_wc.read_text().splitlines():
+            trace_args.append(f"-trace '{line}'")
+
     if trace_events.exists():
-        trace_args = [
+        trace_args += [
             "-trace",
             f"events={trace_events}",
+        ]
+
+    if trace_wc.exists() or trace_events.exists():
+        trace_args += [
             "-D",
             f"{trace_log}",
         ]
