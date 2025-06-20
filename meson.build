@@ -16,6 +16,7 @@ install_headers(
     'include/upcie/nvme.h',
     'include/upcie/nvme_command.h',
     'include/upcie/nvme_controller.h',
+    'include/upcie/nvme_request.h',
     'include/upcie/nvme_queue.h',
     'include/upcie/pci.h',
     'include/upcie/vfioctl.h',
