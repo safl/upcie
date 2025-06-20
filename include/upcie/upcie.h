@@ -62,6 +62,7 @@ extern "C" {
 #include <upcie/pci.h>
 #include <upcie/vfioctl.h>
 #include <upcie/nvme.h>
+#include <upcie/nvme_command.h>
 #include <upcie/nvme_controller.h>
 #include <upcie/nvme_queue.h>
 
