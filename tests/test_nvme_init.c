@@ -4,31 +4,6 @@
 #include <upcie/upcie.h>
 
 int
-nvme_identify_controller(struct nvme_qp *qp, void *buf)
-{
-	struct nvme_command cmd = {0};
-	struct nvme_completion *cpl;
-
-	cmd.opc = 0x6; ///< IDENTIFY
-	cmd.cid = 0x1;
-	cmd.prp1 = hostmem_dma_v2p(buf);
-	cmd.cdw10 = 1; // CNS=1: Identify Controller
-
-	printf("cmd.prp1(0x%" PRIx64 ")\n", cmd.prp1);
-
-	nvme_qp_submit(qp, &cmd);
-	nvme_qp_sqdb_ring(qp);
-
-	cpl = nvme_qp_poll_cpl(qp, 1000);
-	if (!cpl) {
-		printf("NO COMPLETION!\n");
-		return -EIO;
-	}
-
-	return 0;
-}
-
-int
 main(int argc, char **argv)
 {
 	struct nvme_controller ctrlr = {0};
@@ -101,7 +76,7 @@ main(int argc, char **argv)
 
 		nvme_mmio_aq_setup(bar0, sq_phys, cq_phys, aq.depth);
 
-		//cc = ctrlr.cc;
+		// cc = ctrlr.cc;
 		cc = 0;
 		cc = nvme_reg_cc_set_css(cc, 0x0);
 		cc = nvme_reg_cc_set_shn(cc, 0x0);
@@ -123,10 +98,25 @@ main(int argc, char **argv)
 	}
 	printf("# Enabled!\n");
 
-	err = nvme_identify_controller(&aq, buf);
-	if (err) {
-		printf("FAILED: nvme_identify_ctrlr()\n");
-		return -err;
+	{
+		struct nvme_command cmd = {0};
+		struct nvme_completion *cpl;
+
+		cmd.opc = 0x6; ///< IDENTIFY
+		cmd.cid = 0x1;
+		cmd.prp1 = hostmem_dma_v2p(buf);
+		cmd.cdw10 = 1; // CNS=1: Identify Controller
+
+		printf("cmd.prp1(0x%" PRIx64 ")\n", cmd.prp1);
+
+		nvme_qp_submit(&aq, &pool, &cmd, NULL);
+		nvme_qp_sqdb_ring(&aq);
+
+		cpl = nvme_qp_reap_cpl(&aq, timeout_ms);
+		if (!cpl) {
+			printf("NO COMPLETION!\n");
+			return -EIO;
+		}
 	}
 
 	printf("DATA\n");
