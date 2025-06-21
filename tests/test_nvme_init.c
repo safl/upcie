@@ -32,6 +32,7 @@ int
 main(int argc, char **argv)
 {
 	struct nvme_controller ctrlr = {0};
+	struct nvme_request_pool pool = {0};
 	struct nvme_qp aq = {0};
 	void *buf, *bar0;
 	int timeout_ms, err;
@@ -40,6 +41,8 @@ main(int argc, char **argv)
 		printf("Usage: %s <PCI-BDF>\n", argv[0]);
 		return 1;
 	}
+
+	nvme_request_pool_init(&pool);
 
 	err = hostmem_dma_init(1024 * 1024 * 128ULL);
 	if (err) {
