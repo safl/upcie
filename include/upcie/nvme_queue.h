@@ -52,22 +52,35 @@ nvme_qp_init(struct nvme_qp *qp, uint32_t qid, uint16_t depth, struct nvme_contr
 /**
  * Submits a command to an NVMe submission queue
  *
- * That is, writes it into the submission queue memory and increments the tail-pointer
+ * That is, writes it into the submission queue memory and increments the tail-pointer. Note that
+ * 'cmd' will be modified by assignment of command-identifier.
  *
- * @param mmio    MMIO base address
- * @param cmd     Command to submit
+ * @param qp The queue-pair
+ * @param cmd Command to submit
+ * @param pool Request pool used to allocate a new CID
+ * @param user Optional opaque pointer returned on completion
+ *
+ * @return On success 0 is returned. On error then negative errno is set to indicate the error.
  */
-static inline void
-nvme_qp_submit(struct nvme_qp *qp, const struct nvme_command *cmd)
+static inline int
+nvme_qp_submit(struct nvme_qp *qp, struct nvme_request_pool *pool, struct nvme_command *cmd,
+	       void *user)
 {
 	volatile struct nvme_command *sq = qp->sq;
+	struct nvme_request *req;
 
+	req = nvme_request_alloc(pool);
+	if (!req) {
+		return -ENOSPC;
+	}
+
+	req->user = user;
+	cmd->cid = req->cid;
 	sq[qp->tail] = *cmd;
 
-	qp->tail++;
-	if (qp->tail == qp->depth) {
-		qp->tail = 0;
-	}
+	qp->tail = (qp->tail + 1) % qp->depth;
+
+	return 0;
 }
 
 /**
