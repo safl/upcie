@@ -32,6 +32,7 @@ nvme_qp_init(struct nvme_qp *qp, uint32_t qid, uint16_t depth, struct nvme_contr
 	qp->tail = 0;
 	qp->head = 0;
 	qp->depth = depth;
+	qp->phase = 1;
 
 	// NOTE: strictly speaking then these values should adhere to the IOSQES
 	qp->sq = hostmem_dma_malloc(1024 * 64);
