@@ -84,22 +84,23 @@ nvme_qp_submit(struct nvme_qp *qp, struct nvme_request_pool *pool, struct nvme_c
 }
 
 /**
- * Polls for a valid completion on a given NVMe CQ.
+ * Reaps at most a single completion and informs the controller via qp->cqdb
  *
- * @param qp Virtual address of the CQ memory (from DMA)
+ * @param qp A queue-pair as represented by 'struct nvme_qp'
+ * @param cpl Completion when one is reaped
  * @param timeout_us Timeout in microseconds
  *
  * @return Pointer to a valid completion, or NULL on timeout.
  */
 static inline struct nvme_completion *
-nvme_qp_poll_cpl(struct nvme_qp *qp, int timeout_us)
+nvme_qp_reap_cpl(struct nvme_qp *qp, int timeout_us)
 {
 	struct nvme_completion *cq = qp->cq;
 
-	for (int i = 0; i < timeout_us / 1000; ++i) {
+	for (int i = 0; i < timeout_us; ++i) {
 		volatile struct nvme_completion *cpl = &cq[qp->head];
 
-		if ((cpl->cid) && ((cpl->status & 0x1) == qp->phase)) {
+		if ((cpl->cid < 0xFFFF) && ((cpl->status & 0x1) == qp->phase)) {
 			// Valid completion found
 			struct nvme_completion *ret = (struct nvme_completion *)cpl;
 
@@ -110,16 +111,14 @@ nvme_qp_poll_cpl(struct nvme_qp *qp, int timeout_us)
 				qp->phase ^= 1;
 			}
 
-			// Write doorbell to acknowledge to device
 			mmio_write32(qp->cqdb, 0, qp->head);
-
 			return ret;
 		}
 
 		usleep(1000);
 	}
 
-	return NULL; // timeout
+	return NULL;
 }
 
 /**
