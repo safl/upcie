@@ -4,15 +4,25 @@
 /**
  * Helpers for 32-bit and 64-bit MMIO read/write access.
  *
- * These functions perform direct memory access to device registers via a memory-mapped
- * I/O (MMIO) region. Each function uses `volatile` semantics to ensure memory access
- * ordering and prevent compiler optimizations that could interfere with hardware communication.
+ * This header provides simple functions for accessing memory-mapped I/O (MMIO) regions, typically
+ * used for interacting with device registers on PCIe devices. The accessors use `volatile`
+ * semantics to prevent the compiler from reordering or eliminating memory operations that may have
+ * side effects at the hardware level.
  *
- * The `region` pointer typically refers to the base of a memory-mapped PCI BAR (e.g., from
- * `struct pci_func_bar.region`).
+ * These functions assume that MMIO registers are little-endian, as is standard on most PCIe
+ * devices. No byte-swapping is performed. As such, this library is not suitable for use on
+ * big-endian systems without modification.
+ *
+ * This implementation has been verified only on x86 systems and may require additional memory
+ * barriers or platform-specific instructions to work reliably on weakly ordered architectures
+ * (e.g., ARM). The user is responsible for ensuring correct ordering when porting to such
+ * platforms.
+ *
+ * The `region` pointer typically refers to the base of a memory-mapped PCI BAR (e.g., from `struct
+ * pci_func_bar.region`), obtained via UIO, VFIO, or similar mechanisms.
  *
  * @file mmio.h
- *
+ * @version 0.1.0
  */
 
 /**
@@ -44,7 +54,7 @@ mmio_write32(void *region, uint32_t offset, uint32_t value)
 /**
  * Read a 64-bit value from an MMIO region at the given offset
  *
- * NOTE: For "portability" then this splits the 64bit read into two 32bit reads
+ * For portability, this performs two 32-bit accesses instead of a single 64-bit access.
  *
  * @param region  Pointer to the base of the MMIO region
  * @param offset  Byte offset from the base
@@ -62,15 +72,15 @@ mmio_read64(void *region, uint32_t offset)
 /**
  * Write a 64-bit value to an MMIO region at the given offset
  *
- * NOTE: For "portability" then this splits the 64bit write into two 32bit writes
+ * For portability, this performs two 32-bit accesses instead of a single 64-bit access.
  *
  * @param region  Pointer to the base of the MMIO region
  * @param offset  Byte offset from the base
  * @param value   64-bit value to write
  */
 static inline void
-mmio_write64(uint8_t *mmio, uint32_t offset, uint64_t val)
+mmio_write64(void *region, uint32_t offset, uint64_t val)
 {
-	mmio_write32(mmio, offset + 0, (uint32_t)(val & 0xFFFFFFFF));
-	mmio_write32(mmio, offset + 4, (uint32_t)(val >> 32));
+	mmio_write32(region, offset + 0, (uint32_t)(val & 0xFFFFFFFF));
+	mmio_write32(region, offset + 4, (uint32_t)(val >> 32));
 }
