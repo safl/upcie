@@ -2,6 +2,11 @@
 // Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
 
 #include <upcie/upcie.h>
+#include <nvme.h>
+#include <nvme_command.h>
+#include <nvme_controller.h>
+#include <nvme_request.h>
+#include <nvme_queue.h>
 
 int
 main(int argc, char **argv)

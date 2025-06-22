@@ -61,11 +61,6 @@ extern "C" {
 #include <upcie/mmio.h>
 #include <upcie/pci.h>
 #include <upcie/vfioctl.h>
-#include <upcie/nvme.h>
-#include <upcie/nvme_command.h>
-#include <upcie/nvme_controller.h>
-#include <upcie/nvme_request.h>
-#include <upcie/nvme_queue.h>
 
 #ifdef __cplusplus
 }
