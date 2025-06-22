@@ -30,8 +30,16 @@ test:
 uninstall:
 	cd $(BUILD_DIR) && meson --internal uninstall
 
+#
+# This assumes a pipx-based Python environment is available e.g.:
+# 
+#   pipx install sphinx
+#   pipx inject sphinx breathe
+#   pipx inject sphinx furo
+# 
 docs:
 	doxygen docs/Doxyfile
+	cd docs; make html
 	
 
 clean:
