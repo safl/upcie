@@ -1,6 +1,6 @@
 BUILD_DIR ?= builddir
 
-.PHONY: all setup build test install uninstall clean
+.PHONY: all setup build test install uninstall clean docs
 
 all: clean setup build install test
 
@@ -29,6 +29,10 @@ test:
 
 uninstall:
 	cd $(BUILD_DIR) && meson --internal uninstall
+
+docs:
+	doxygen docs/Doxyfile
+	
 
 clean:
 	rm -rf $(BUILD_DIR)
