@@ -133,6 +133,9 @@ main(int argc, char **argv)
 		}
 	}
 
+	printf("SN('%.*s')\n", 20, ((uint8_t *)buf) + 4);
+	printf("MN('%.*s')\n", 40, ((uint8_t *)buf) + 24);
+
 	nvme_controller_close(&ctrlr);
 
 	return 0;
