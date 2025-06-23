@@ -1,7 +1,7 @@
 import pytest
 
-def test_devbind_props(cijoe):
-    err, _ = cijoe.run("devbind --props")
+def test_devbind_list(cijoe):
+    err, _ = cijoe.run("devbind --list")
     assert not err
 
 

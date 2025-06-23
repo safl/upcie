@@ -11,13 +11,13 @@
 #
 # The following sysfs entries for driver bindings:
 #
-# * /sys/bus/pci/devices/{slot}/driver
-# * /sys/bus/pci/devices/{slot}/driver_override
-# * /sys/bus/pci/devices/{slot}/driver/unbind
-# * /sys/bus/pci/devices/{slot}/iommu_group
-# * /sys/bus/pci/devices/{slot}/nvme/nvme*
-# * /sys/bus/pci/devices/{slot}/nvme/nvme*/ng*
-# * /sys/bus/pci/devices/{slot}/nvme/nvme*/nvme*
+# * /sys/bus/pci/devices/{bdf}/driver
+# * /sys/bus/pci/devices/{bdf}/driver_override
+# * /sys/bus/pci/devices/{bdf}/driver/unbind
+# * /sys/bus/pci/devices/{bdf}/iommu_group
+# * /sys/bus/pci/devices/{bdf}/nvme/nvme*
+# * /sys/bus/pci/devices/{bdf}/nvme/nvme*/ng*
+# * /sys/bus/pci/devices/{bdf}/nvme/nvme*/nvme*
 # * /sys/bus/pci/drivers/{driver_name}/bind
 #
 # The following could, but currently are not, be used for automatic detection based on
@@ -87,14 +87,14 @@ class System(object):
 class Device:
     """Encapsulation of a PCIe device"""
 
-    MANDATORY_KEYS = [
-        "slot",
-        "vendor",
-        "device",
-        "classcode",
-    ]
+    MANDATORY_KEYS = {
+        "slot": "bdf",
+        "vendor": "vendor",
+        "device": "device",
+        "classcode": "classcode",
+    }
 
-    slot: str  # PCI address of the device, e.g. "0000:02:00.0"
+    bdf: str  # PCI address of the device, e.g. "0000:02:00.0"
     vendor: str  # Vendor ID (hex), e.g. "144d" for Samsung
     device: str  # Device ID (hex), identifies the specific device model
     classcode: str  # PCI class code (hex), e.g. "0108" for NVMe controller
@@ -108,8 +108,8 @@ class Device:
     @classmethod
     def from_dict(cls, data: dict) -> "Device":
         cdata = {}
-        for key in Device.MANDATORY_KEYS:
-            cdata[key] = data.copy().get(key)
+        for src, tgt in Device.MANDATORY_KEYS.items():
+            cdata[tgt] = data.copy().get(src)
 
         return cls(**cdata)
 
@@ -118,7 +118,7 @@ class Device:
 
         try:
             self.driver = (
-                Path(f"/sys/bus/pci/devices/{self.slot}/driver")
+                Path(f"/sys/bus/pci/devices/{self.bdf}/driver")
                 .resolve(strict=True)
                 .name
             )
@@ -131,7 +131,7 @@ class Device:
 
         try:
             self.iommugroup = int(
-                Path(f"/sys/bus/pci/devices/{self.slot}/iommu_group")
+                Path(f"/sys/bus/pci/devices/{self.bdf}/iommu_group")
                 .resolve(strict=True)
                 .name
             )
@@ -142,7 +142,7 @@ class Device:
     def probe_handles(self):
         """Determine possible handles to the NVMe device"""
 
-        for top in Path(f"/sys/bus/pci/devices/{self.slot}/nvme").glob("nvme*"):
+        for top in Path(f"/sys/bus/pci/devices/{self.bdf}/nvme").glob("nvme*"):
             for bottom in chain(top.glob("ng*"), top.glob("nvme*")):
                 for path in Path("/dev").glob(f"{bottom.name}*"):
                     self.handles.append(str(path))
@@ -198,16 +198,16 @@ def print_props(args, device: Device):
 
 
 def unbind(args, device: Device):
-    log.info(f"Unbinding({device.slot}) from '{device.driver}'")
+    log.info(f"Unbinding({device.bdf}) from '{device.driver}'")
 
-    driver_path = Path("/sys") / "bus" / "pci" / "devices" / device.slot / "driver"
+    driver_path = Path("/sys") / "bus" / "pci" / "devices" / device.bdf / "driver"
 
     unbind = driver_path / "unbind"
     if not unbind.exists():
         log.info("Not bound; skipping unbind()")
         return
 
-    sysfs_write(unbind, device.slot)
+    sysfs_write(unbind, device.bdf)
 
 
 def bind(args, device: Device, driver_name: str):
@@ -215,16 +215,16 @@ def bind(args, device: Device, driver_name: str):
 
     unbind(args, device)
 
-    log.info(f"Binding({device.slot}) to '{driver_name}'")
+    log.info(f"Binding({device.bdf}) to '{driver_name}'")
 
     sysfs = Path("/sys") / "bus" / "pci"
 
-    sysfs_write(sysfs / "devices" / device.slot / "driver_override", driver_name)
+    sysfs_write(sysfs / "devices" / device.bdf / "driver_override", driver_name)
 
     max_attempts = 10
     for attempt in range(1, max_attempts + 1):
         try:
-            sysfs_write(sysfs / "drivers" / driver_name / "bind", device.slot)
+            sysfs_write(sysfs / "drivers" / driver_name / "bind", device.bdf)
             break
         except OSError as exc:
             if attempt == max_attempts or exc.errno != errno.EBUSY:
@@ -237,7 +237,7 @@ def bind(args, device: Device, driver_name: str):
     # Enable BUS-mastering (tell it that it can initiate DMA)
     if driver_name == "uio_pci_generic":
         log.info(f"Running setpci to enable bus-mastering; driver_name({driver_name})")
-        proc = run(f"setpci -s {device.slot} COMMAND=0x06")
+        proc = run(f"setpci -s {device.bdf} COMMAND=0x06")
     else:
         log.info(f"Not running setpci; driver_name({driver_name})")
 
@@ -258,7 +258,9 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--props", action="store_true", help="Print properties of PCIe device."
+        "--list",
+        action="store_true",
+        help="Print PCIe device(s); such as their 'bdf' and driver-association.",
     )
 
     parser.add_argument("--unbind", action="store_true", help="Unbind if bound.")
@@ -288,19 +290,19 @@ def main(args):
     system = System()
     system.probe_drivers()
 
-    if args.props:
+    if args.list:
         system.pp()
 
     devices = [
         device
         for device in device_scan(args)
-        if not args.device or (args.device == device.slot)
+        if not args.device or (args.device == device.bdf)
     ]
 
     for cur, device in enumerate(devices, 1):
-        log.info(f"Device({device.slot}) -- {cur}/{len(devices)}")
+        log.info(f"Device({device.bdf}) -- {cur}/{len(devices)}")
 
-        if args.props:
+        if args.list:
             print_props(args, device)
 
         if args.unbind:
