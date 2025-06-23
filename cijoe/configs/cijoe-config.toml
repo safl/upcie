@@ -21,6 +21,8 @@ branch = "wip"
 remote_alias = "guest"
 remote_path = "/root/git/upcie"
 
+[devices.pcie.'0000:04:00.0']
+
 # Used by: the qemu.*.py scripts
 [qemu]
 img_bin = "qemu-img"
