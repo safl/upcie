@@ -63,7 +63,7 @@ main(int argc, char **argv)
 	nvme_reg_csts_pr(ctrlr.csts);
 
 	{
-		uint64_t buf_phys, sq_phys, cq_phys;
+		uint64_t buf_phys;
 		uint32_t cc;
 
 		err = nvme_qp_init(&aq, 0, 256, &ctrlr);
@@ -71,15 +71,9 @@ main(int argc, char **argv)
 			return -err;
 		}
 
-		sq_phys = hostmem_dma_v2p(aq.sq);
-		cq_phys = hostmem_dma_v2p(aq.cq);
 		buf_phys = hostmem_dma_v2p(buf);
 
-		printf("asq(0x%" PRIx64 ")\n", sq_phys);
-		printf("acq(0x%" PRIx64 ")\n", cq_phys);
-		printf("buf(0x%" PRIx64 ")\n", buf_phys);
-
-		nvme_mmio_aq_setup(bar0, sq_phys, cq_phys, aq.depth);
+		nvme_mmio_aq_setup(bar0, hostmem_dma_v2p(aq.sq), hostmem_dma_v2p(aq.cq), aq.depth);
 
 		// cc = ctrlr.cc;
 		cc = 0;
