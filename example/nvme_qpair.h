@@ -1,4 +1,4 @@
-struct nvme_qp {
+struct nvme_qpair {
 	void *sq;	///< VA-Pointer to DMA-capable memory backing the Submission Queue (SQ)
 	void *cq;	///< VA-Pointer to DMA-capable memory backing the Completion Queue (CQ)
 	void *sqdb;	///< Pointer to Submission Queue Doorbell Register in bar0
@@ -11,7 +11,7 @@ struct nvme_qp {
 };
 
 static inline void
-nvme_qp_term(struct nvme_qp *qp)
+nvme_qpair_term(struct nvme_qpair *qp)
 {
 	hostmem_dma_free(qp->sq);
 	hostmem_dma_free(qp->cq);
@@ -21,7 +21,7 @@ nvme_qp_term(struct nvme_qp *qp)
  * Initialize a queue-pair on the given controller
  */
 static inline int
-nvme_qp_init(struct nvme_qp *qp, uint32_t qid, uint16_t depth, struct nvme_controller *ctrlr)
+nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, struct nvme_controller *ctrlr)
 {
 	uint8_t *bar0 = ctrlr->bar0;
 
@@ -63,7 +63,7 @@ nvme_qp_init(struct nvme_qp *qp, uint32_t qid, uint16_t depth, struct nvme_contr
  * @return On success 0 is returned. On error then negative errno is set to indicate the error.
  */
 static inline int
-nvme_qp_submit(struct nvme_qp *qp, struct nvme_request_pool *pool, struct nvme_command *cmd,
+nvme_qpair_submit(struct nvme_qpair *qp, struct nvme_request_pool *pool, struct nvme_command *cmd,
 	       void *user)
 {
 	volatile struct nvme_command *sq = qp->sq;
@@ -93,7 +93,7 @@ nvme_qp_submit(struct nvme_qp *qp, struct nvme_request_pool *pool, struct nvme_c
  * @return Pointer to a valid completion, or NULL on timeout.
  */
 static inline struct nvme_completion *
-nvme_qp_reap_cpl(struct nvme_qp *qp, int timeout_us)
+nvme_qpair_reap_cpl(struct nvme_qpair *qp, int timeout_us)
 {
 	struct nvme_completion *cq = qp->cq;
 
@@ -125,7 +125,7 @@ nvme_qp_reap_cpl(struct nvme_qp *qp, int timeout_us)
  * Write the SQ doorbell
  */
 static inline void
-nvme_qp_sqdb_ring(struct nvme_qp *qp)
+nvme_qpair_sqdb_ring(struct nvme_qpair *qp)
 {
 	mmio_write32(qp->sqdb, 0, qp->tail);
 }

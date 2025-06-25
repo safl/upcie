@@ -15,7 +15,7 @@ struct nvme_device {
 	struct pci_func func; ///< The PCIe function and mapped bars
 	struct nvme_controller ctrlr;
 	struct nvme_request_pool aqrp;
-	struct nvme_qp aq;
+	struct nvme_qpair aq;
 	void *buf;
 };
 
@@ -74,9 +74,9 @@ nvme_device_open(struct nvme_device *dev, const char *bdf)
 
 	dev->ctrlr.csts = nvme_mmio_csts_read(dev->ctrlr.bar0);
 
-	err = nvme_qp_init(&dev->aq, 0, 256, &dev->ctrlr);
+	err = nvme_qpair_init(&dev->aq, 0, 256, &dev->ctrlr);
 	if (err) {
-		printf("FAILED: nvme_qp_init(); err(%d)\n", err);
+		printf("FAILED: nvme_qpair_init(); err(%d)\n", err);
 		return -err;
 	}
 
@@ -136,10 +136,10 @@ main(int argc, char **argv)
 
 		printf("cmd.prp1(0x%" PRIx64 ")\n", cmd.prp1);
 
-		nvme_qp_submit(&dev.aq, &dev.aqrp, &cmd, NULL);
-		nvme_qp_sqdb_ring(&dev.aq);
+		nvme_qpair_submit(&dev.aq, &dev.aqrp, &cmd, NULL);
+		nvme_qpair_sqdb_ring(&dev.aq);
 
-		cpl = nvme_qp_reap_cpl(&dev.aq, dev.ctrlr.timeout_ms);
+		cpl = nvme_qpair_reap_cpl(&dev.aq, dev.ctrlr.timeout_ms);
 		if (!cpl) {
 			printf("NO COMPLETION!\n");
 			return -EIO;
