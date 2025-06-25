@@ -1,8 +1,9 @@
 struct nvme_controller {
-	void *bar0;    ///< Pointer to the BAR-region of the controller
-	uint32_t csts; ///< Controller Status
-	uint32_t cap;  ///< Controller Capabilities
-	uint32_t cc;   ///< Controller configuration
+	void *bar0; ///< Pointer to the memory-mapped BAR-region of the controller for mmio
+
+	uint32_t csts; ///< Controller Status Register Value
+	uint32_t cap;  ///< Controller Capabilities Register Value
+	uint32_t cc;   ///< Controller configuration Register Value
 
 	uint8_t dstrd_nbytes; ///< Doorbell stride in bytes
 	int timeout_ms;	      ///< Timeout in milliseconds
@@ -11,7 +12,7 @@ struct nvme_controller {
 void
 nvme_controller_close(struct nvme_controller *ctrlr)
 {
-	ctrlr->bar0 = NULL;
+	memset(ctrlr, 0, sizeof(*ctrlr));
 }
 
 /**
