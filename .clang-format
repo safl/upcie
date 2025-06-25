@@ -1,4 +1,5 @@
 BasedOnStyle: LLVM
+SortIncludes: false
 ColumnLimit: 100
 IndentWidth: 8
 UseTab: Always
