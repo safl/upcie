@@ -88,7 +88,7 @@ nvme_device_open(struct nvme_device *dev, const char *bdf)
 	cc = nvme_reg_cc_set_mps(cc, 0x0);
 	cc = nvme_reg_cc_set_ams(cc, 0x0);
 	cc = nvme_reg_cc_set_iosqes(cc, 6);
-	cc = nvme_reg_cc_set_iocqes(cc, 6);
+	cc = nvme_reg_cc_set_iocqes(cc, 4);
 	cc = nvme_reg_cc_set_en(cc, 0x1);
 
 	nvme_mmio_cc_write(dev->ctrlr.bar0, cc);
