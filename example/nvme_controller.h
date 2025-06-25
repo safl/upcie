@@ -3,6 +3,9 @@ struct nvme_controller {
 	uint32_t csts; ///< Controller Status
 	uint32_t cap;  ///< Controller Capabilities
 	uint32_t cc;   ///< Controller configuration
+
+	uint8_t dstrd_nbytes; ///< Doorbell stride in bytes
+	int timeout_ms;	      ///< Timeout in milliseconds
 };
 
 void
@@ -25,6 +28,9 @@ nvme_controller_open(struct nvme_controller *ctrlr, void *bar0)
 	ctrlr->cc = nvme_mmio_cc_read(ctrlr->bar0);
 	ctrlr->cap = nvme_mmio_cap_read(ctrlr->bar0);
 	ctrlr->csts = nvme_mmio_csts_read(ctrlr->bar0);
+
+	ctrlr->timeout_ms = nvme_reg_cap_get_to(ctrlr->cap) * 500;
+	ctrlr->dstrd_nbytes = 1U << (2 + nvme_reg_cap_get_dstrd(ctrlr->cap));
 
 	return 0;
 }
