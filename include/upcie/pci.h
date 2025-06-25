@@ -46,10 +46,10 @@ struct pci_idents {
  * Encapsulation of a PCI BAR region mapping
  */
 struct pci_func_bar {
-	uint64_t size;	 ///< The size of the BAR region
-	uint8_t *region; ///< Pointer to mmap'ed BAR region
-	uint8_t id;	 ///< One of the six BARs; [0-5]
-	int fd;		 ///< Handle to file-representation
+	uint64_t size; ///< The size of the BAR region
+	void *region;  ///< Pointer to mmap'ed BAR region
+	uint8_t id;    ///< One of the six BARs; [0-5]
+	int fd;	       ///< Handle to file-representation
 };
 
 struct pci_func {
