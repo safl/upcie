@@ -10,7 +10,7 @@ struct nvme_controller {
 };
 
 void
-nvme_controller_close(struct nvme_controller *ctrlr)
+nvme_controller_term(struct nvme_controller *ctrlr)
 {
 	memset(ctrlr, 0, sizeof(*ctrlr));
 }
@@ -23,7 +23,7 @@ nvme_controller_close(struct nvme_controller *ctrlr)
  * not NVMe logic per-se.
  */
 int
-nvme_controller_open(struct nvme_controller *ctrlr, void *bar0)
+nvme_controller_init(struct nvme_controller *ctrlr, void *bar0)
 {
 	ctrlr->bar0 = bar0;
 	ctrlr->cc = nvme_mmio_cc_read(ctrlr->bar0);

@@ -23,7 +23,7 @@ void
 nvme_device_close(struct nvme_device *dev)
 {
 	hostmem_dma_free(dev->buf);
-	nvme_controller_close(&dev->ctrlr);
+	nvme_controller_term(&dev->ctrlr);
 	pci_func_close(&dev->func);
 }
 
@@ -57,7 +57,7 @@ nvme_device_open(struct nvme_device *dev, const char *bdf)
 		return -err;
 	}
 
-	err = nvme_controller_open(&dev->ctrlr, dev->func.bars[0].region);
+	err = nvme_controller_init(&dev->ctrlr, dev->func.bars[0].region);
 	if (err) {
 		return -errno;
 	}
