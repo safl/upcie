@@ -63,7 +63,7 @@ nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, struct nvme
  */
 static inline int
 nvme_qpair_submit(struct nvme_qpair *qp, struct nvme_request_pool *pool, struct nvme_command *cmd,
-	       void *user)
+		  void *user)
 {
 	volatile struct nvme_command *sq = qp->sq;
 	struct nvme_request *req;
@@ -91,17 +91,16 @@ nvme_qpair_submit(struct nvme_qpair *qp, struct nvme_request_pool *pool, struct 
  *
  * @return Pointer to a valid completion, or NULL on timeout.
  */
-static inline struct nvme_completion *
-nvme_qpair_reap_cpl(struct nvme_qpair *qp, int timeout_us)
+static inline int
+nvme_qpair_reap_cpl(struct nvme_qpair *qp, int timeout_us, struct nvme_completion *cpl)
 {
 	struct nvme_completion *cq = qp->cq;
 
 	for (int i = 0; i < timeout_us; ++i) {
-		volatile struct nvme_completion *cpl = &cq[qp->head];
+		struct nvme_completion *cqe = &cq[qp->head];
 
-		if ((cpl->cid < 0xFFFF) && ((cpl->status & 0x1) == qp->phase)) {
-			// Valid completion found
-			struct nvme_completion *ret = (struct nvme_completion *)cpl;
+		if ((cqe->cid < 0xFFFF) && ((cqe->status & 0x1) == qp->phase)) {
+			*cpl = *cqe;
 
 			// Advance CQ head and toggle phase if wrapping
 			qp->head++;
@@ -111,13 +110,13 @@ nvme_qpair_reap_cpl(struct nvme_qpair *qp, int timeout_us)
 			}
 
 			mmio_write32(qp->cqdb, 0, qp->head);
-			return ret;
+			return 0;
 		}
 
 		usleep(1000);
 	}
 
-	return NULL;
+	return -EAGAIN;
 }
 
 /**
@@ -127,4 +126,31 @@ static inline void
 nvme_qpair_sqdb_ring(struct nvme_qpair *qp)
 {
 	mmio_write32(qp->sqdb, 0, qp->tail);
+}
+
+/**
+ * Submits the given command, notifies the controller, and waits for the completion
+ */
+static inline int
+nvme_qpair_submit_sync(struct nvme_qpair *qp, struct nvme_request_pool *qprp,
+		       struct nvme_command *cmd, int timeout_us, struct nvme_completion *cpl)
+{
+	int err;
+	
+	err = nvme_qpair_submit(qp, qprp, cmd, NULL);
+	if (err) {
+		return -err;
+	}
+	nvme_qpair_sqdb_ring(qp);
+
+	err = nvme_qpair_reap_cpl(qp, timeout_us, cpl);
+	if (err) {
+		return -err;
+	}
+
+	if (cpl->status & 0x1FE) {
+		err = -EIO;
+	}
+
+	return err;
 }

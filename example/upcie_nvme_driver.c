@@ -16,7 +16,7 @@ struct nvme_device {
 	struct nvme_controller ctrlr;  ///< Controller bar, register and derived values
 	struct nvme_request_pool aqrp; ///< Request pool for the admin-queue
 	struct nvme_qpair aq;	       ///< Admin qpair
-	void *buf;
+	void *buf;		       ///< IO-buffer for identify-commands, io-qpair-creation etc.
 };
 
 void
@@ -129,28 +129,23 @@ main(int argc, char **argv)
 
 	{
 		struct nvme_command cmd = {0};
-		struct nvme_completion *cpl;
+		struct nvme_completion cpl = {0};
 
 		cmd.opc = 0x6; ///< IDENTIFY
-		cmd.cid = 0x1;
 		cmd.prp1 = hostmem_dma_v2p(dev.buf);
 		cmd.cdw10 = 1; // CNS=1: Identify Controller
 
-		printf("cmd.prp1(0x%" PRIx64 ")\n", cmd.prp1);
-
-		nvme_qpair_submit(&dev.aq, &dev.aqrp, &cmd, NULL);
-		nvme_qpair_sqdb_ring(&dev.aq);
-
-		cpl = nvme_qpair_reap_cpl(&dev.aq, dev.ctrlr.timeout_ms);
-		if (!cpl) {
-			printf("NO COMPLETION!\n");
-			return -EIO;
+		err = nvme_qpair_submit_sync(&dev.aq, &dev.aqrp, &cmd, dev.ctrlr.timeout_ms, &cpl);
+		if (err) {
+			printf("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
+			goto exit;
 		}
 	}
 
 	printf("SN('%.*s')\n", 20, ((uint8_t *)dev.buf) + 4);
 	printf("MN('%.*s')\n", 40, ((uint8_t *)dev.buf) + 24);
 
+exit:
 	nvme_device_close(&dev);
 
 	return 0;
