@@ -16,7 +16,6 @@ struct nvme_device {
 	struct nvme_controller ctrlr;
 	struct nvme_request_pool pool;
 	struct nvme_qp aq;
-	int timeout_ms;
 	void *buf;
 };
 
@@ -65,11 +64,9 @@ nvme_device_open(struct nvme_device *dev, const char *bdf)
 
 	nvme_request_pool_init(&dev->pool);
 
-	dev->timeout_ms = nvme_reg_cap_get_to(dev->ctrlr.cap) * 500;
-
 	nvme_mmio_cc_disable(dev->ctrlr.bar0);
 
-	err = nvme_mmio_csts_wait_until_not_ready(dev->ctrlr.bar0, dev->timeout_ms);
+	err = nvme_mmio_csts_wait_until_not_ready(dev->ctrlr.bar0, dev->ctrlr.timeout_ms);
 	if (err) {
 		printf("FAILED: nvme_mmio_csts_wait_until_ready(); err(%d)\n", err);
 		return -err;
@@ -96,7 +93,7 @@ nvme_device_open(struct nvme_device *dev, const char *bdf)
 
 	nvme_mmio_cc_write(dev->ctrlr.bar0, cc);
 
-	err = nvme_mmio_csts_wait_until_ready(dev->ctrlr.bar0, dev->timeout_ms);
+	err = nvme_mmio_csts_wait_until_ready(dev->ctrlr.bar0, dev->ctrlr.timeout_ms);
 	if (err) {
 		printf("FAILED: nvme_mmio_csts_wait_until_ready(); err(%d)\n", err);
 		return -err;
@@ -142,7 +139,7 @@ main(int argc, char **argv)
 		nvme_qp_submit(&dev.aq, &dev.pool, &cmd, NULL);
 		nvme_qp_sqdb_ring(&dev.aq);
 
-		cpl = nvme_qp_reap_cpl(&dev.aq, dev.timeout_ms);
+		cpl = nvme_qp_reap_cpl(&dev.aq, dev.ctrlr.timeout_ms);
 		if (!cpl) {
 			printf("NO COMPLETION!\n");
 			return -EIO;
