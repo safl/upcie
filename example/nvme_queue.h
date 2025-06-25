@@ -23,11 +23,10 @@ nvme_qp_term(struct nvme_qp *qp)
 static inline int
 nvme_qp_init(struct nvme_qp *qp, uint32_t qid, uint16_t depth, struct nvme_controller *ctrlr)
 {
-	uint8_t dstrd_nbytes = 1U << (2 + nvme_reg_cap_get_dstrd(ctrlr->cap));
-	uint8_t *region = ctrlr->bar0;
+	uint8_t *bar0 = ctrlr->bar0;
 
-	qp->sqdb = region + 0x1000 + (2 * qid) * dstrd_nbytes;
-	qp->cqdb = region + 0x1000 + (2 * qid + 1) * dstrd_nbytes;
+	qp->sqdb = bar0 + 0x1000 + (2 * qid) * ctrlr->dstrd_nbytes;
+	qp->cqdb = bar0 + 0x1000 + (2 * qid + 1) * ctrlr->dstrd_nbytes;
 	qp->qid = qid;
 	qp->tail = 0;
 	qp->head = 0;
