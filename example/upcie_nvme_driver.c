@@ -8,94 +8,111 @@
 #include <nvme_request.h>
 #include <nvme_queue.h>
 
+/**
+ * This is one way of combining the various components needed
+ */
+struct nvme_device {
+	struct nvme_controller ctrlr;
+	struct nvme_request_pool pool;
+	struct nvme_qp aq;
+	int timeout_ms;
+	void *buf;
+};
+
+void
+nvme_device_close(struct nvme_device *dev)
+{
+	hostmem_dma_free(dev->buf);
+	nvme_controller_close(&dev->ctrlr);
+}
+
+/**
+ * Disables the NVMe controller at 'bdf', sets up admin-queues and enables it again
+ */
+int
+nvme_device_open(struct nvme_device *dev, const char *bdf)
+{
+	uint32_t cc = 0;
+	int err;
+
+	memset(dev, 0, sizeof(*dev));
+
+	dev->buf = hostmem_dma_malloc(4096);
+	if (!dev->buf) {
+		printf("FAILED: hostmem_dma_malloc(buf); errno(%d)\n", errno);
+		return -errno;
+	}
+	memset(dev->buf, 0, 4096);
+
+	err = nvme_controller_open(bdf, &dev->ctrlr);
+	if (err) {
+		return -errno;
+	}
+
+	nvme_request_pool_init(&dev->pool);
+
+	dev->timeout_ms = nvme_reg_cap_get_to(dev->ctrlr.cap) * 500;
+
+	nvme_mmio_cc_disable(dev->ctrlr.bar0);
+
+	err = nvme_mmio_csts_wait_until_not_ready(dev->ctrlr.bar0, dev->timeout_ms);
+	if (err) {
+		printf("FAILED: nvme_mmio_csts_wait_until_ready(); err(%d)\n", err);
+		return -err;
+	}
+
+	dev->ctrlr.csts = nvme_mmio_csts_read(dev->ctrlr.bar0);
+
+	err = nvme_qp_init(&dev->aq, 0, 256, &dev->ctrlr);
+	if (err) {
+		printf("FAILED: nvme_qp_init(); err(%d)\n", err);
+		return -err;
+	}
+
+	nvme_mmio_aq_setup(dev->ctrlr.bar0, hostmem_dma_v2p(dev->aq.sq),
+			   hostmem_dma_v2p(dev->aq.cq), dev->aq.depth);
+
+	cc = nvme_reg_cc_set_css(cc, 0x0);
+	cc = nvme_reg_cc_set_shn(cc, 0x0);
+	cc = nvme_reg_cc_set_mps(cc, 0x0);
+	cc = nvme_reg_cc_set_ams(cc, 0x0);
+	cc = nvme_reg_cc_set_iosqes(cc, 6);
+	cc = nvme_reg_cc_set_iocqes(cc, 6);
+	cc = nvme_reg_cc_set_en(cc, 0x1);
+
+	nvme_mmio_cc_write(dev->ctrlr.bar0, cc);
+
+	err = nvme_mmio_csts_wait_until_ready(dev->ctrlr.bar0, dev->timeout_ms);
+	if (err) {
+		printf("FAILED: nvme_mmio_csts_wait_until_ready(); err(%d)\n", err);
+		return -err;
+	}
+
+	return 0;
+}
+
 int
 main(int argc, char **argv)
 {
-	struct nvme_controller ctrlr = {0};
-	struct nvme_request_pool pool = {0};
-	struct nvme_qp aq = {0};
-	void *buf, *bar0;
-	int timeout_ms, err;
+	struct nvme_device dev = {0};
+	int err;
 
 	if (argc != 2) {
 		printf("Usage: %s <PCI-BDF>\n", argv[0]);
 		return 1;
 	}
 
-	nvme_request_pool_init(&pool);
-
 	err = hostmem_dma_init(1024 * 1024 * 128ULL);
 	if (err) {
-		printf("failed hostmem_dma_init(); err(%d)\n", err);
+		printf("FAILED: hostmem_dma_init(); err(%d)\n", err);
 		return -err;
 	}
 
-	buf = hostmem_dma_malloc(4096);
-	if (!buf) {
-		printf("failed hostmem_dma_malloc(buf); errno(%d)\n", errno);
-		return -errno;
-	}
-	memset(buf, 0, 4096);
-
-	err = nvme_controller_open(argv[1], &ctrlr);
+	err = nvme_device_open(&dev, argv[1]);
 	if (err) {
-		return -errno;
-	}
-	bar0 = ctrlr.bar0;
-	timeout_ms = nvme_reg_cap_get_to(ctrlr.cap) * 500;
-
-	printf("# Starting controller initialization...\n");
-	nvme_reg_csts_pr(ctrlr.csts);
-
-	printf("# Disabling...\n");
-	nvme_mmio_cc_disable(bar0);
-
-	printf("# Wait until not ready...\n");
-	err = nvme_mmio_csts_wait_until_not_ready(bar0, timeout_ms);
-	if (err) {
-		printf("FAILED: nvme_mmio_csts_wait_until_ready(); err(%d)\n", err);
+		printf("FAILED: nvme_device_open(); err(%d)\n", err);
 		return -err;
 	}
-	printf("# SUCCESS\n");
-
-	printf("# Status\n");
-	ctrlr.csts = nvme_mmio_csts_read(bar0);
-	nvme_reg_csts_pr(ctrlr.csts);
-
-	{
-		uint64_t buf_phys;
-		uint32_t cc;
-
-		err = nvme_qp_init(&aq, 0, 256, &ctrlr);
-		if (err) {
-			return -err;
-		}
-
-		buf_phys = hostmem_dma_v2p(buf);
-
-		nvme_mmio_aq_setup(bar0, hostmem_dma_v2p(aq.sq), hostmem_dma_v2p(aq.cq), aq.depth);
-
-		// cc = ctrlr.cc;
-		cc = 0;
-		cc = nvme_reg_cc_set_css(cc, 0x0);
-		cc = nvme_reg_cc_set_shn(cc, 0x0);
-		cc = nvme_reg_cc_set_mps(cc, 0x0);
-		cc = nvme_reg_cc_set_ams(cc, 0x0);
-		cc = nvme_reg_cc_set_iosqes(cc, 6);
-		cc = nvme_reg_cc_set_iocqes(cc, 6);
-		cc = nvme_reg_cc_set_en(cc, 0x1);
-
-		printf("# Enabling cc(0x%" PRIx32 ")...\n", cc);
-		nvme_mmio_cc_write(bar0, cc);
-	}
-
-	printf("# Enabling... wait for it...\n");
-	err = nvme_mmio_csts_wait_until_ready(bar0, timeout_ms);
-	if (err) {
-		printf("FAILED: nvme_mmio_csts_wait_until_ready(); err(%d)\n", err);
-		return -err;
-	}
-	printf("# Enabled!\n");
 
 	{
 		struct nvme_command cmd = {0};
@@ -103,34 +120,25 @@ main(int argc, char **argv)
 
 		cmd.opc = 0x6; ///< IDENTIFY
 		cmd.cid = 0x1;
-		cmd.prp1 = hostmem_dma_v2p(buf);
+		cmd.prp1 = hostmem_dma_v2p(dev.buf);
 		cmd.cdw10 = 1; // CNS=1: Identify Controller
 
 		printf("cmd.prp1(0x%" PRIx64 ")\n", cmd.prp1);
 
-		nvme_qp_submit(&aq, &pool, &cmd, NULL);
-		nvme_qp_sqdb_ring(&aq);
+		nvme_qp_submit(&dev.aq, &dev.pool, &cmd, NULL);
+		nvme_qp_sqdb_ring(&dev.aq);
 
-		cpl = nvme_qp_reap_cpl(&aq, timeout_ms);
+		cpl = nvme_qp_reap_cpl(&dev.aq, dev.timeout_ms);
 		if (!cpl) {
 			printf("NO COMPLETION!\n");
 			return -EIO;
 		}
 	}
 
-	printf("DATA\n");
-	for (int i = 0; i < 4096; ++i) {
-		uint8_t val = ((uint8_t *)buf)[i];
+	printf("SN('%.*s')\n", 20, ((uint8_t *)dev.buf) + 4);
+	printf("MN('%.*s')\n", 40, ((uint8_t *)dev.buf) + 24);
 
-		if (val) {
-			printf("i(%d): 0x%d\n", i, val);
-		}
-	}
-
-	printf("SN('%.*s')\n", 20, ((uint8_t *)buf) + 4);
-	printf("MN('%.*s')\n", 40, ((uint8_t *)buf) + 24);
-
-	nvme_controller_close(&ctrlr);
+	nvme_device_close(&dev);
 
 	return 0;
 }
