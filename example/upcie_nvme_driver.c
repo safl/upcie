@@ -14,7 +14,7 @@
 struct nvme_device {
 	struct pci_func func; ///< The PCIe function and mapped bars
 	struct nvme_controller ctrlr;
-	struct nvme_request_pool pool;
+	struct nvme_request_pool aqrp;
 	struct nvme_qp aq;
 	void *buf;
 };
@@ -62,7 +62,7 @@ nvme_device_open(struct nvme_device *dev, const char *bdf)
 		return -errno;
 	}
 
-	nvme_request_pool_init(&dev->pool);
+	nvme_request_pool_init(&dev->aqrp);
 
 	nvme_mmio_cc_disable(dev->ctrlr.bar0);
 
@@ -136,7 +136,7 @@ main(int argc, char **argv)
 
 		printf("cmd.prp1(0x%" PRIx64 ")\n", cmd.prp1);
 
-		nvme_qp_submit(&dev.aq, &dev.pool, &cmd, NULL);
+		nvme_qp_submit(&dev.aq, &dev.aqrp, &cmd, NULL);
 		nvme_qp_sqdb_ring(&dev.aq);
 
 		cpl = nvme_qp_reap_cpl(&dev.aq, dev.ctrlr.timeout_ms);
