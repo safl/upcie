@@ -6,7 +6,7 @@
 #include <nvme_command.h>
 #include <nvme_controller.h>
 #include <nvme_request.h>
-#include <nvme_queue.h>
+#include <nvme_qpair.h>
 
 /**
  * This is one way of combining the various components needed
