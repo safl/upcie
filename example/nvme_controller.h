@@ -7,6 +7,8 @@ struct nvme_controller {
 
 	uint8_t dstrd_nbytes; ///< Doorbell stride in bytes
 	int timeout_ms;	      ///< Timeout in milliseconds
+	int iosqes_nbytes;    ///< IO-Submission-Queue Entry Size in bytes
+	int iocqes_nbytes;    ///< IO-Completion-Queue Entry Size in bytes
 };
 
 void
@@ -27,6 +29,8 @@ nvme_controller_refresh_register_values(struct nvme_controller *ctrlr)
 
 	ctrlr->timeout_ms = nvme_reg_cap_get_to(ctrlr->cap) * 500;
 	ctrlr->dstrd_nbytes = 1U << (2 + nvme_reg_cap_get_dstrd(ctrlr->cap));
+	ctrlr->iosqes_nbytes = nvme_reg_cc_get_iosqes(ctrlr->cc);
+	ctrlr->iocqes_nbytes = nvme_reg_cc_get_iocqes(ctrlr->cc);
 }
 
 /**
