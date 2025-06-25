@@ -1,15 +1,13 @@
 struct nvme_controller {
-	void *bar0;	      ///< Pointer to the BAR-region of the controller
-	uint32_t csts;	      ///< Controller Status
-	uint32_t cap;	      ///< Controller Capabilities
-	uint32_t cc;	      ///< Controller configuration
-	struct pci_func func; ///< The PCIe function and mapped bars
+	void *bar0;    ///< Pointer to the BAR-region of the controller
+	uint32_t csts; ///< Controller Status
+	uint32_t cap;  ///< Controller Capabilities
+	uint32_t cc;   ///< Controller configuration
 };
 
 void
 nvme_controller_close(struct nvme_controller *ctrlr)
 {
-	pci_func_close(&ctrlr->func);
 	ctrlr->bar0 = NULL;
 }
 
@@ -21,23 +19,9 @@ nvme_controller_close(struct nvme_controller *ctrlr)
  * not NVMe logic per-se.
  */
 int
-nvme_controller_open(const char *bdf, struct nvme_controller *ctrlr)
+nvme_controller_open(struct nvme_controller *ctrlr, void *bar0)
 {
-	int err;
-
-	err = pci_func_open(bdf, &ctrlr->func);
-	if (err) {
-		printf("Failed to open PCI device: %s\n", bdf);
-		return -err;
-	}
-
-	err = pci_bar_map(ctrlr->func.bdf, 0, &ctrlr->func.bars[0]);
-	if (err) {
-		printf("Failed to map BAR0\n");
-		return -err;
-	}
-
-	ctrlr->bar0 = ctrlr->func.bars[0].region;
+	ctrlr->bar0 = bar0;
 	ctrlr->cc = nvme_mmio_cc_read(ctrlr->bar0);
 	ctrlr->cap = nvme_mmio_cap_read(ctrlr->bar0);
 	ctrlr->csts = nvme_mmio_csts_read(ctrlr->bar0);

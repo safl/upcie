@@ -12,6 +12,7 @@
  * This is one way of combining the various components needed
  */
 struct nvme_device {
+	struct pci_func func; ///< The PCIe function and mapped bars
 	struct nvme_controller ctrlr;
 	struct nvme_request_pool pool;
 	struct nvme_qp aq;
@@ -24,6 +25,7 @@ nvme_device_close(struct nvme_device *dev)
 {
 	hostmem_dma_free(dev->buf);
 	nvme_controller_close(&dev->ctrlr);
+	pci_func_close(&dev->func);
 }
 
 /**
@@ -44,7 +46,19 @@ nvme_device_open(struct nvme_device *dev, const char *bdf)
 	}
 	memset(dev->buf, 0, 4096);
 
-	err = nvme_controller_open(bdf, &dev->ctrlr);
+	err = pci_func_open(bdf, &dev->func);
+	if (err) {
+		printf("Failed to open PCI device: %s\n", bdf);
+		return -err;
+	}
+
+	err = pci_bar_map(dev->func.bdf, 0, &dev->func.bars[0]);
+	if (err) {
+		printf("Failed to map BAR0\n");
+		return -err;
+	}
+
+	err = nvme_controller_open(&dev->ctrlr, dev->func.bars[0].region);
 	if (err) {
 		return -errno;
 	}
