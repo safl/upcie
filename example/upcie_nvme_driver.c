@@ -12,10 +12,10 @@
  * This is one way of combining the various components needed
  */
 struct nvme_device {
-	struct pci_func func; ///< The PCIe function and mapped bars
-	struct nvme_controller ctrlr;
-	struct nvme_request_pool aqrp;
-	struct nvme_qpair aq;
+	struct pci_func func;	       ///< The PCIe function and mapped bars
+	struct nvme_controller ctrlr;  ///< Controller bar, register and derived values
+	struct nvme_request_pool aqrp; ///< Request pool for the admin-queue
+	struct nvme_qpair aq;	       ///< Admin qpair
 	void *buf;
 };
 
