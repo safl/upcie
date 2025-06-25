@@ -99,6 +99,8 @@ nvme_device_open(struct nvme_device *dev, const char *bdf)
 		return -err;
 	}
 
+	nvme_controller_refresh_register_values(&dev->ctrlr);
+
 	return 0;
 }
 
