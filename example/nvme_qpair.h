@@ -49,40 +49,6 @@ nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, struct nvme
 }
 
 /**
- * Submits a command to an NVMe submission queue
- *
- * That is, writes it into the submission queue memory and increments the tail-pointer. Note that
- * 'cmd' will be modified by assignment of command-identifier.
- *
- * @param qp The queue-pair
- * @param cmd Command to submit
- * @param pool Request pool used to allocate a new CID
- * @param user Optional opaque pointer returned on completion
- *
- * @return On success 0 is returned. On error then negative errno is set to indicate the error.
- */
-static inline int
-nvme_qpair_submit(struct nvme_qpair *qp, struct nvme_request_pool *pool, struct nvme_command *cmd,
-		  void *user)
-{
-	volatile struct nvme_command *sq = qp->sq;
-	struct nvme_request *req;
-
-	req = nvme_request_alloc(pool);
-	if (!req) {
-		return -ENOSPC;
-	}
-
-	req->user = user;
-	cmd->cid = req->cid;
-	sq[qp->tail] = *cmd;
-
-	qp->tail = (qp->tail + 1) % qp->depth;
-
-	return 0;
-}
-
-/**
  * Reaps at most a single completion and informs the controller via qp->cqdb
  *
  * @param qp A queue-pair as represented by 'struct nvme_qp'
@@ -126,6 +92,40 @@ static inline void
 nvme_qpair_sqdb_ring(struct nvme_qpair *qp)
 {
 	mmio_write32(qp->sqdb, 0, qp->tail);
+}
+
+/**
+ * Submits a command to an NVMe submission queue
+ *
+ * That is, writes it into the submission queue memory and increments the tail-pointer. Note that
+ * 'cmd' will be modified by assignment of command-identifier.
+ *
+ * @param qp The queue-pair
+ * @param cmd Command to submit
+ * @param pool Request pool used to allocate a new CID
+ * @param user Optional opaque pointer returned on completion
+ *
+ * @return On success 0 is returned. On error then negative errno is set to indicate the error.
+ */
+static inline int
+nvme_qpair_submit(struct nvme_qpair *qp, struct nvme_request_pool *pool, struct nvme_command *cmd,
+		  void *user)
+{
+	volatile struct nvme_command *sq = qp->sq;
+	struct nvme_request *req;
+
+	req = nvme_request_alloc(pool);
+	if (!req) {
+		return -ENOSPC;
+	}
+
+	req->user = user;
+	cmd->cid = req->cid;
+	sq[qp->tail] = *cmd;
+
+	qp->tail = (qp->tail + 1) % qp->depth;
+
+	return 0;
 }
 
 /**
