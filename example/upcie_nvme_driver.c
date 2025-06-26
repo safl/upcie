@@ -6,6 +6,7 @@
 #include <nvme_command.h>
 #include <nvme_controller.h>
 #include <nvme_request.h>
+#include <nvme_qid.h>
 #include <nvme_qpair.h>
 
 /**
@@ -17,6 +18,8 @@ struct nvme_device {
 	struct nvme_request_pool aqrp; ///< Request pool for the admin-queue
 	struct nvme_qpair aq;	       ///< Admin qpair
 	void *buf;		       ///< IO-buffer for identify-commands, io-qpair-creation etc.
+
+	uint64_t qids[NVME_QID_BITMAP_WORDS]; ///< Allocation status of IO queues
 };
 
 void
@@ -101,8 +104,21 @@ nvme_device_open(struct nvme_device *dev, const char *bdf)
 
 	nvme_controller_refresh_register_values(&dev->ctrlr);
 
+	nvme_qid_bitmap_init(dev->qids);
+
 	return 0;
 }
+
+/**
+ * Allocates a submission-queue, a completion-queue, and wraps them in the nvme_qpair struct
+int
+nvme_device_create_io_qpair(struct nvme_device *dev, struct nvme_qpair *qpair)
+{
+	// Check ioq-bitmap
+
+	nvme_qpair_init(qpair, qid, 32, dev->ctrlr);
+}
+ */
 
 int
 main(int argc, char **argv)

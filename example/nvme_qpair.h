@@ -1,3 +1,6 @@
+/**
+ * See also nvme_qid.h for allocation of qid
+ */
 struct nvme_qpair {
 	void *sq;	///< VA-Pointer to DMA-capable memory backing the Submission Queue (SQ)
 	void *cq;	///< VA-Pointer to DMA-capable memory backing the Completion Queue (CQ)
@@ -136,7 +139,7 @@ nvme_qpair_submit_sync(struct nvme_qpair *qp, struct nvme_request_pool *qprp,
 		       struct nvme_command *cmd, int timeout_us, struct nvme_completion *cpl)
 {
 	int err;
-	
+
 	err = nvme_qpair_submit(qp, qprp, cmd, NULL);
 	if (err) {
 		return -err;
