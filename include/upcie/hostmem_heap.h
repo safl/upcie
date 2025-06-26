@@ -2,41 +2,42 @@
 // Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
 
 /**
-  Heap-based memory allocator backed by hugepages for DMA in user-space drivers
-  -----------------------------------------------------------------------------
-
-  * hostmem_heap_init() / hostmem_heap_term()
-  * hostmem_heap_block_alloc() / hostmem_heap_block_alloc_aligned() / hostmem_heap_block_free()
-  * hostmem_heap_block_virt_to_phys()
-
-  Caveat: system setup
-  --------------------
-
-  The library makes use of memfd_create(MFD_HUGETLB), however, you still need to allocate them
-  yourself. That is, have a system setup step than makes hugepages available, such as:
-
-    echo 128 | tee -a /proc/sys/vm/nr_hugepages
-    ulimit -l unlimited
-
-  Thus, a utility for this similar to devbind.py is needed. This is what we have today with
-  'xnvme-driver', however, we want something simpler.
-
-  Caveat: CAP_SYS_ADMIN
-  ---------------------
-
-  Reading /proc/self/pagemap requires CAP_SYS_ADMIN, so hostmem_virt_to_phys() cannot be used by
-  non-privileged users. Therefore, any process needing DMA via this allocator must run as root.
-
-  Possible Workaround: Since the allocator uses MAP_SHARED, a privileged "allocator-daemon" could
-  handle virt_to_phys translations and share the results via shared memory with unprivileged
-  clients. This allows integration into the heap with minimal complexity. Example:
-
-  After heap initialization, write the heap structure into hugepage memory. Because phys_lut[]
-  resolves all physical addresses of the backing hugepages, any process that imports the hugepage
-  also gains access to those physical addresses—without needing CAP_SYS_ADMIN.
-
-  @file hostmem.h
-*/
+ * Heap-based memory allocator backed by hugepages for DMA in user-space drivers
+ * =============================================================================
+ *
+ * - hostmem_heap_init() / hostmem_heap_term()
+ * - hostmem_heap_block_alloc() / hostmem_heap_block_alloc_aligned() / hostmem_heap_block_free()
+ * - hostmem_heap_block_virt_to_phys()
+ *
+ * Caveat: system setup
+ * --------------------
+ *
+ * The library makes use of memfd_create(MFD_HUGETLB), however, you still need to allocate them
+ * yourself. That is, have a system setup step than makes hugepages available, such as:
+ *
+ *    echo 128 | tee -a /proc/sys/vm/nr_hugepages
+ *    ulimit -l unlimited
+ *
+ * Thus, a utility for this similar to devbind.py is needed. This is what we have today with
+ * 'xnvme-driver', however, we want something simpler.
+ *
+ * Caveat: CAP_SYS_ADMIN
+ * ---------------------
+ *
+ * Reading /proc/self/pagemap requires CAP_SYS_ADMIN, so hostmem_virt_to_phys() cannot be used by
+ * non-privileged users. Therefore, any process needing DMA via this allocator must run as root.
+ *
+ * Possible Workaround: Since the allocator uses MAP_SHARED, a privileged "allocator-daemon" could
+ * handle virt_to_phys translations and share the results via shared memory with unprivileged
+ * clients. This allows integration into the heap with minimal complexity. Example:
+ *
+ * After heap initialization, write the heap structure into hugepage memory. Because phys_lut[]
+ * resolves all physical addresses of the backing hugepages, any process that imports the hugepage
+ * also gains access to those physical addresses—without needing CAP_SYS_ADMIN.
+ *
+ * @file hostmem.h
+ * @version 0.1.0
+ */
 
 /**
  * Representation of a memory-allocation as produced by

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
-//
 
 /**
  * NVMe MMIO operations wrapper: functions and bitfield accessors
@@ -19,7 +18,9 @@
  * only the minimal required field to be changed, and that other fields remain unmodified.
  *
  * @file nvme_mmio.h
+ * @version 0.1.0
  */
+
 #define NVME_REG_CAP 0x00
 #define NVME_REG_VS 0x08
 #define NVME_REG_INTMS 0x0C

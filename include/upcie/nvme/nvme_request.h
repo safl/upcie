@@ -1,10 +1,20 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
+
 /**
- * The 'struct nvme_request' introduced here is a software/driver-level abstraction, not construct
- * defined in the NVMe specification. The 'struct nvme_request' serves two purposes:
+ * Software Abstraction: struct nvme_request
+ * =========================================
  *
- * - Management of spec.compliant command-identifiers
- * - Encpsulation auxiliary data associated with each command as it is "inflight"
+ * The struct nvme_request defined here is a software-level abstraction, not a construct
+ * from the NVMe specification. It serves two main purposes:
+ *
+ * - Management of spec-compliant command identifiers
+ * - Encapsulation of auxiliary data associated with each command while it is "in flight"
+ *
+ * @file nvme_request.h
+ * @version 0.1.0
  */
+
 #define NVME_REQUEST_POOL_LEN 1024
 #define NVME_REQUEST_BITMAP_LEN (NVME_REQUEST_POOL_LEN / 64)
 

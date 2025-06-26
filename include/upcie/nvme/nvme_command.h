@@ -1,3 +1,17 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
+
+/**
+ * Rudimentary Representation of Commands and Completions
+ * ======================================================
+ *
+ * This header defines minimal representations of NVMe commands and their completions,
+ * suitable for low-level or embedded NVMe driver implementations.
+ *
+ * @file nvme_command.h
+ * @version 0.1.0
+ */
+
 struct nvme_completion {
 	uint32_t cdw0;
 	uint32_t rsvd;

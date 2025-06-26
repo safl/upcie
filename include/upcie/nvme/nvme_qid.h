@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
+
 /**
  * Bitmap-based tracking of NVMe I/O Queue Pair `qid` allocation
  * =============================================================
@@ -16,7 +19,9 @@
  * consume 512 bytes.
  *
  * @file nvme_qid.h
+ * @version 0.1.0
  */
+
 #define BITS_PER_WORD 64
 
 #define NVME_QID_MAX 0xFFFF

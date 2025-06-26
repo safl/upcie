@@ -2,7 +2,8 @@
 // Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
 
 /**
- * Helpers for 32-bit and 64-bit MMIO read/write access.
+ * Helpers for 32-bit and 64-bit MMIO read/write access
+ * ====================================================
  *
  * This header provides simple functions for accessing memory-mapped I/O (MMIO) regions, typically
  * used for interacting with device registers on PCIe devices. The accessors use `volatile`

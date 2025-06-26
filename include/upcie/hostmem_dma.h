@@ -58,6 +58,7 @@
  *   - Sub-hugepage contiguity enforcement
  *
  * @file hostmem_dma.h
+ * @version 0.1.0
  */
 
 struct hostmem_heap g_hostmem_dma = {0};

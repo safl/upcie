@@ -1,6 +1,33 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
+
 /**
- * See also nvme_qid.h for allocation of qid
+ * NVMe Queue Pair Abstraction
+ * ===========================
+ *
+ * This header defines a minimal software abstraction for managing NVMe queue pairs (SQ/CQ) in a
+ * user-space NVMe driver context. It provides basic functionality for queue setup, submission,
+ * completion handling, and doorbell notification.
+ *
+ * A queue pair is represented by 'struct nvme_qpair', which includes memory-mapped pointers to
+ * the submission and completion queues, doorbell registers, and associated tracking state (head,
+ * tail, phase).
+ *
+ * Key functions include:
+ *
+ * nvme_qpair_init():      Initializes a queue pair and allocates DMA memory for SQ/CQ.
+ * nvme_qpair_term():      Frees resources associated with a queue pair.
+ * nvme_qpair_reap_cpl():  Polls the CQ for a completion, updates head/phase, and rings CQ doorbell.
+ * nvme_qpair_sqdb_ring(): Notifies the controller by ringing the SQ doorbell.
+ * nvme_qpair_submit():    Enqueues a command into the SQ and assigns a CID.
+ * nvme_qpair_submit_sync(): Submits a command and waits synchronously for its completion.
+ *
+ * See also: nvme_qid.h for queue ID (qid) management.
+ *
+ * @file nvme_qpair.h
+ * @version 0.1.0
  */
+
 struct nvme_qpair {
 	void *sq;	///< VA-Pointer to DMA-capable memory backing the Submission Queue (SQ)
 	void *cq;	///< VA-Pointer to DMA-capable memory backing the Completion Queue (CQ)
@@ -37,7 +64,7 @@ nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, struct nvme
 	qp->depth = depth;
 	qp->phase = 1;
 
-	//qp->sq = hostmem_dma_malloc(1024 * ctrlr->iosqes_nbytes);
+	// qp->sq = hostmem_dma_malloc(1024 * ctrlr->iosqes_nbytes);
 	qp->sq = hostmem_dma_malloc(nbytes);
 	if (!qp->sq) {
 		printf("FAILED: hostmem_dma_malloc(sq); errno(%d)\n", errno);

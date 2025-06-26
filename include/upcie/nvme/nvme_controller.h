@@ -1,3 +1,17 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
+
+/**
+ * Rudimentary Representation of Controller, BAR Mapping, Registers, and Derived Values
+ * ====================================================================================
+ *
+ * This header defines basic structures and access patterns for working with an NVMe controller,
+ * including BAR-space mappings, controller registers, and values derived from register content.
+ *
+ * @file nvme_controller.h
+ * @version 0.1.0
+ */
+
 struct nvme_controller {
 	void *bar0; ///< Pointer to the memory-mapped BAR-region of the controller for mmio
 
