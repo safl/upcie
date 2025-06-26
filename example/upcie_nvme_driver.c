@@ -111,19 +111,69 @@ nvme_device_open(struct nvme_device *dev, const char *bdf)
 
 /**
  * Allocates a submission-queue, a completion-queue, and wraps them in the nvme_qpair struct
-int
-nvme_device_create_io_qpair(struct nvme_device *dev, struct nvme_qpair *qpair)
-{
-	// Check ioq-bitmap
-
-	nvme_qpair_init(qpair, qid, 32, dev->ctrlr);
-}
  */
+int
+nvme_device_create_io_qpair(struct nvme_device *dev, struct nvme_qpair *qpair, uint16_t depth)
+{
+	uint16_t qid;
+	int err;
+
+	err = nvme_qid_find_free(dev->qids);
+	if (err < 1) {
+		return -ENOMEM;
+	}
+	qid = err;
+
+	err = nvme_qpair_init(qpair, qid, depth, &dev->ctrlr);
+	if (err) {
+		printf("FAILED: nvme_qpair_init(); err(%d)\n", err);
+		nvme_qid_free(dev->qids, depth);
+
+		return err;
+	}
+
+	{
+		struct nvme_command cmd = {0};
+		struct nvme_completion cpl = {0};
+
+		cmd.opc = 0x1; ///< Create I/O Submission Queue
+		cmd.prp1 = hostmem_dma_v2p(qpair->sq);
+		cmd.cdw10 = (depth << 16) | qid;
+		cmd.cdw11 = 0x1; ///< Physically contigous
+
+		err =
+		    nvme_qpair_submit_sync(&dev->aq, &dev->aqrp, &cmd, dev->ctrlr.timeout_ms, &cpl);
+		if (err) {
+			printf("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
+			return err;
+		}
+	}
+
+	{
+		struct nvme_command cmd = {0};
+		struct nvme_completion cpl = {0};
+
+		cmd.opc = 0x5; ///< Create I/O Completion Queue
+		cmd.prp1 = hostmem_dma_v2p(qpair->cq);
+		cmd.cdw10 = (depth << 16) | qid;
+		cmd.cdw11 = 0x1; ///< Physically contigous
+
+		err =
+		    nvme_qpair_submit_sync(&dev->aq, &dev->aqrp, &cmd, dev->ctrlr.timeout_ms, &cpl);
+		if (err) {
+			printf("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
+			return err;
+		}
+	}
+
+	return 0;
+}
 
 int
 main(int argc, char **argv)
 {
 	struct nvme_device dev = {0};
+	struct nvme_qpair ioq = {0};
 	int err;
 
 	if (argc != 2) {
@@ -156,6 +206,11 @@ main(int argc, char **argv)
 			printf("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
 			goto exit;
 		}
+	}
+
+	err = nvme_device_create_io_qpair(&dev, &ioq, 32);
+	if (err) {
+		printf("FAILED: nvme_device_create_io_qpair(); err(%d)\n", err);
 	}
 
 	printf("SN('%.*s')\n", 20, ((uint8_t *)dev.buf) + 4);
