@@ -12,48 +12,163 @@
  * @version 0.1.0
  */
 
+/**
+ * This is one way of combining the various components needed
+ */
 struct nvme_controller {
-	void *bar0; ///< Pointer to the memory-mapped BAR-region of the controller for mmio
+	struct pci_func func;		      ///< The PCIe function and mapped bars
+	struct nvme_request_pool aqrp;	      ///< Request pool for the admin-queue
+	struct nvme_qpair aq;		      ///< Admin qpair
+	uint64_t qids[NVME_QID_BITMAP_WORDS]; ///< Allocation status of IO queues
+
+	void *buf; ///< IO-buffer for identify-commands, io-qpair-creation etc.
 
 	uint32_t csts; ///< Controller Status Register Value
 	uint32_t cap;  ///< Controller Capabilities Register Value
 	uint32_t cc;   ///< Controller configuration Register Value
 
-	int timeout_ms;	      ///< Timeout in milliseconds
+	int timeout_ms; ///< Command timeout in milliseconds (derived from cap.to)
 };
 
-void
+static inline void
 nvme_controller_term(struct nvme_controller *ctrlr)
 {
+	hostmem_dma_free(ctrlr->buf);
+	pci_func_close(&ctrlr->func);
+	memset(ctrlr, 0, sizeof(*memset));
+}
+
+/**
+ * Disables the NVMe controller at 'bdf', sets up admin-queues and enables it again
+ */
+static inline int
+nvme_controller_init(struct nvme_controller *ctrlr, const char *bdf)
+{
+	void *bar0;
+	int err;
+
 	memset(ctrlr, 0, sizeof(*ctrlr));
+
+	ctrlr->buf = hostmem_dma_malloc(4096);
+	if (!ctrlr->buf) {
+		printf("FAILED: hostmem_dma_malloc(buf); errno(%d)\n", errno);
+		return -errno;
+	}
+	memset(ctrlr->buf, 0, 4096);
+
+	nvme_request_pool_init(&ctrlr->aqrp);
+	nvme_qid_bitmap_init(ctrlr->qids);
+
+	err = pci_func_open(bdf, &ctrlr->func);
+	if (err) {
+		printf("Failed to open PCI device: %s\n", bdf);
+		return -err;
+	}
+
+	err = pci_bar_map(ctrlr->func.bdf, 0, &ctrlr->func.bars[0]);
+	if (err) {
+		printf("Failed to map BAR0\n");
+		return -err;
+	}
+	bar0 = ctrlr->func.bars[0].region;
+
+	ctrlr->timeout_ms = nvme_reg_cap_get_to(nvme_mmio_cap_read(bar0)) * 500;
+
+	nvme_mmio_cc_disable(bar0);
+
+	err = nvme_mmio_csts_wait_until_not_ready(bar0, ctrlr->timeout_ms);
+	if (err) {
+		printf("FAILED: nvme_mmio_csts_wait_until_ready(); err(%d)\n", err);
+		return -err;
+	}
+
+	err = nvme_qpair_init(&ctrlr->aq, 0, 256, ctrlr->func.bars[0].region);
+	if (err) {
+		printf("FAILED: nvme_qpair_init(); err(%d)\n", err);
+		return -err;
+	}
+
+	nvme_mmio_aq_setup(bar0, hostmem_dma_v2p(ctrlr->aq.sq), hostmem_dma_v2p(ctrlr->aq.cq),
+			   ctrlr->aq.depth);
+
+	{
+		uint32_t cc = 0;
+		cc = nvme_reg_cc_set_css(cc, 0x0);
+		cc = nvme_reg_cc_set_shn(cc, 0x0);
+		cc = nvme_reg_cc_set_mps(cc, 0x0);
+		cc = nvme_reg_cc_set_ams(cc, 0x0);
+		cc = nvme_reg_cc_set_iosqes(cc, 6);
+		cc = nvme_reg_cc_set_iocqes(cc, 4);
+		cc = nvme_reg_cc_set_en(cc, 0x1);
+
+		nvme_mmio_cc_write(bar0, cc);
+	}
+
+	err = nvme_mmio_csts_wait_until_ready(bar0, ctrlr->timeout_ms);
+	if (err) {
+		printf("FAILED: nvme_mmio_csts_wait_until_ready(); err(%d)\n", err);
+		return -err;
+	}
+
+	return 0;
 }
 
 /**
- * Read the CC, CAP, and CSTS controller registers via mmio and store them in given struct
+ * Allocates a submission-queue, a completion-queue, and wraps them in the nvme_qpair struct
  */
-void
-nvme_controller_refresh_register_values(struct nvme_controller *ctrlr)
+static int
+nvme_controller_create_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair *qpair,
+				uint16_t depth)
 {
-	ctrlr->cc = nvme_mmio_cc_read(ctrlr->bar0);
-	ctrlr->cap = nvme_mmio_cap_read(ctrlr->bar0);
-	ctrlr->csts = nvme_mmio_csts_read(ctrlr->bar0);
+	uint16_t qid;
+	int err;
 
-	ctrlr->timeout_ms = nvme_reg_cap_get_to(ctrlr->cap) * 500;
-}
+	err = nvme_qid_find_free(ctrlr->qids);
+	if (err < 1) {
+		return -ENOMEM;
+	}
+	qid = err;
 
-/**
- * This function is all about host-concerns of pci-scan/bar-map, retrieve properties, this
- * does **not** have anything to do with with CC.EN or similar. Rather it sets up the MMIO
- * based communication channel and retrieves a couple of controller register values: Status,
- * Configuration, and Capabilities. All entities required to do CC.EN=1, but host-level concerns,
- * not NVMe logic per-se.
- */
-int
-nvme_controller_init(struct nvme_controller *ctrlr, void *bar0)
-{
-	ctrlr->bar0 = bar0;
+	err = nvme_qpair_init(qpair, qid, depth, ctrlr->func.bars[0].region);
+	if (err) {
+		printf("FAILED: nvme_qpair_init(); err(%d)\n", err);
+		nvme_qid_free(ctrlr->qids, depth);
 
-	nvme_controller_refresh_register_values(ctrlr);
+		return err;
+	}
+
+	{
+		struct nvme_command cmd = {0};
+		struct nvme_completion cpl = {0};
+
+		cmd.opc = 0x1; ///< Create I/O Submission Queue
+		cmd.prp1 = hostmem_dma_v2p(qpair->sq);
+		cmd.cdw10 = (depth << 16) | qid;
+		cmd.cdw11 = 0x1; ///< Physically contigous
+
+		err = nvme_qpair_submit_sync(&ctrlr->aq, &ctrlr->aqrp, &cmd, ctrlr->timeout_ms, &cpl);
+		if (err) {
+			printf("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
+			return err;
+		}
+	}
+
+	{
+		struct nvme_command cmd = {0};
+		struct nvme_completion cpl = {0};
+
+		cmd.opc = 0x5; ///< Create I/O Completion Queue
+		cmd.prp1 = hostmem_dma_v2p(qpair->cq);
+		cmd.cdw10 = (depth << 16) | qid;
+		cmd.cdw11 = 0x1; ///< Physically contigous
+
+		err = nvme_qpair_submit_sync(&ctrlr->aq, &ctrlr->aqrp, &cmd,
+					     ctrlr->timeout_ms, &cpl);
+		if (err) {
+			printf("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
+			return err;
+		}
+	}
 
 	return 0;
 }
