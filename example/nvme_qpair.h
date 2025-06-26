@@ -27,6 +27,7 @@ static inline int
 nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, struct nvme_controller *ctrlr)
 {
 	uint8_t *bar0 = ctrlr->bar0;
+	size_t nbytes = 1024 * 64;
 
 	qp->sqdb = bar0 + 0x1000 + (2 * qid) * ctrlr->dstrd_nbytes;
 	qp->cqdb = bar0 + 0x1000 + (2 * qid + 1) * ctrlr->dstrd_nbytes;
@@ -36,19 +37,20 @@ nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, struct nvme
 	qp->depth = depth;
 	qp->phase = 1;
 
-	qp->sq = hostmem_dma_malloc(1024 * ctrlr->iosqes_nbytes);
+	//qp->sq = hostmem_dma_malloc(1024 * ctrlr->iosqes_nbytes);
+	qp->sq = hostmem_dma_malloc(nbytes);
 	if (!qp->sq) {
 		printf("FAILED: hostmem_dma_malloc(sq); errno(%d)\n", errno);
 		return -errno;
 	}
-	memset(qp->sq, 0xFF, 1024 * ctrlr->iosqes_nbytes);
+	memset(qp->sq, 0xFF, nbytes);
 
-	qp->cq = hostmem_dma_malloc(1024 * ctrlr->iocqes_nbytes);
+	qp->cq = hostmem_dma_malloc(nbytes);
 	if (!qp->cq) {
 		printf("FAILED: hostmem_dma_malloc(cq); errno(%d)\n", errno);
 		return -errno;
 	}
-	memset(qp->cq, 0xFF, 1024 * ctrlr->iocqes_nbytes);
+	memset(qp->cq, 0xFF, nbytes);
 
 	return 0;
 }
