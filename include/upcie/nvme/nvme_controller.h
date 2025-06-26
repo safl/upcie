@@ -20,8 +20,6 @@ struct nvme_controller {
 	uint32_t cc;   ///< Controller configuration Register Value
 
 	int timeout_ms;	      ///< Timeout in milliseconds
-	int iosqes_nbytes;    ///< IO-Submission-Queue Entry Size in bytes
-	int iocqes_nbytes;    ///< IO-Completion-Queue Entry Size in bytes
 };
 
 void
@@ -41,8 +39,6 @@ nvme_controller_refresh_register_values(struct nvme_controller *ctrlr)
 	ctrlr->csts = nvme_mmio_csts_read(ctrlr->bar0);
 
 	ctrlr->timeout_ms = nvme_reg_cap_get_to(ctrlr->cap) * 500;
-	ctrlr->iosqes_nbytes = nvme_reg_cc_get_iosqes(ctrlr->cc);
-	ctrlr->iocqes_nbytes = nvme_reg_cc_get_iocqes(ctrlr->cc);
 }
 
 /**
