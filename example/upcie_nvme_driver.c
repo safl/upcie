@@ -72,7 +72,7 @@ nvme_device_open(struct nvme_device *dev, const char *bdf)
 
 	dev->ctrlr.csts = nvme_mmio_csts_read(dev->ctrlr.bar0);
 
-	err = nvme_qpair_init(&dev->aq, 0, 256, &dev->ctrlr);
+	err = nvme_qpair_init(&dev->aq, 0, 256, dev->func.bars[0].region);
 	if (err) {
 		printf("FAILED: nvme_qpair_init(); err(%d)\n", err);
 		return -err;
@@ -119,7 +119,7 @@ nvme_device_create_io_qpair(struct nvme_device *dev, struct nvme_qpair *qpair, u
 	}
 	qid = err;
 
-	err = nvme_qpair_init(qpair, qid, depth, &dev->ctrlr);
+	err = nvme_qpair_init(qpair, qid, depth, dev->func.bars[0].region);
 	if (err) {
 		printf("FAILED: nvme_qpair_init(); err(%d)\n", err);
 		nvme_qid_free(dev->qids, depth);

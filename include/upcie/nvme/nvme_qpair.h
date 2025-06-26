@@ -51,9 +51,8 @@ nvme_qpair_term(struct nvme_qpair *qp)
  * Initialize a queue-pair on the given controller
  */
 static inline int
-nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, struct nvme_controller *ctrlr)
+nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, uint8_t *bar0)
 {
-	uint8_t *bar0 = ctrlr->bar0;
 	int dstrd = nvme_reg_cap_get_dstrd(nvme_mmio_cap_read(bar0));
 	size_t nbytes = 1024 * 64;
 
