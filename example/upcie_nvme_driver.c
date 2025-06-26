@@ -1,13 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
 
+#define _UPCIE_WITH_NVME
 #include <upcie/upcie.h>
-#include <nvme.h>
-#include <nvme_command.h>
-#include <nvme_controller.h>
-#include <nvme_request.h>
-#include <nvme_qid.h>
-#include <nvme_qpair.h>
 
 /**
  * This is one way of combining the various components needed

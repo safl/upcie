@@ -5,18 +5,30 @@
  * uPCIe header bundle
  * ===================
  *
- * This is the default umbrella header for uPCIe. Its purpose is to provide a convenient way to
- * include all uPCIe header-only libraries in one go, simplifying consumption for most use cases.
+ * This is the default umbrella header for uPCIe. It provides a convenient way to include all uPCIe
+ * header-only libraries at once, simplifying integration for most use cases.
  *
- * You are not required to use this bundle — individual headers can be included selectively
- * instead. This is useful in situations where:
+ * Usage of this bundle is optional -- individual headers can be included selectively as needed.
+ * This is particularly useful when:
  *
- *  - You want to control which libc or toolchain headers are included (e.g., avoid glibc/musl assumptions).
- *  - You need to redefine system integration (e.g., MMIO access, memory handling).
- *  - You want to avoid namespace clashes with other libraries or in-house code.
+ * - You want full control over which libc or toolchain headers are included (e.g., avoiding
+ *   assumptions about glibc or musl).
+ * - You need to redefine system integration (e.g., MMIO access, memory handling).
+ * - You want to avoid namespace clashes with other libraries or in-house code.
  *
- * Simply swap this header with a custom version that includes only what your driver needs.
- * This pattern is intentional: the bundle provides convenience, not coupling.
+ * To customize usage, simply replace this bundle with a header that includes only the components
+ * required by your driver. This pattern is intentional: the bundle is a convenience, not a
+ * requirement.
+ *
+ * Extension: NVMe
+ * ---------------
+ *
+ * The NVMe extension provides data structures and helpers for building an NVMe driver using uPCIe.
+ * It builds on uPCIe's libraries for bitfield manipulation, memory-mapped I/O (MMIO), and direct
+ * memory access (DMA). To enable it, define the following before including this bundle:
+ *
+ *   #define _UPCIE_WITH_NVME
+ *   #include <upcie/upcie.h>
  *
  * @file upcie.h
  */
@@ -61,6 +73,16 @@ extern "C" {
 #include <upcie/mmio.h>
 #include <upcie/pci.h>
 #include <upcie/vfioctl.h>
+
+// uPCIe NVMe libraries
+#ifdef _UPCIE_WITH_NVME
+#include <upcie/nvme/nvme_command.h>
+#include <upcie/nvme/nvme_mmio.h>
+#include <upcie/nvme/nvme_controller.h>
+#include <upcie/nvme/nvme_request.h>
+#include <upcie/nvme/nvme_qid.h>
+#include <upcie/nvme/nvme_qpair.h>
+#endif
 
 #ifdef __cplusplus
 }

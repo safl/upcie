@@ -18,7 +18,7 @@
  * to avoid overwriting other configuration fields. These helpers assume the caller expects
  * only the minimal required field to be changed, and that other fields remain unmodified.
  *
- * @file nvme.h
+ * @file nvme_mmio.h
  */
 #define NVME_REG_CAP 0x00
 #define NVME_REG_VS 0x08
