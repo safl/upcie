@@ -78,9 +78,9 @@ extern "C" {
 // uPCIe NVMe libraries
 #ifdef _UPCIE_WITH_NVME
 #include <upcie/nvme/nvme_command.h>
+#include <upcie/nvme/nvme_request.h>
 #include <upcie/nvme/nvme_mmio.h>
 #include <upcie/nvme/nvme_controller.h>
-#include <upcie/nvme/nvme_request.h>
 #include <upcie/nvme/nvme_qid.h>
 #include <upcie/nvme/nvme_qpair.h>
 #endif
