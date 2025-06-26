@@ -108,12 +108,19 @@ hostmem_dma_free(void *ptr)
 /**
  * Allocate `size` bytes of DMA-capable memory
  *
- * @param size Number of bytes to allocate.
- * @return Pointer to the allocated memory, or NULL on failure.
+ * @param size Number of bytes to allocate. Passing `size=0` is considered invalid-input by
+ *             hostmem_dma_malloc().
+ * @return On success, a pointer to the allocated memory is returned. On error, NULL is returned
+ *         and `errno` set to indicate the error. or NULL on failure.
  */
 static inline void *
 hostmem_dma_malloc(size_t size)
 {
+	if (!size) {
+		errno = EINVAL;
+		return NULL;
+	}
+
 	return hostmem_heap_block_alloc(&g_hostmem_dma, size);
 }
 
