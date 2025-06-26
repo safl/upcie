@@ -80,9 +80,9 @@ extern "C" {
 #include <upcie/nvme/nvme_command.h>
 #include <upcie/nvme/nvme_request.h>
 #include <upcie/nvme/nvme_mmio.h>
-#include <upcie/nvme/nvme_controller.h>
 #include <upcie/nvme/nvme_qid.h>
 #include <upcie/nvme/nvme_qpair.h>
+#include <upcie/nvme/nvme_controller.h>
 #endif
 
 #ifdef __cplusplus
