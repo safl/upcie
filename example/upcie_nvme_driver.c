@@ -208,16 +208,16 @@ main(int argc, char **argv)
 		}
 	}
 
+	printf("SN('%.*s')\n", 20, ((uint8_t *)dev.buf) + 4);
+	printf("MN('%.*s')\n", 40, ((uint8_t *)dev.buf) + 24);
+
 	err = nvme_device_create_io_qpair(&dev, &ioq, 32);
 	if (err) {
 		printf("FAILED: nvme_device_create_io_qpair(); err(%d)\n", err);
 	}
 
-	printf("SN('%.*s')\n", 20, ((uint8_t *)dev.buf) + 4);
-	printf("MN('%.*s')\n", 40, ((uint8_t *)dev.buf) + 24);
-
 exit:
 	nvme_device_close(&dev);
 
-	return 0;
+	return err;
 }
