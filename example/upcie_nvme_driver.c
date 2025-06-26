@@ -22,7 +22,7 @@ main(int argc, char **argv)
 		return -err;
 	}
 
-	err = nvme_controller_init(&ctrlr, argv[1]);
+	err = nvme_controller_open(&ctrlr, argv[1]);
 	if (err) {
 		printf("FAILED: nvme_device_open(); err(%d)\n", err);
 		return -err;
@@ -52,7 +52,7 @@ main(int argc, char **argv)
 	}
 
 exit:
-	nvme_controller_term(&ctrlr);
+	nvme_controller_close(&ctrlr);
 
 	return err;
 }

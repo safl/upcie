@@ -31,7 +31,7 @@ struct nvme_controller {
 };
 
 static inline void
-nvme_controller_term(struct nvme_controller *ctrlr)
+nvme_controller_close(struct nvme_controller *ctrlr)
 {
 	hostmem_dma_free(ctrlr->buf);
 	pci_func_close(&ctrlr->func);
@@ -42,7 +42,7 @@ nvme_controller_term(struct nvme_controller *ctrlr)
  * Disables the NVMe controller at 'bdf', sets up admin-queues and enables it again
  */
 static inline int
-nvme_controller_init(struct nvme_controller *ctrlr, const char *bdf)
+nvme_controller_open(struct nvme_controller *ctrlr, const char *bdf)
 {
 	void *bar0;
 	int err;
