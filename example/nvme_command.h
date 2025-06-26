@@ -8,9 +8,9 @@ struct nvme_completion {
 };
 
 struct nvme_command {
-	uint8_t opc; ///< opcode
+	uint8_t opc;
 	uint8_t fuse;
-	uint16_t cid; ///< command id
+	uint16_t cid;
 	uint32_t nsid;
 	uint64_t rsvd2;
 	uint64_t mptr;
