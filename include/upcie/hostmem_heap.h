@@ -211,6 +211,7 @@ hostmem_heap_block_alloc_aligned(struct hostmem_heap *heap, size_t size, size_t 
 		block = block->next;
 	}
 
+	errno = ENOMEM;
 	return NULL;
 }
 
