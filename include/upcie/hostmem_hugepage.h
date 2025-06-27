@@ -91,13 +91,6 @@ hostmem_hugepage_pp(struct hostmem_hugepage *hugepage)
 	return wrtn;
 };
 
-
-static inline int
-hostmem_internal_memfd_create(const char *name, unsigned int flags)
-{
-	return syscall(SYS_memfd_create, name, flags);
-}
-
 /**
  * Deallocate a hugepage allocation
  */

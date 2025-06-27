@@ -15,6 +15,12 @@ enum hostmem_backend {
 	HOSTMEM_BACKEND_HUGETLBFS = 0x2,
 };
 
+static inline int
+hostmem_internal_memfd_create(const char *name, unsigned int flags)
+{
+	return syscall(SYS_memfd_create, name, flags);
+}
+
 /**
  * Consult "/proc/self/pagemap" for the given va-space address
  *
