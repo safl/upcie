@@ -9,6 +9,12 @@
  * @version 0.1.1
 */
 
+enum hostmem_backend {
+	HOSTMEM_BACKEND_UNKNOWN = 0x0,
+	HOSTMEM_BACKEND_MEMFD = 0x1,
+	HOSTMEM_BACKEND_HUGETLBFS = 0x2,
+};
+
 /**
  * Consult "/proc/self/pagemap" for the given va-space address
  *

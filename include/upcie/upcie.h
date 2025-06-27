@@ -69,6 +69,7 @@ extern "C" {
 #include <upcie/debug.h>
 #include <upcie/bitfield.h>
 #include <upcie/hostmem.h>
+#include <upcie/hostmem_state.h>
 #include <upcie/hostmem_hugepage.h>
 #include <upcie/hostmem_heap.h>
 #include <upcie/hostmem_dma.h>
