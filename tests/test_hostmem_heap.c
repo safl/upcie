@@ -1,7 +1,7 @@
 #include <upcie/upcie.h>
 
 int
-main(int argc, const char *argv[])
+main(void)
 {
 	const size_t nbuffers = 10;
 	void *buffers[nbuffers];
@@ -23,7 +23,7 @@ main(int argc, const char *argv[])
 
 	hostmem_heap_pp(&g_hostmem_heap_dma);
 
-	for (int i = 0; i < nbuffers; i++) {
+	for (size_t i = 0; i < nbuffers; i++) {
 
 		buffers[i] = hostmem_heap_block_alloc(&g_hostmem_heap_dma, 4);
 		if (!buffers[i]) {
@@ -33,7 +33,7 @@ main(int argc, const char *argv[])
 
 	hostmem_heap_pp(&g_hostmem_heap_dma);
 
-	for (int i = 0; i < nbuffers; i++) {
+	for (size_t i = 0; i < nbuffers; i++) {
 		hostmem_heap_block_free(&g_hostmem_heap_dma, buffers[i]);
 	}
 

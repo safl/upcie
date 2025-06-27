@@ -11,7 +11,7 @@ func_printer(struct pci_func *func, void *callback_arg)
 }
 
 int
-main(int argc, char **argv)
+main(void)
 {
 	int err;
 

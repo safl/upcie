@@ -182,7 +182,7 @@ vfio_device_get_region_info(int device_fd, struct vfio_region_info *region)
 }
 
 static inline void *
-vfio_map_region(int device_fd, uint32_t index, size_t size, off_t offset)
+vfio_map_region(int device_fd, size_t size, off_t offset)
 {
 	return mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, device_fd, offset);
 }

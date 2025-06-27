@@ -260,7 +260,7 @@ nvme_mmio_cc_disable(void *bar0)
 static inline int
 nvme_mmio_csts_wait_until_ready(void *mmio, int timeout_ms)
 {
-	for (uint64_t elapsed = 0; elapsed < timeout_ms; ++elapsed) {
+	for (int elapsed = 0; elapsed < timeout_ms; ++elapsed) {
 		if ((nvme_mmio_csts_read(mmio) & 0x1) == 0x1) {
 			return 0;
 		}
@@ -278,7 +278,7 @@ nvme_mmio_csts_wait_until_ready(void *mmio, int timeout_ms)
 static inline int
 nvme_mmio_csts_wait_until_not_ready(void *mmio, int timeout_ms)
 {
-	for (uint64_t elapsed = 0; elapsed < timeout_ms; ++elapsed) {
+	for (int elapsed = 0; elapsed < timeout_ms; ++elapsed) {
 		if ((nvme_mmio_csts_read(mmio) & 0x1) == 0x0) {
 			return 0;
 		}

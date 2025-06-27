@@ -3,7 +3,7 @@
 #define HOSTMEM_HEAP_SIZE (1024 * 1024 * 512ULL)
 
 int
-main(int argc, const char *argv[])
+main(void)
 {
 	const size_t sizes[] = {1024, 1024 * 1024, 1024 * 1024 * 2ULL};
 	void *buf;
@@ -17,7 +17,7 @@ main(int argc, const char *argv[])
 		return -err;
 	}
 
-	for (int i = 0; i < sizeof(sizes) / sizeof(*sizes); ++i) {
+	for (size_t i = 0; i < sizeof(sizes) / sizeof(*sizes); ++i) {
 		size_t nbytes = sizes[i];
 
 		buf = hostmem_dma_malloc(nbytes);
