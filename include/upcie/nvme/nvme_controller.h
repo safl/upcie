@@ -116,7 +116,7 @@ nvme_controller_open(struct nvme_controller *ctrlr, const char *bdf)
 /**
  * Allocates a submission-queue, a completion-queue, and wraps them in the nvme_qpair struct
  */
-static int
+static inline int
 nvme_controller_create_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair *qpair,
 				uint16_t depth)
 {
