@@ -66,6 +66,7 @@ extern "C" {
 #include <linux/vfio.h>
 
 // uPCIe libraries
+#include <upcie/debug.h>
 #include <upcie/bitfield.h>
 #include <upcie/hostmem.h>
 #include <upcie/hostmem_hugepage.h>
