@@ -1,8 +1,12 @@
 BUILD_DIR ?= builddir
+VERSION ?= 0.1.1
 
 .PHONY: all setup build test install uninstall clean docs
 
 all: clean setup build install test
+
+bump:
+	@python3 -c "import sys, re, pathlib; [p.write_text(re.sub(r'(@version)\s+.*', rf'\1 {sys.argv[1]}', p.read_text()), encoding='utf-8') for p in pathlib.Path('.').rglob('*.h') if '@version' in p.read_text()]" $(VERSION)
 
 setup:
 	meson setup $(BUILD_DIR)
