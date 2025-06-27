@@ -1,6 +1,11 @@
 project('upcie', 'c',
   version: '0.1.0',
-  license: 'BSD-3-Clause'
+  license: 'BSD-3-Clause',
+  default_options: [
+    'c_std=c11',
+    'warning_level=2',
+    'buildtype=release',
+  ],
 )
 
 fs = import('fs')
