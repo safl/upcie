@@ -58,7 +58,7 @@
  * also gains access to those physical addresses—without needing CAP_SYS_ADMIN.
  *
  * @file hostmem_hugepage.h
- * @version 0.1.0
+ * @version 0.1.1
  */
 #ifndef MFD_HUGE_2MB
 #define MFD_HUGE_2MB (21 << 26)

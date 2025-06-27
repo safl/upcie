@@ -12,7 +12,7 @@
  * - Encapsulation of auxiliary data associated with each command while it is "in flight"
  *
  * @file nvme_request.h
- * @version 0.1.0
+ * @version 0.1.1
  */
 
 #define NVME_REQUEST_POOL_LEN 1024
