@@ -21,6 +21,7 @@ struct nvme_controller {
 	struct nvme_qpair aq;		      ///< Admin qpair
 	uint64_t qids[NVME_QID_BITMAP_WORDS]; ///< Allocation status of IO queues
 
+	struct hostmem_heap *heap; ///< Heap for DMA-capable memory
 	void *buf; ///< IO-buffer for identify-commands, io-qpair-creation etc.
 
 	uint32_t csts; ///< Controller Status Register Value
@@ -33,7 +34,7 @@ struct nvme_controller {
 static inline void
 nvme_controller_close(struct nvme_controller *ctrlr)
 {
-	hostmem_dma_free(ctrlr->buf);
+	hostmem_dma_free(ctrlr->heap, ctrlr->buf);
 	pci_func_close(&ctrlr->func);
 	memset(ctrlr, 0, sizeof(*memset));
 }
@@ -42,14 +43,15 @@ nvme_controller_close(struct nvme_controller *ctrlr)
  * Disables the NVMe controller at 'bdf', sets up admin-queues and enables it again
  */
 static inline int
-nvme_controller_open(struct nvme_controller *ctrlr, const char *bdf)
+nvme_controller_open(struct nvme_controller *ctrlr, const char *bdf, struct hostmem_heap *heap)
 {
 	void *bar0;
 	int err;
 
 	memset(ctrlr, 0, sizeof(*ctrlr));
+	ctrlr->heap = heap;
 
-	ctrlr->buf = hostmem_dma_malloc(4096);
+	ctrlr->buf = hostmem_dma_malloc(ctrlr->heap,4096);
 	if (!ctrlr->buf) {
 		printf("FAILED: hostmem_dma_malloc(buf); errno(%d)\n", errno);
 		return -errno;
@@ -82,13 +84,13 @@ nvme_controller_open(struct nvme_controller *ctrlr, const char *bdf)
 		return -err;
 	}
 
-	err = nvme_qpair_init(&ctrlr->aq, 0, 256, ctrlr->func.bars[0].region);
+	err = nvme_qpair_init(&ctrlr->aq, 0, 256, ctrlr->func.bars[0].region, ctrlr->heap);
 	if (err) {
 		printf("FAILED: nvme_qpair_init(); err(%d)\n", err);
 		return -err;
 	}
 
-	nvme_mmio_aq_setup(bar0, hostmem_dma_v2p(ctrlr->aq.sq), hostmem_dma_v2p(ctrlr->aq.cq),
+	nvme_mmio_aq_setup(bar0, hostmem_dma_v2p(heap, ctrlr->aq.sq), hostmem_dma_v2p(heap, ctrlr->aq.cq),
 			   ctrlr->aq.depth);
 
 	{
@@ -129,7 +131,7 @@ nvme_controller_create_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair
 	}
 	qid = err;
 
-	err = nvme_qpair_init(qpair, qid, depth, ctrlr->func.bars[0].region);
+	err = nvme_qpair_init(qpair, qid, depth, ctrlr->func.bars[0].region, ctrlr->heap);
 	if (err) {
 		printf("FAILED: nvme_qpair_init(); err(%d)\n", err);
 		nvme_qid_free(ctrlr->qids, depth);
@@ -142,7 +144,7 @@ nvme_controller_create_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair
 		struct nvme_completion cpl = {0};
 
 		cmd.opc = 0x1; ///< Create I/O Submission Queue
-		cmd.prp1 = hostmem_dma_v2p(qpair->sq);
+		cmd.prp1 = hostmem_dma_v2p(ctrlr->heap, qpair->sq);
 		cmd.cdw10 = (depth << 16) | qid;
 		cmd.cdw11 = 0x1; ///< Physically contigous
 
@@ -158,7 +160,7 @@ nvme_controller_create_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair
 		struct nvme_completion cpl = {0};
 
 		cmd.opc = 0x5; ///< Create I/O Completion Queue
-		cmd.prp1 = hostmem_dma_v2p(qpair->cq);
+		cmd.prp1 = hostmem_dma_v2p(ctrlr->heap, qpair->cq);
 		cmd.cdw10 = (depth << 16) | qid;
 		cmd.cdw11 = 0x1; ///< Physically contigous
 

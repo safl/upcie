@@ -59,8 +59,6 @@ struct hostmem_heap {
 	uint64_t *phys_lut; ///< An array of physical addresses; on for each hugepage in 'memory'
 };
 
-struct hostmem_heap g_hostmem_heap_dma = {0};
-
 static inline int
 hostmem_heap_pp(struct hostmem_heap *heap)
 {

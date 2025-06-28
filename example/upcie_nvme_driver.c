@@ -7,6 +7,7 @@
 int
 main(int argc, char **argv)
 {
+	struct hostmem_heap heap = {0};
 	struct nvme_controller ctrlr = {0};
 	struct nvme_qpair ioq = {0};
 	int err;
@@ -16,13 +17,18 @@ main(int argc, char **argv)
 		return 1;
 	}
 
-	err = hostmem_dma_init(1024 * 1024 * 128ULL);
+	err = hostmem_state_init(&g_hostmem_state);
 	if (err) {
-		printf("FAILED: hostmem_dma_init(); err(%d)\n", err);
+		return err;
+	}
+
+	err = hostmem_heap_init(&heap, 1024 * 1024 * 128ULL);
+	if (err) {
+		printf("FAILED: hostmem_heap_init(); err(%d)\n", err);
 		return -err;
 	}
 
-	err = nvme_controller_open(&ctrlr, argv[1]);
+	err = nvme_controller_open(&ctrlr, argv[1], &heap);
 	if (err) {
 		printf("FAILED: nvme_device_open(); err(%d)\n", err);
 		return -err;
@@ -33,7 +39,7 @@ main(int argc, char **argv)
 		struct nvme_completion cpl = {0};
 
 		cmd.opc = 0x6; ///< IDENTIFY
-		cmd.prp1 = hostmem_dma_v2p(ctrlr.buf);
+		cmd.prp1 = hostmem_dma_v2p(&heap, ctrlr.buf);
 		cmd.cdw10 = 1; // CNS=1: Identify Controller
 
 		err = nvme_qpair_submit_sync(&ctrlr.aq, &ctrlr.aqrp, &cmd, ctrlr.timeout_ms, &cpl);
@@ -53,6 +59,7 @@ main(int argc, char **argv)
 
 exit:
 	nvme_controller_close(&ctrlr);
+	hostmem_heap_term(&heap);
 
 	return err;
 }

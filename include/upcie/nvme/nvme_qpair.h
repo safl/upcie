@@ -38,24 +38,26 @@ struct nvme_qpair {
 	uint16_t tail;	///< Submissin Queue Tail Pointer
 	uint16_t head;	///< Completion Queue Head Pointer
 	uint8_t phase;
+	struct hostmem_heap *heap; ///< For allocation / free of DMA-capable SQ/CQ entries
 };
 
 static inline void
 nvme_qpair_term(struct nvme_qpair *qp)
 {
-	hostmem_dma_free(qp->sq);
-	hostmem_dma_free(qp->cq);
+	hostmem_dma_free(qp->heap, qp->sq);
+	hostmem_dma_free(qp->heap, qp->cq);
 }
 
 /**
  * Initialize a queue-pair on the given controller
  */
 static inline int
-nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, uint8_t *bar0)
+nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, uint8_t *bar0, struct hostmem_heap *heap)
 {
 	int dstrd = nvme_reg_cap_get_dstrd(nvme_mmio_cap_read(bar0));
 	size_t nbytes = 1024 * 64;
 
+	qp->heap = heap;
 	qp->sqdb = bar0 + 0x1000 + ((2 * qid) << dstrd);
 	qp->cqdb = bar0 + 0x1000 + ((2 * qid + 1) << dstrd);
 	qp->qid = qid;
@@ -65,14 +67,14 @@ nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, uint8_t *ba
 	qp->phase = 1;
 
 	// qp->sq = hostmem_dma_malloc(1024 * ctrlr->iosqes_nbytes);
-	qp->sq = hostmem_dma_malloc(nbytes);
+	qp->sq = hostmem_dma_malloc(qp->heap, nbytes);
 	if (!qp->sq) {
 		printf("FAILED: hostmem_dma_malloc(sq); errno(%d)\n", errno);
 		return -errno;
 	}
 	memset(qp->sq, 0xFF, nbytes);
 
-	qp->cq = hostmem_dma_malloc(nbytes);
+	qp->cq = hostmem_dma_malloc(qp->heap, nbytes);
 	if (!qp->cq) {
 		printf("FAILED: hostmem_dma_malloc(cq); errno(%d)\n", errno);
 		return -errno;
