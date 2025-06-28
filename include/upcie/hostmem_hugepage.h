@@ -20,7 +20,7 @@
  *  --------------
  *
  * - hostmem_hugepage_init()
- *   - Checks environment variables and sets up state
+ *   - Checks environment variables and sets up config
  *
  * - hostmem_hugepage_alloc()
  *   - Allocate memory in multiples of hugepage size
@@ -67,7 +67,7 @@ struct hostmem_hugepage {
 	size_t size;
 	uint64_t phys;
 	char path[256];
-	struct hostmem_state *state;
+	struct hostmem_config *config;
 };
 
 static inline int
@@ -105,7 +105,7 @@ hostmem_hugepage_free(struct hostmem_hugepage *hugepage)
 		munmap(hugepage->virt, hugepage->size);
 	}
 
-	if (HOSTMEM_BACKEND_HUGETLBFS == hugepage->state->backend) {
+	if (HOSTMEM_BACKEND_HUGETLBFS == hugepage->config->backend) {
 		unlink(hugepage->path);
 	}
 
@@ -122,22 +122,22 @@ hostmem_hugepage_free(struct hostmem_hugepage *hugepage)
  * indicate the error.
  */
 static inline int
-hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage, struct hostmem_state *state)
+hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage, struct hostmem_config *config)
 {
 	int err;
 
-	if (size % (state->hugepgsz) != 0) {
-		fprintf(stderr, "size must be multiple of hugepgsz(%d)\n", state->hugepgsz);
+	if (size % (config->hugepgsz) != 0) {
+		fprintf(stderr, "size must be multiple of hugepgsz(%d)\n", config->hugepgsz);
 		return -EINVAL;
 	}
 
-	hugepage->state = state;
+	hugepage->config = config;
 	hugepage->size = size;
 
-	switch (hugepage->state->backend) {
+	switch (hugepage->config->backend) {
 	case HOSTMEM_BACKEND_MEMFD:
 		hugepage->fd =
-		    hostmem_internal_memfd_create("hostmem", hugepage->state->memfd_flags);
+		    hostmem_internal_memfd_create("hostmem", hugepage->config->memfd_flags);
 		if (hugepage->fd < 0) {
 			perror("memfd_create()");
 			return -errno;
@@ -149,7 +149,7 @@ hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage, struct ho
 
 	case HOSTMEM_BACKEND_HUGETLBFS:
 		snprintf(hugepage->path, sizeof(hugepage->path), "%s/%d",
-			 hugepage->state->hugetlb_path, hugepage->state->count);
+			 hugepage->config->hugetlb_path, hugepage->config->count);
 
 		hugepage->fd = open(hugepage->path, O_CREAT | O_RDWR, 0600);
 		if (hugepage->fd < 0) {
@@ -184,7 +184,7 @@ hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage, struct ho
 
 	{
 		volatile char *ptr = (volatile char *)hugepage->virt;
-		for (size_t i = 0; i < hugepage->size; i += hugepage->state->pagesize) {
+		for (size_t i = 0; i < hugepage->size; i += hugepage->config->pagesize) {
 			ptr[i] = 0;
 		}
 	}
@@ -200,7 +200,7 @@ hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage, struct ho
 		return -ENOMEM;
 	}
 
-	hugepage->state->count++;
+	hugepage->config->count++;
 
 	return 0;
 }
@@ -216,7 +216,7 @@ hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage, struct ho
  * @return 0 on success, negative errno on error
  */
 static inline int
-hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage, struct hostmem_state *state)
+hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage, struct hostmem_config *config)
 {
 	struct stat st;
 	int err;
@@ -226,7 +226,7 @@ hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage, str
 	}
 
 	snprintf(hugepage->path, sizeof(hugepage->path), "%s", path);
-	hugepage->state = state;
+	hugepage->config = config;
 
 	hugepage->fd = open(hugepage->path, O_RDWR);
 	if (hugepage->fd < 0) {
@@ -241,9 +241,9 @@ hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage, str
 	}
 	hugepage->size = st.st_size;
 
-	if (hugepage->size % hugepage->state->hugepgsz != 0) {
+	if (hugepage->size % hugepage->config->hugepgsz != 0) {
 		fprintf(stderr, "Error: mapped file size (%zu) is not hugepgsz(%d) aligned\n",
-			st.st_size, hugepage->state->hugepgsz);
+			st.st_size, hugepage->config->hugepgsz);
 		close(hugepage->fd);
 		return -EINVAL;
 	}
@@ -262,7 +262,7 @@ hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage, str
 	{
 		volatile const char *p = (volatile const char *)hugepage->virt;
 		volatile char sink;
-		for (size_t i = 0; i < hugepage->size; i += hugepage->state->pagesize) {
+		for (size_t i = 0; i < hugepage->size; i += hugepage->config->pagesize) {
 			sink = p[i];
 			(void)sink; ///< Avoid compiler-warnings "unused-but-set-variable"
 		}

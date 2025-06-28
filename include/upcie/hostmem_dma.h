@@ -111,10 +111,10 @@ hostmem_dma_v2p(struct hostmem_heap *heap, void *virt)
 	offset = (char *)virt - (char *)heap->memory.virt;
 
 	// Determine which hugepage this address falls into
-	hpage_idx = offset / heap->state->hugepgsz;
+	hpage_idx = offset / heap->config->hugepgsz;
 
 	// Offset within that hugepage
-	in_hpage_offset = offset % heap->state->hugepgsz;
+	in_hpage_offset = offset % heap->config->hugepgsz;
 
 	return heap->phys_lut[hpage_idx] + in_hpage_offset;
 }

@@ -11,13 +11,13 @@ struct shared_memory {
  * Allocate a hugepage, write to it, setup a counter and wait for it to go to 0
  */
 int
-hugepage_allocate(struct hostmem_state *state) {
+hugepage_allocate(struct hostmem_config *config) {
   struct hostmem_hugepage hugepage = {0};
   const size_t size = 1024 * 1024 * 256;
   struct shared_memory *shared;
   int err;
 
-  err = hostmem_hugepage_alloc(size, &hugepage, state);
+  err = hostmem_hugepage_alloc(size, &hugepage, config);
   if (err) {
     printf("# hostmem_hugepage_alloc(); err(%d)\n", err);
   }
@@ -40,12 +40,12 @@ hugepage_allocate(struct hostmem_state *state) {
 }
 
 int
-hugepage_import(struct hostmem_state *state, const char *path) {
+hugepage_import(struct hostmem_config *config, const char *path) {
   struct hostmem_hugepage hugepage = {0};
   struct shared_memory *shared;
   int err;
 
-  err = hostmem_hugepage_import(path, &hugepage, state);
+  err = hostmem_hugepage_import(path, &hugepage, config);
   if (err) {
     printf("# hostmem_hugepage_import(); err(%d)\n", err);
     return err;
@@ -70,24 +70,24 @@ hugepage_import(struct hostmem_state *state, const char *path) {
 }
 
 int main(int argc, const char *argv[]) {
-  struct hostmem_state state = {0};
+  struct hostmem_config config = {0};
   int err;
 
-  err = hostmem_state_init(&state);
+  err = hostmem_config_init(&config);
   if (err) {
-    printf("# FAILED: hostmem_state_init(); err(%d)\n", err);
+    printf("# FAILED: hostmem_config_init(); err(%d)\n", err);
     return -err;
   }
 
-  hostmem_state_pp(&state);
+  hostmem_config_pp(&config);
 
   switch (argc) {
   case 1:
-    err = hugepage_allocate(&state);
+    err = hugepage_allocate(&config);
     break;
 
   case 2:
-    err = hugepage_import(&state, argv[1]);
+    err = hugepage_import(&config, argv[1]);
     break;
 
   default:

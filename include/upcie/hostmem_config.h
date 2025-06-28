@@ -8,7 +8,7 @@
 /**
  * A representation of a various host memory properties, primarly for hugepages
  */
-struct hostmem_state {
+struct hostmem_config {
 	char hugetlb_path[128]; ///< Mountpoint of hugetlbsfs
 	int memfd_flags;	///< Flags for memfd_create(...)
 	int backend;
@@ -18,30 +18,30 @@ struct hostmem_state {
 };
 
 static inline int
-hostmem_state_pp(struct hostmem_state *state)
+hostmem_config_pp(struct hostmem_config *config)
 {
 	int wrtn = 0;
 
 	wrtn += printf("hostmem:");
 
-	if (!state) {
+	if (!config) {
 		wrtn += printf(" ~\n");
 		return 0;
 	}
 
 	wrtn += printf("  \n");
-	wrtn += printf("  hugetlb_path: '%s'\n", state->hugetlb_path);
-	wrtn += printf("  memfd_flags: 0x%x\n", state->memfd_flags);
-	wrtn += printf("  backend: 0x%x\n", state->backend);
-	wrtn += printf("  count: %d\n", state->count);
-	wrtn += printf("  pagesize: %d\n", state->pagesize);
-	wrtn += printf("  hugepgsz: %d\n", state->hugepgsz);
+	wrtn += printf("  hugetlb_path: '%s'\n", config->hugetlb_path);
+	wrtn += printf("  memfd_flags: 0x%x\n", config->memfd_flags);
+	wrtn += printf("  backend: 0x%x\n", config->backend);
+	wrtn += printf("  count: %d\n", config->count);
+	wrtn += printf("  pagesize: %d\n", config->pagesize);
+	wrtn += printf("  hugepgsz: %d\n", config->hugepgsz);
 
 	return wrtn;
 };
 
 static inline int
-hostmem_state_get_hugepgsz(int *hugepgsz)
+hostmem_config_get_hugepgsz(int *hugepgsz)
 {
 	char line[256];
 	FILE *fp;
@@ -68,45 +68,45 @@ hostmem_state_get_hugepgsz(int *hugepgsz)
 }
 
 static inline int
-hostmem_state_init(struct hostmem_state *state)
+hostmem_config_init(struct hostmem_config *config)
 {
 	const char *env;
 	int err;
 
-	sprintf(state->hugetlb_path, "/mnt/huge");
-	state->pagesize = getpagesize();
+	sprintf(config->hugetlb_path, "/mnt/huge");
+	config->pagesize = getpagesize();
 
-	err = hostmem_state_get_hugepgsz(&state->hugepgsz);
+	err = hostmem_config_get_hugepgsz(&config->hugepgsz);
 	if (err) {
 		return err;
 	}
 
-	state->memfd_flags = MFD_HUGETLB;
-	if (state->hugepgsz == 2 * 1024 * 1024) {
-		state->memfd_flags |= MFD_HUGE_2MB;
-	} else if (state->hugepgsz == 1 * 1024 * 1024 * 1024) {
-		state->memfd_flags |= MFD_HUGE_1GB;
+	config->memfd_flags = MFD_HUGETLB;
+	if (config->hugepgsz == 2 * 1024 * 1024) {
+		config->memfd_flags |= MFD_HUGE_2MB;
+	} else if (config->hugepgsz == 1 * 1024 * 1024 * 1024) {
+		config->memfd_flags |= MFD_HUGE_1GB;
 	} else {
-		fprintf(stderr, "Unsupported hugepgsz(%d)\n", state->hugepgsz);
+		fprintf(stderr, "Unsupported hugepgsz(%d)\n", config->hugepgsz);
 		return -EINVAL;
 	}
 
 	env = getenv("HOSTMEM_HUGETLB_PATH");
 	if (env) {
-		snprintf(state->hugetlb_path, sizeof(state->hugetlb_path), "%s", env);
+		snprintf(config->hugetlb_path, sizeof(config->hugetlb_path), "%s", env);
 	}
 
 	env = getenv("HOSTMEM_BACKEND");
 	if (env) {
 		if (env && strcmp(env, "memfd") == 0) {
-			state->backend = HOSTMEM_BACKEND_MEMFD;
+			config->backend = HOSTMEM_BACKEND_MEMFD;
 		} else if (env && strcmp(env, "hugetlbfs") == 0) {
-			state->backend = HOSTMEM_BACKEND_HUGETLBFS;
+			config->backend = HOSTMEM_BACKEND_HUGETLBFS;
 		} else {
 			return -EINVAL;
 		}
 	} else {
-		state->backend = HOSTMEM_BACKEND_MEMFD;
+		config->backend = HOSTMEM_BACKEND_MEMFD;
 	}
 
 	return 0;

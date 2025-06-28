@@ -55,7 +55,7 @@ struct hostmem_heap_block {
 struct hostmem_heap {
 	struct hostmem_hugepage memory;	     ///< A hugepage-allocation; can span multiple hugepages
 	struct hostmem_heap_block *freelist; ///< Pointers to description of free memory in the heap
-	struct hostmem_state *state;          ///< Pointer to hugepage configuration
+	struct hostmem_config *config;       ///< Pointer to hugepage configuration
 	size_t nphys;			     ///< Number of hugepages backing 'memory'
 	uint64_t *phys_lut; ///< An array of physical addresses; on for each hugepage in 'memory'
 };
@@ -112,7 +112,7 @@ hostmem_heap_term(struct hostmem_heap *heap)
  *       non-privileged user to know of the virt-to-phys mapping
  */
 static inline int
-hostmem_heap_init(struct hostmem_heap *heap, size_t size, struct hostmem_state *state)
+hostmem_heap_init(struct hostmem_heap *heap, size_t size, struct hostmem_config *config)
 {
 	int err;
 
@@ -121,9 +121,9 @@ hostmem_heap_init(struct hostmem_heap *heap, size_t size, struct hostmem_state *
 	}
 
 	memset(heap, 0, sizeof(*heap));
-	heap->state = state;
+	heap->config = config;
 
-	err = hostmem_hugepage_alloc(size, &heap->memory, state);
+	err = hostmem_hugepage_alloc(size, &heap->memory, config);
 	if (err) {
 		return err;
 	}
@@ -135,11 +135,11 @@ hostmem_heap_init(struct hostmem_heap *heap, size_t size, struct hostmem_state *
 	heap->freelist->next = NULL;
 
 	// Setup the LUT
-	heap->nphys = size / heap->state->hugepgsz;
+	heap->nphys = size / heap->config->hugepgsz;
 	heap->phys_lut = calloc(heap->nphys, sizeof(uint64_t));
 
 	for (size_t i = 0; i < heap->nphys; ++i) {
-		void *vaddr = (char *)heap->memory.virt + i * heap->state->hugepgsz;
+		void *vaddr = (char *)heap->memory.virt + i * heap->config->hugepgsz;
 
 		err = hostmem_pagemap_virt_to_phys(vaddr, &heap->phys_lut[i]);
 		if (err) {
@@ -159,7 +159,7 @@ hostmem_heap_init(struct hostmem_heap *heap, size_t size, struct hostmem_state *
 static inline void
 hostmem_heap_block_free(struct hostmem_heap *heap, void *ptr)
 {
-	size_t alignment = heap->state->pagesize;
+	size_t alignment = heap->config->pagesize;
 	struct hostmem_heap_block *block = NULL;
 
 	if (!ptr) {
@@ -219,7 +219,7 @@ hostmem_heap_block_alloc_aligned(struct hostmem_heap *heap, size_t size, size_t 
 static inline void *
 hostmem_heap_block_alloc(struct hostmem_heap *heap, size_t size)
 {
-	return hostmem_heap_block_alloc_aligned(heap, size, heap->state->pagesize);
+	return hostmem_heap_block_alloc_aligned(heap, size, heap->config->pagesize);
 }
 
 static inline int
@@ -240,10 +240,10 @@ hostmem_heap_block_virt_to_phys(struct hostmem_heap *heap, void *virt, uint64_t 
 	offset = (char *)virt - (char *)heap->memory.virt;
 
 	// Determine which hugepage this address falls into
-	hpage_idx = offset / heap->state->hugepgsz;
+	hpage_idx = offset / heap->config->hugepgsz;
 
 	// Offset within that hugepage
-	in_hpage_offset = offset % heap->state->hugepgsz;
+	in_hpage_offset = offset % heap->config->hugepgsz;
 
 	if (hpage_idx >= heap->nphys) {
 		return -EINVAL;
@@ -267,10 +267,10 @@ hostmem_heap_block_vtp(struct hostmem_heap *heap, void *virt)
 	offset = (char *)virt - (char *)heap->memory.virt;
 
 	// Determine which hugepage this address falls into
-	hpage_idx = offset / heap->state->hugepgsz;
+	hpage_idx = offset / heap->config->hugepgsz;
 
 	// Offset within that hugepage
-	in_hpage_offset = offset % heap->state->hugepgsz;
+	in_hpage_offset = offset % heap->config->hugepgsz;
 
 	return heap->phys_lut[hpage_idx] + in_hpage_offset;
 }
