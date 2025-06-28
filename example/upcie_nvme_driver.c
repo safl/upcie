@@ -22,7 +22,7 @@ main(int argc, char **argv)
 		return err;
 	}
 
-	err = hostmem_heap_init(&heap, 1024 * 1024 * 128ULL);
+	err = hostmem_heap_init(&heap, 1024 * 1024 * 128ULL, &g_hostmem_state);
 	if (err) {
 		printf("FAILED: hostmem_heap_init(); err(%d)\n", err);
 		return -err;

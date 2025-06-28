@@ -15,7 +15,7 @@ main(void)
 	}
 	hostmem_state_pp(&g_hostmem_state);
 
-	err = hostmem_heap_init(&heap, 1024 * 1024 * 256ULL);
+	err = hostmem_heap_init(&heap, 1024 * 1024 * 256ULL, &g_hostmem_state);
 	if (err) {
 		printf("# FAILED: hostmem_heap_init(); err(%d)\n", err);
 		return -err;

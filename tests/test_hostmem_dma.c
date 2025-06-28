@@ -10,7 +10,7 @@ main(void)
 	void *buf;
 	int err;
 
-	err = hostmem_heap_init(&heap, HOSTMEM_HEAP_SIZE);
+	err = hostmem_heap_init(&heap, HOSTMEM_HEAP_SIZE, &g_hostmem_state);
 	if (err) {
 		printf("hostmem_dma_init(); err(%d)\n", -err);
 		printf("Check status: hugepages info\n");

@@ -55,6 +55,7 @@ struct hostmem_heap_block {
 struct hostmem_heap {
 	struct hostmem_hugepage memory;	     ///< A hugepage-allocation; can span multiple hugepages
 	struct hostmem_heap_block *freelist; ///< Pointers to description of free memory in the heap
+	struct hostmem_state *state;          ///< Pointer to hugepage configuration
 	size_t nphys;			     ///< Number of hugepages backing 'memory'
 	uint64_t *phys_lut; ///< An array of physical addresses; on for each hugepage in 'memory'
 };
@@ -111,7 +112,7 @@ hostmem_heap_term(struct hostmem_heap *heap)
  *       non-privileged user to know of the virt-to-phys mapping
  */
 static inline int
-hostmem_heap_init(struct hostmem_heap *heap, size_t size)
+hostmem_heap_init(struct hostmem_heap *heap, size_t size, struct hostmem_state *state)
 {
 	int err;
 
@@ -120,6 +121,7 @@ hostmem_heap_init(struct hostmem_heap *heap, size_t size)
 	}
 
 	memset(heap, 0, sizeof(*heap));
+	heap->state = state;
 
 	err = hostmem_hugepage_alloc(size, &heap->memory);
 	if (err) {
