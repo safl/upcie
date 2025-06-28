@@ -17,15 +17,6 @@ struct hostmem_state {
 	int hugepgsz; ///< THIS, is the HUGEPAGE size
 };
 
-/**
- * Global default state of the host memory allocate
- */
-static struct hostmem_state g_hostmem_state = {
-    .hugetlb_path = "/mnt/huge",
-    .backend = HOSTMEM_BACKEND_UNKNOWN,
-    .count = 0,
-};
-
 static inline int
 hostmem_state_pp(struct hostmem_state *state)
 {
@@ -82,6 +73,7 @@ hostmem_state_init(struct hostmem_state *state)
 	const char *env;
 	int err;
 
+	sprintf(state->hugetlb_path, "/mnt/huge");
 	state->pagesize = getpagesize();
 
 	err = hostmem_state_get_hugepgsz(&state->hugepgsz);

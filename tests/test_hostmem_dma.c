@@ -5,12 +5,18 @@
 int
 main(void)
 {
+	struct hostmem_state state = {0};
 	struct hostmem_heap heap = {0};
 	const size_t sizes[] = {1024, 1024 * 1024, 1024 * 1024 * 2ULL};
 	void *buf;
 	int err;
 
-	err = hostmem_heap_init(&heap, HOSTMEM_HEAP_SIZE, &g_hostmem_state);
+	err = hostmem_state_init(&state);
+	if (err) {
+		return -err;
+	}
+
+	err = hostmem_heap_init(&heap, HOSTMEM_HEAP_SIZE, &state);
 	if (err) {
 		printf("hostmem_dma_init(); err(%d)\n", -err);
 		printf("Check status: hugepages info\n");

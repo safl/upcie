@@ -7,6 +7,7 @@
 int
 main(int argc, char **argv)
 {
+	struct hostmem_state state = {0};
 	struct hostmem_heap heap = {0};
 	struct nvme_controller ctrlr = {0};
 	struct nvme_qpair ioq = {0};
@@ -17,12 +18,12 @@ main(int argc, char **argv)
 		return 1;
 	}
 
-	err = hostmem_state_init(&g_hostmem_state);
+	err = hostmem_state_init(&state);
 	if (err) {
 		return err;
 	}
 
-	err = hostmem_heap_init(&heap, 1024 * 1024 * 128ULL, &g_hostmem_state);
+	err = hostmem_heap_init(&heap, 1024 * 1024 * 128ULL, &state);
 	if (err) {
 		printf("FAILED: hostmem_heap_init(); err(%d)\n", err);
 		return -err;

@@ -67,6 +67,7 @@ struct hostmem_hugepage {
 	size_t size;
 	uint64_t phys;
 	char path[256];
+	struct hostmem_state *state;
 };
 
 static inline int
@@ -104,7 +105,7 @@ hostmem_hugepage_free(struct hostmem_hugepage *hugepage)
 		munmap(hugepage->virt, hugepage->size);
 	}
 
-	if (HOSTMEM_BACKEND_HUGETLBFS == g_hostmem_state.backend) {
+	if (HOSTMEM_BACKEND_HUGETLBFS == hugepage->state->backend) {
 		unlink(hugepage->path);
 	}
 
@@ -121,22 +122,22 @@ hostmem_hugepage_free(struct hostmem_hugepage *hugepage)
  * indicate the error.
  */
 static inline int
-hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage)
+hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage, struct hostmem_state *state)
 {
 	int err;
 
-	if (size % (g_hostmem_state.hugepgsz) != 0) {
-		fprintf(stderr, "size must be multiple of hugepgsz(%d)\n",
-			g_hostmem_state.hugepgsz);
+	if (size % (state->hugepgsz) != 0) {
+		fprintf(stderr, "size must be multiple of hugepgsz(%d)\n", state->hugepgsz);
 		return -EINVAL;
 	}
 
+	hugepage->state = state;
 	hugepage->size = size;
 
-	switch (g_hostmem_state.backend) {
+	switch (hugepage->state->backend) {
 	case HOSTMEM_BACKEND_MEMFD:
 		hugepage->fd =
-		    hostmem_internal_memfd_create("hostmem", g_hostmem_state.memfd_flags);
+		    hostmem_internal_memfd_create("hostmem", hugepage->state->memfd_flags);
 		if (hugepage->fd < 0) {
 			perror("memfd_create()");
 			return -errno;
@@ -148,7 +149,7 @@ hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage)
 
 	case HOSTMEM_BACKEND_HUGETLBFS:
 		snprintf(hugepage->path, sizeof(hugepage->path), "%s/%d",
-			 g_hostmem_state.hugetlb_path, g_hostmem_state.count);
+			 hugepage->state->hugetlb_path, hugepage->state->count);
 
 		hugepage->fd = open(hugepage->path, O_CREAT | O_RDWR, 0600);
 		if (hugepage->fd < 0) {
@@ -183,7 +184,7 @@ hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage)
 
 	{
 		volatile char *ptr = (volatile char *)hugepage->virt;
-		for (size_t i = 0; i < hugepage->size; i += g_hostmem_state.pagesize) {
+		for (size_t i = 0; i < hugepage->size; i += hugepage->state->pagesize) {
 			ptr[i] = 0;
 		}
 	}
@@ -199,7 +200,7 @@ hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage)
 		return -ENOMEM;
 	}
 
-	g_hostmem_state.count++;
+	hugepage->state->count++;
 
 	return 0;
 }
@@ -215,7 +216,7 @@ hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage)
  * @return 0 on success, negative errno on error
  */
 static inline int
-hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage)
+hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage, struct hostmem_state *state)
 {
 	struct stat st;
 	int err;
@@ -225,6 +226,7 @@ hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage)
 	}
 
 	snprintf(hugepage->path, sizeof(hugepage->path), "%s", path);
+	hugepage->state = state;
 
 	hugepage->fd = open(hugepage->path, O_RDWR);
 	if (hugepage->fd < 0) {
@@ -239,9 +241,9 @@ hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage)
 	}
 	hugepage->size = st.st_size;
 
-	if (hugepage->size % g_hostmem_state.hugepgsz != 0) {
+	if (hugepage->size % hugepage->state->hugepgsz != 0) {
 		fprintf(stderr, "Error: mapped file size (%zu) is not hugepgsz(%d) aligned\n",
-			st.st_size, g_hostmem_state.hugepgsz);
+			st.st_size, hugepage->state->hugepgsz);
 		close(hugepage->fd);
 		return -EINVAL;
 	}
@@ -260,7 +262,7 @@ hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage)
 	{
 		volatile const char *p = (volatile const char *)hugepage->virt;
 		volatile char sink;
-		for (size_t i = 0; i < hugepage->size; i += g_hostmem_state.pagesize) {
+		for (size_t i = 0; i < hugepage->size; i += hugepage->state->pagesize) {
 			sink = p[i];
 			(void)sink; ///< Avoid compiler-warnings "unused-but-set-variable"
 		}

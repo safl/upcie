@@ -123,7 +123,7 @@ hostmem_heap_init(struct hostmem_heap *heap, size_t size, struct hostmem_state *
 	memset(heap, 0, sizeof(*heap));
 	heap->state = state;
 
-	err = hostmem_hugepage_alloc(size, &heap->memory);
+	err = hostmem_hugepage_alloc(size, &heap->memory, state);
 	if (err) {
 		return err;
 	}

@@ -10,45 +10,50 @@ struct shared_memory {
 /**
  * Allocate a hugepage, write to it, setup a counter and wait for it to go to 0
  */
-int hugepage_allocate(size_t size, struct hostmem_hugepage *hugepage) {
+int
+hugepage_allocate(struct hostmem_state *state) {
+  struct hostmem_hugepage hugepage = {0};
+  const size_t size = 1024 * 1024 * 256;
   struct shared_memory *shared;
   int err;
 
-  err = hostmem_hugepage_alloc(size, hugepage);
+  err = hostmem_hugepage_alloc(size, &hugepage, state);
   if (err) {
     printf("# hostmem_hugepage_alloc(); err(%d)\n", err);
   }
 
-  shared = hugepage->virt;
+  shared = hugepage.virt;
   shared->val = 10;
 
   snprintf(shared->message, sizeof(shared->message), "%s", "Hello there!");
 
-  hostmem_hugepage_pp(hugepage);
+  hostmem_hugepage_pp(&hugepage);
 
   while (shared->val) {
     printf("info: {pid: %d, shared: {val: %d}}\n", getpid(), shared->val);
     sleep(1);
   }
 
-  hostmem_hugepage_free(hugepage);
+  hostmem_hugepage_free(&hugepage);
 
   return 0;
 }
 
-int hugepage_import(const char *path, struct hostmem_hugepage *hugepage) {
+int
+hugepage_import(struct hostmem_state *state, const char *path) {
+  struct hostmem_hugepage hugepage = {0};
   struct shared_memory *shared;
   int err;
 
-  err = hostmem_hugepage_import(path, hugepage);
+  err = hostmem_hugepage_import(path, &hugepage, state);
   if (err) {
     printf("# hostmem_hugepage_import(); err(%d)\n", err);
     return err;
   }
 
-  shared = hugepage->virt;
+  shared = hugepage.virt;
 
-  hostmem_hugepage_pp(hugepage);
+  hostmem_hugepage_pp(&hugepage);
 
   printf("info: {pid: %d, shared: {message: '%s'}}\n", getpid(),
          shared->message);
@@ -59,30 +64,30 @@ int hugepage_import(const char *path, struct hostmem_hugepage *hugepage) {
     sleep(1);
   }
 
-  hostmem_hugepage_free(hugepage);
+  hostmem_hugepage_free(&hugepage);
 
   return 0;
 }
 
 int main(int argc, const char *argv[]) {
-  struct hostmem_hugepage hugepage = {0};
+  struct hostmem_state state = {0};
   int err;
 
-  err = hostmem_state_init(&g_hostmem_state);
+  err = hostmem_state_init(&state);
   if (err) {
     printf("# FAILED: hostmem_state_init(); err(%d)\n", err);
     return -err;
   }
 
-  hostmem_state_pp(&g_hostmem_state);
+  hostmem_state_pp(&state);
 
   switch (argc) {
   case 1:
-    err = hugepage_allocate(1024 * 1024 * 2, &hugepage);
+    err = hugepage_allocate(&state);
     break;
 
   case 2:
-    err = hugepage_import(argv[1], &hugepage);
+    err = hugepage_import(&state, argv[1]);
     break;
 
   default:
