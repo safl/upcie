@@ -135,11 +135,11 @@ hostmem_heap_init(struct hostmem_heap *heap, size_t size, struct hostmem_state *
 	heap->freelist->next = NULL;
 
 	// Setup the LUT
-	heap->nphys = size / g_hostmem_state.hugepgsz;
+	heap->nphys = size / heap->state->hugepgsz;
 	heap->phys_lut = calloc(heap->nphys, sizeof(uint64_t));
 
 	for (size_t i = 0; i < heap->nphys; ++i) {
-		void *vaddr = (char *)heap->memory.virt + i * g_hostmem_state.hugepgsz;
+		void *vaddr = (char *)heap->memory.virt + i * heap->state->hugepgsz;
 
 		err = hostmem_pagemap_virt_to_phys(vaddr, &heap->phys_lut[i]);
 		if (err) {
@@ -159,7 +159,7 @@ hostmem_heap_init(struct hostmem_heap *heap, size_t size, struct hostmem_state *
 static inline void
 hostmem_heap_block_free(struct hostmem_heap *heap, void *ptr)
 {
-	size_t alignment = g_hostmem_state.pagesize;
+	size_t alignment = heap->state->pagesize;
 	struct hostmem_heap_block *block = NULL;
 
 	if (!ptr) {
@@ -219,7 +219,7 @@ hostmem_heap_block_alloc_aligned(struct hostmem_heap *heap, size_t size, size_t 
 static inline void *
 hostmem_heap_block_alloc(struct hostmem_heap *heap, size_t size)
 {
-	return hostmem_heap_block_alloc_aligned(heap, size, g_hostmem_state.pagesize);
+	return hostmem_heap_block_alloc_aligned(heap, size, heap->state->pagesize);
 }
 
 static inline int
@@ -240,10 +240,10 @@ hostmem_heap_block_virt_to_phys(struct hostmem_heap *heap, void *virt, uint64_t 
 	offset = (char *)virt - (char *)heap->memory.virt;
 
 	// Determine which hugepage this address falls into
-	hpage_idx = offset / g_hostmem_state.hugepgsz;
+	hpage_idx = offset / heap->state->hugepgsz;
 
 	// Offset within that hugepage
-	in_hpage_offset = offset % g_hostmem_state.hugepgsz;
+	in_hpage_offset = offset % heap->state->hugepgsz;
 
 	if (hpage_idx >= heap->nphys) {
 		return -EINVAL;
@@ -267,10 +267,10 @@ hostmem_heap_block_vtp(struct hostmem_heap *heap, void *virt)
 	offset = (char *)virt - (char *)heap->memory.virt;
 
 	// Determine which hugepage this address falls into
-	hpage_idx = offset / g_hostmem_state.hugepgsz;
+	hpage_idx = offset / heap->state->hugepgsz;
 
 	// Offset within that hugepage
-	in_hpage_offset = offset % g_hostmem_state.hugepgsz;
+	in_hpage_offset = offset % heap->state->hugepgsz;
 
 	return heap->phys_lut[hpage_idx] + in_hpage_offset;
 }
