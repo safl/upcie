@@ -6,7 +6,7 @@
  * =====================
  *
  * @file hostmem.h
- * @version 0.2.1
+ * @version 0.2.2
 */
 
 enum hostmem_backend {
