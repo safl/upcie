@@ -27,7 +27,7 @@
 #define NVME_QID_MAX 0xFFFF
 #define NVME_QID_BITMAP_WORDS (NVME_QID_MAX / BITS_PER_WORD)
 
-int
+static inline int
 nvme_qid_is_allocated(uint64_t *qid_bitmap, uint16_t qid)
 {
 	if (qid >= NVME_QID_MAX) {
@@ -37,7 +37,7 @@ nvme_qid_is_allocated(uint64_t *qid_bitmap, uint16_t qid)
 	return (qid_bitmap[qid / BITS_PER_WORD] >> (qid % BITS_PER_WORD)) & 1;
 }
 
-int
+static inline int
 nvme_qid_free(uint64_t *qid_bitmap, uint16_t qid)
 {
 	if (qid >= NVME_QID_MAX) {
@@ -49,7 +49,7 @@ nvme_qid_free(uint64_t *qid_bitmap, uint16_t qid)
 	return 0;
 }
 
-int
+static inline int
 nvme_qid_alloc(uint64_t *qid_bitmap, uint16_t qid)
 {
 	if (qid >= NVME_QID_MAX) {
@@ -61,7 +61,7 @@ nvme_qid_alloc(uint64_t *qid_bitmap, uint16_t qid)
 	return 0;
 }
 
-int
+static inline int
 nvme_qid_bitmap_init(uint64_t *qid_bitmap)
 {
 	memset(qid_bitmap, 0, sizeof(*qid_bitmap) * NVME_QID_BITMAP_WORDS);
@@ -69,7 +69,7 @@ nvme_qid_bitmap_init(uint64_t *qid_bitmap)
 	return nvme_qid_alloc(qid_bitmap, 0); ///< Reserve qid 0 since it is the admin-queue
 }
 
-int
+static inline int
 nvme_qid_find_free(uint64_t *qid_bitmap)
 {
 	for (int word = 0; word < NVME_QID_BITMAP_WORDS; ++word) {
