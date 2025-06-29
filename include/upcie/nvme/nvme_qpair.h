@@ -58,8 +58,8 @@ nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, uint8_t *ba
 	size_t nbytes = 1024 * 64;
 
 	qp->heap = heap;
-	qp->sqdb = bar0 + 0x1000 + ((2 * qid) << dstrd);
-	qp->cqdb = bar0 + 0x1000 + ((2 * qid + 1) << dstrd);
+	qp->sqdb = bar0 + 0x1000 + ((2 * qid) << (2+dstrd));
+	qp->cqdb = bar0 + 0x1000 + ((2 * qid + 1) << (2+dstrd));
 	qp->qid = qid;
 	qp->tail = 0;
 	qp->head = 0;
