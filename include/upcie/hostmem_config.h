@@ -10,7 +10,7 @@
  */
 struct hostmem_config {
 	char hugetlb_path[128]; ///< Mountpoint of hugetlbsfs
-	int memfd_flags;	///< Flags for memfd_create(...)
+	int memfd_flags;        ///< Flags for memfd_create(...)
 	int backend;
 	int count;
 	int pagesize; ///< Host memory pagesize (not HUGEPAGE size)

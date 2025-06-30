@@ -7,7 +7,7 @@
  *
  * @file hostmem.h
  * @version 0.2.2
-*/
+ */
 
 enum hostmem_backend {
 	HOSTMEM_BACKEND_UNKNOWN = 0x0,

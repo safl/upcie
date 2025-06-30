@@ -53,10 +53,11 @@ struct hostmem_heap_block {
  * A pre-allocated heap providing memory for a buffer-allocator
  */
 struct hostmem_heap {
-	struct hostmem_hugepage memory;	     ///< A hugepage-allocation; can span multiple hugepages
-	struct hostmem_heap_block *freelist; ///< Pointers to description of free memory in the heap
-	struct hostmem_config *config;       ///< Pointer to hugepage configuration
-	size_t nphys;			     ///< Number of hugepages backing 'memory'
+	struct hostmem_hugepage memory; ///< A hugepage-allocation; can span multiple hugepages
+	struct hostmem_heap_block
+		*freelist;             ///< Pointers to description of free memory in the heap
+	struct hostmem_config *config; ///< Pointer to hugepage configuration
+	size_t nphys;                  ///< Number of hugepages backing 'memory'
 	uint64_t *phys_lut; ///< An array of physical addresses; on for each hugepage in 'memory'
 };
 

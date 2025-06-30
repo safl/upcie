@@ -50,7 +50,6 @@
  * @version 0.2.2
  */
 
-
 /**
  * Free the DMA-capable memory pointed to by `ptr`
  *

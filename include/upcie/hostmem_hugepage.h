@@ -122,7 +122,8 @@ hostmem_hugepage_free(struct hostmem_hugepage *hugepage)
  * indicate the error.
  */
 static inline int
-hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage, struct hostmem_config *config)
+hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage,
+		       struct hostmem_config *config)
 {
 	int err;
 
@@ -137,7 +138,7 @@ hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage, struct ho
 	switch (hugepage->config->backend) {
 	case HOSTMEM_BACKEND_MEMFD:
 		hugepage->fd =
-		    hostmem_internal_memfd_create("hostmem", hugepage->config->memfd_flags);
+			hostmem_internal_memfd_create("hostmem", hugepage->config->memfd_flags);
 		if (hugepage->fd < 0) {
 			perror("memfd_create()");
 			return -errno;
@@ -167,7 +168,7 @@ hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage, struct ho
 	}
 
 	hugepage->virt =
-	    mmap(NULL, hugepage->size, PROT_READ | PROT_WRITE, MAP_SHARED, hugepage->fd, 0);
+		mmap(NULL, hugepage->size, PROT_READ | PROT_WRITE, MAP_SHARED, hugepage->fd, 0);
 	if (hugepage->virt == MAP_FAILED) {
 		perror("mmap(hugepage)");
 		close(hugepage->fd);
@@ -216,7 +217,8 @@ hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage, struct ho
  * @return 0 on success, negative errno on error
  */
 static inline int
-hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage, struct hostmem_config *config)
+hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage,
+			struct hostmem_config *config)
 {
 	struct stat st;
 	int err;
@@ -249,7 +251,7 @@ hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage, str
 	}
 
 	hugepage->virt =
-	    mmap(NULL, hugepage->size, PROT_READ | PROT_WRITE, MAP_SHARED, hugepage->fd, 0);
+		mmap(NULL, hugepage->size, PROT_READ | PROT_WRITE, MAP_SHARED, hugepage->fd, 0);
 	if (hugepage->virt == MAP_FAILED) {
 		perror("mmap(import)");
 		close(hugepage->fd);

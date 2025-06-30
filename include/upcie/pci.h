@@ -29,22 +29,26 @@ struct pci_addr {
 };
 
 uint8_t
-pci_addr_get_function(uint32_t bdf) {
+pci_addr_get_function(uint32_t bdf)
+{
 	return bdf & 0x7;
 }
 
 uint8_t
-pci_addr_get_device(uint32_t bdf) {
+pci_addr_get_device(uint32_t bdf)
+{
 	return (bdf >> 3) & 0x1f;
 }
 
 uint8_t
-pci_addr_get_bus(uint32_t bdf) {
+pci_addr_get_bus(uint32_t bdf)
+{
 	return (bdf >> 8) & 0xff;
 }
 
 uint16_t
-pci_addr_get_domain(uint32_t bdf) {
+pci_addr_get_domain(uint32_t bdf)
+{
 	return (bdf >> 16) & 0xffff;
 }
 
@@ -64,13 +68,13 @@ struct pci_func_bar {
 	uint64_t size; ///< The size of the BAR region
 	void *region;  ///< Pointer to mmap'ed BAR region
 	uint8_t id;    ///< One of the six BARs; [0-5]
-	int fd;	       ///< Handle to file-representation
+	int fd;        ///< Handle to file-representation
 };
 
 struct pci_func {
-	struct pci_addr addr;		     ///< The address of the PCI device function
-	char bdf[PCI_BDF_LEN + 1];	     ///< PCI address as a null-terminated full BDF string
-	struct pci_idents ident;	     ///< Describes who made it and what it is
+	struct pci_addr addr;                ///< The address of the PCI device function
+	char bdf[PCI_BDF_LEN + 1];           ///< PCI address as a null-terminated full BDF string
+	struct pci_idents ident;             ///< Describes who made it and what it is
 	struct pci_func_bar bars[PCI_NBARS]; ///< The six BARs associated with a PCI Function
 };
 
@@ -104,10 +108,9 @@ pci_func_pr(struct pci_func *func)
 	printf("pci_func:\n");
 	printf("  addr: '%04" PRIx16 ":%02" PRIx8 ":%02" PRIx8 ".%01" PRIx8
 	       "' # numerical representation printed as string\n",
-		pci_addr_get_domain(func->addr.value), pci_addr_get_bus(func->addr.value),
-		pci_addr_get_device(func->addr.value), pci_addr_get_function(func->addr.value));
+	       pci_addr_get_domain(func->addr.value), pci_addr_get_bus(func->addr.value),
+	       pci_addr_get_device(func->addr.value), pci_addr_get_function(func->addr.value));
 
-	
 	printf("  bdf: '%.*s'  # string representation printed as is\n", PCI_BDF_LEN, func->bdf);
 	printf("  ident:\n");
 	printf("    vendor_id: 0x%" PRIx16 "\n", func->ident.vendor_id);

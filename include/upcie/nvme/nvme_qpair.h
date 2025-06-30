@@ -17,8 +17,8 @@
  *
  * nvme_qpair_init():      Initializes a queue pair and allocates DMA memory for SQ/CQ.
  * nvme_qpair_term():      Frees resources associated with a queue pair.
- * nvme_qpair_reap_cpl():  Polls the CQ for a completion, updates head/phase, and rings CQ doorbell.
- * nvme_qpair_sqdb_ring(): Notifies the controller by ringing the SQ doorbell.
+ * nvme_qpair_reap_cpl():  Polls the CQ for a completion, updates head/phase, and rings CQ
+ * doorbell. nvme_qpair_sqdb_ring(): Notifies the controller by ringing the SQ doorbell.
  * nvme_qpair_submit():    Enqueues a command into the SQ and assigns a CID.
  * nvme_qpair_submit_sync(): Submits a command and waits synchronously for its completion.
  *
@@ -29,14 +29,14 @@
  */
 
 struct nvme_qpair {
-	void *sq;	///< VA-Pointer to DMA-capable memory backing the Submission Queue (SQ)
-	void *cq;	///< VA-Pointer to DMA-capable memory backing the Completion Queue (CQ)
-	void *sqdb;	///< Pointer to Submission Queue Doorbell Register in bar0
-	void *cqdb;	///< Pointer to Completion Queue Doorbell Register in bar0
-	uint32_t qid;	///< The admin: queue-id == 0 ; io: queue-id > 0;
+	void *sq;       ///< VA-Pointer to DMA-capable memory backing the Submission Queue (SQ)
+	void *cq;       ///< VA-Pointer to DMA-capable memory backing the Completion Queue (CQ)
+	void *sqdb;     ///< Pointer to Submission Queue Doorbell Register in bar0
+	void *cqdb;     ///< Pointer to Completion Queue Doorbell Register in bar0
+	uint32_t qid;   ///< The admin: queue-id == 0 ; io: queue-id > 0;
 	uint16_t depth; ///< Length of the queue-pair
-	uint16_t tail;	///< Submissin Queue Tail Pointer
-	uint16_t head;	///< Completion Queue Head Pointer
+	uint16_t tail;  ///< Submissin Queue Tail Pointer
+	uint16_t head;  ///< Completion Queue Head Pointer
 	uint8_t phase;
 	struct hostmem_heap *heap; ///< For allocation / free of DMA-capable SQ/CQ entries
 };
@@ -52,14 +52,15 @@ nvme_qpair_term(struct nvme_qpair *qp)
  * Initialize a queue-pair on the given controller
  */
 static inline int
-nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, uint8_t *bar0, struct hostmem_heap *heap)
+nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, uint8_t *bar0,
+		struct hostmem_heap *heap)
 {
 	int dstrd = nvme_reg_cap_get_dstrd(nvme_mmio_cap_read(bar0));
 	size_t nbytes = 1024 * 64;
 
 	qp->heap = heap;
-	qp->sqdb = bar0 + 0x1000 + ((2 * qid) << (2+dstrd));
-	qp->cqdb = bar0 + 0x1000 + ((2 * qid + 1) << (2+dstrd));
+	qp->sqdb = bar0 + 0x1000 + ((2 * qid) << (2 + dstrd));
+	qp->cqdb = bar0 + 0x1000 + ((2 * qid + 1) << (2 + dstrd));
 	qp->qid = qid;
 	qp->tail = 0;
 	qp->head = 0;

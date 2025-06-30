@@ -16,13 +16,13 @@
  * This is one way of combining the various components needed
  */
 struct nvme_controller {
-	struct pci_func func;		      ///< The PCIe function and mapped bars
-	struct nvme_request_pool aqrp;	      ///< Request pool for the admin-queue
-	struct nvme_qpair aq;		      ///< Admin qpair
+	struct pci_func func;                 ///< The PCIe function and mapped bars
+	struct nvme_request_pool aqrp;        ///< Request pool for the admin-queue
+	struct nvme_qpair aq;                 ///< Admin qpair
 	uint64_t qids[NVME_QID_BITMAP_WORDS]; ///< Allocation status of IO queues
 
 	struct hostmem_heap *heap; ///< Heap for DMA-capable memory
-	void *buf; ///< IO-buffer for identify-commands, io-qpair-creation etc.
+	void *buf;                 ///< IO-buffer for identify-commands, io-qpair-creation etc.
 
 	uint32_t csts; ///< Controller Status Register Value
 	uint32_t cap;  ///< Controller Capabilities Register Value
@@ -51,7 +51,7 @@ nvme_controller_open(struct nvme_controller *ctrlr, const char *bdf, struct host
 	memset(ctrlr, 0, sizeof(*ctrlr));
 	ctrlr->heap = heap;
 
-	ctrlr->buf = hostmem_dma_malloc(ctrlr->heap,4096);
+	ctrlr->buf = hostmem_dma_malloc(ctrlr->heap, 4096);
 	if (!ctrlr->buf) {
 		printf("FAILED: hostmem_dma_malloc(buf); errno(%d)\n", errno);
 		return -errno;
@@ -90,8 +90,8 @@ nvme_controller_open(struct nvme_controller *ctrlr, const char *bdf, struct host
 		return -err;
 	}
 
-	nvme_mmio_aq_setup(bar0, hostmem_dma_v2p(heap, ctrlr->aq.sq), hostmem_dma_v2p(heap, ctrlr->aq.cq),
-			   ctrlr->aq.depth);
+	nvme_mmio_aq_setup(bar0, hostmem_dma_v2p(heap, ctrlr->aq.sq),
+			   hostmem_dma_v2p(heap, ctrlr->aq.cq), ctrlr->aq.depth);
 
 	{
 		uint32_t cc = 0;
@@ -154,8 +154,8 @@ nvme_controller_create_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair
 		cmd.cdw10 = (depth << 16) | qid;
 		cmd.cdw11 = 0x1; ///< Physically contigous
 
-		err = nvme_qpair_submit_sync(&ctrlr->aq, &ctrlr->aqrp, &cmd,
-					     ctrlr->timeout_ms, &cpl);
+		err = nvme_qpair_submit_sync(&ctrlr->aq, &ctrlr->aqrp, &cmd, ctrlr->timeout_ms,
+					     &cpl);
 		if (err) {
 			printf("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
 			return err;
@@ -172,7 +172,7 @@ nvme_controller_create_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair
 		cmd.cdw11 = (qid << 16) | 0x1; ///< CQID and Physically contigous
 
 		err = nvme_qpair_submit_sync(&ctrlr->aq, &ctrlr->aqrp, &cmd, ctrlr->timeout_ms,
-		                             &cpl);
+					     &cpl);
 		if (err) {
 			printf("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
 			return err;

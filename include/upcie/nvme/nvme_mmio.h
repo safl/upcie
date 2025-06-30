@@ -295,13 +295,14 @@ nvme_reg_cap_pr(uint64_t cap)
 	wrtn += printf("CAP = 0x%016" PRIx64 "\n", cap);
 	wrtn += printf("  mqes:   %u # max queue entries supported\n", nvme_reg_cap_get_mqes(cap));
 	wrtn += printf("  cqr:    %u # contiguous queues required\n", nvme_reg_cap_get_cqr(cap));
-	wrtn +=
-	    printf("  ams:    %u # arbitration mechanisms supported\n", nvme_reg_cap_get_ams(cap));
+	wrtn += printf("  ams:    %u # arbitration mechanisms supported\n",
+		       nvme_reg_cap_get_ams(cap));
 	wrtn += printf("  to:     %u # timeout in 500ms units (=> %u ms)\n",
 		       nvme_reg_cap_get_to(cap), nvme_reg_cap_get_to(cap) * 500);
-	wrtn += printf("  dstrd:  %u # doorbell stride (2^n bytes)\n", nvme_reg_cap_get_dstrd(cap));
-	wrtn +=
-	    printf("  nssrs:  %u # NVM subsystem reset supported\n", nvme_reg_cap_get_nssrs(cap));
+	wrtn += printf("  dstrd:  %u # doorbell stride (2^n bytes)\n",
+		       nvme_reg_cap_get_dstrd(cap));
+	wrtn += printf("  nssrs:  %u # NVM subsystem reset supported\n",
+		       nvme_reg_cap_get_nssrs(cap));
 	wrtn += printf("  css:    0x%02x # command sets supported\n", nvme_reg_cap_get_css(cap));
 	wrtn += printf("  bps:    %u # boot partition support\n", nvme_reg_cap_get_bps(cap));
 	wrtn += printf("  cps:    %u # controller power scope\n", nvme_reg_cap_get_cps(cap));
@@ -313,12 +314,12 @@ nvme_reg_cap_pr(uint64_t cap)
 		       nvme_reg_cap_get_pmrs(cap));
 	wrtn += printf("  cmbs:   %u # controller memory buffer supported\n",
 		       nvme_reg_cap_get_cmbs(cap));
-	wrtn +=
-	    printf("  nsss:   %u # NVM subsystem shutdown supported\n", nvme_reg_cap_get_nsss(cap));
-	wrtn +=
-	    printf("  crms:   %u # controller ready modes supported\n", nvme_reg_cap_get_crms(cap));
-	wrtn +=
-	    printf("  nsses:  %u # shutdown enhancements supported\n", nvme_reg_cap_get_nsses(cap));
+	wrtn += printf("  nsss:   %u # NVM subsystem shutdown supported\n",
+		       nvme_reg_cap_get_nsss(cap));
+	wrtn += printf("  crms:   %u # controller ready modes supported\n",
+		       nvme_reg_cap_get_crms(cap));
+	wrtn += printf("  nsses:  %u # shutdown enhancements supported\n",
+		       nvme_reg_cap_get_nsses(cap));
 
 	return wrtn;
 }
