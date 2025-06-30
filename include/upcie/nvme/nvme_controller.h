@@ -151,7 +151,7 @@ nvme_controller_create_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair
 
 		cmd.opc = 0x5; ///< Create I/O Completion Queue
 		cmd.prp1 = hostmem_dma_v2p(ctrlr->heap, qpair->cq);
-		cmd.cdw10 = (depth << 16) | qid;
+		cmd.cdw10 = ((depth - 1) << 16) | qid;
 		cmd.cdw11 = 0x1; ///< Physically contigous
 
 		err = nvme_qpair_submit_sync(&ctrlr->aq, &ctrlr->aqrp, &cmd, ctrlr->timeout_ms,
@@ -168,7 +168,7 @@ nvme_controller_create_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair
 
 		cmd.opc = 0x1; ///< Create I/O Submission Queue
 		cmd.prp1 = hostmem_dma_v2p(ctrlr->heap, qpair->sq);
-		cmd.cdw10 = (depth << 16) | qid;
+		cmd.cdw10 = ((depth - 1) << 16) | qid;
 		cmd.cdw11 = (qid << 16) | 0x1; ///< CQID and Physically contigous
 
 		err = nvme_qpair_submit_sync(&ctrlr->aq, &ctrlr->aqrp, &cmd, ctrlr->timeout_ms,
