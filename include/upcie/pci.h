@@ -28,25 +28,25 @@ struct pci_addr {
 	uint32_t value;
 };
 
-uint8_t
+static inline uint8_t
 pci_addr_get_function(uint32_t bdf)
 {
 	return bdf & 0x7;
 }
 
-uint8_t
+static inline uint8_t
 pci_addr_get_device(uint32_t bdf)
 {
 	return (bdf >> 3) & 0x1f;
 }
 
-uint8_t
+static inline uint8_t
 pci_addr_get_bus(uint32_t bdf)
 {
 	return (bdf >> 8) & 0xff;
 }
 
-uint16_t
+static inline uint16_t
 pci_addr_get_domain(uint32_t bdf)
 {
 	return (bdf >> 16) & 0xffff;
