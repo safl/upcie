@@ -131,6 +131,12 @@ nvme_controller_create_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair
 	}
 	qid = err;
 
+	err = nvme_qid_alloc(ctrlr->qids, qid);
+	if (err) {
+		UPCIE_DEBUG("FAILED: nvme_qid_alloc(): err(%d)", err);
+		return err;
+	}
+
 	err = nvme_qpair_init(qpair, qid, depth, ctrlr->func.bars[0].region, ctrlr->heap);
 	if (err) {
 		printf("FAILED: nvme_qpair_init(); err(%d)\n", err);
