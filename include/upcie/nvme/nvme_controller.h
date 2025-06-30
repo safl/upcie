@@ -9,7 +9,7 @@
  * including BAR-space mappings, controller registers, and values derived from register content.
  *
  * @file nvme_controller.h
- * @version 0.2.3
+ * @version 0.2.4
  */
 
 /**
