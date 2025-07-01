@@ -2,21 +2,32 @@
 // Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
 
 /**
- * Software Abstraction: struct nvme_request
- * =========================================
+ * NVMe Request Abstraction
+ * ========================
  *
- * The struct nvme_request defined here is a software-level abstraction, not a construct
- * from the NVMe specification. It serves two main purposes:
+ * This header defines a minimal software abstraction for managing NVMe command identifiers (CIDs)
+ * in user space. The abstraction uses a fixed-size pool of `struct nvme_request`, each assigned a
+ * CID, along with a freelist-based allocator for constant-time allocation and release.
  *
- * - Management of spec-compliant command identifiers
- * - Encapsulation of auxiliary data associated with each command while it is "in flight"
+ * This is not part of the NVMe specification, but is useful for tracking user-submitted commands
+ * while they are in flight and associating user-defined metadata with each command.
+ *
+ * Caveat
+ * ------
+ *
+ * assert() is used here. thus instead of a segfault, you will get a nice message like::
+ *
+ *   nvme_request_get: Assertion `cid < NVME_REQUEST_POOL_LEN' failed.
+ *
+ * Of course, this comes at a cost, so, make sure e.g. meson disables assert on release builds.
+ *
+ * The stack implementation has an upper-bound of NVME_REQUEST_POOL_LEN elements.
  *
  * @file nvme_request.h
  * @version 0.2.5
  */
 
 #define NVME_REQUEST_POOL_LEN 1024
-#define NVME_REQUEST_BITMAP_LEN (NVME_REQUEST_POOL_LEN / 64)
 
 struct nvme_request {
 	uint16_t cid; ///< The NVMe command identifier
@@ -24,41 +35,45 @@ struct nvme_request {
 };
 
 struct nvme_request_pool {
-	struct nvme_request pool[NVME_REQUEST_POOL_LEN];
-	uint64_t bitmap[NVME_REQUEST_BITMAP_LEN];
+	struct nvme_request reqs[NVME_REQUEST_POOL_LEN];
+	uint16_t stack[NVME_REQUEST_POOL_LEN];
+	size_t top;
 };
 
 static inline void
 nvme_request_pool_init(struct nvme_request_pool *pool)
 {
-	for (size_t i = 0; i < NVME_REQUEST_POOL_LEN; ++i) {
-		pool->pool[i].cid = (uint16_t)i;
-	}
-	for (size_t i = 0; i < NVME_REQUEST_BITMAP_LEN; ++i) {
-		pool->bitmap[i] = 0;
+	pool->top = NVME_REQUEST_POOL_LEN;
+	for (uint16_t i = 0; i < NVME_REQUEST_POOL_LEN; ++i) {
+		pool->reqs[i].cid = i;
+		pool->stack[NVME_REQUEST_POOL_LEN - 1 - i] = i;
 	}
 }
 
 /**
- * Allocate a request object
+ * Allocates a request object from the pool.
  *
- * The intended use is to call this upon command-submission. The returned object will have a 'cid'
- * attribute usable as command-identifier.
+ * The returned request has a valid CID and may be used for command submission.
+ *
+ * @param pool The request pool to allocate from.
+ * @return On success, a pointer to a request is returned. On error, NULL is returned and errno set
+ *         to indicate the error.
  */
 static inline struct nvme_request *
-nvme_request_alloc(struct nvme_request_pool *p)
+nvme_request_alloc(struct nvme_request_pool *pool)
 {
-	for (size_t w = 0; w < NVME_REQUEST_BITMAP_LEN; ++w) {
-		if (p->bitmap[w] != UINT64_MAX) {
-			uint64_t inv = ~p->bitmap[w];
-			uint32_t b = (uint32_t)__builtin_ctzll(inv);
-			size_t cid = (w * 64) + b;
-			p->bitmap[w] |= (1ULL << b);
-			return &p->pool[cid];
-		}
+	uint16_t cid;
+
+	assert(pool->top > 0);
+
+	if (pool->top == 0) {
+		errno = ENOMEM;
+		return NULL;
 	}
 
-	return NULL; // No available entries
+	cid = pool->stack[--pool->top];
+
+	return &pool->reqs[cid];
 }
 
 /**
@@ -79,9 +94,8 @@ nvme_request_alloc(struct nvme_request_pool *p)
 static inline void
 nvme_request_free(struct nvme_request_pool *pool, uint16_t cid)
 {
-	size_t w = cid / 64;
-	size_t b = cid % 64;
-	pool->bitmap[w] &= ~(1ULL << b);
+	assert(pool->top < NVME_REQUEST_POOL_LEN);
+	pool->stack[pool->top++] = cid;
 }
 
 /**
@@ -89,21 +103,14 @@ nvme_request_free(struct nvme_request_pool *pool, uint16_t cid)
  *
  * The intended purpose here is to obtain the request-object associated with a command upon its
  * completion.
+ *
+ * @param pool The request pool the CID belongs to.
+ * @param cid The command identifier.
+ * @return Pointer to the corresponding request object.
  */
 static inline struct nvme_request *
 nvme_request_get(struct nvme_request_pool *pool, uint16_t cid)
 {
-	return &pool->pool[cid];
-}
-
-/**
- * Check whether the given 'cid' is in use
- */
-static inline int
-nvme_request_is_cid_in_use(struct nvme_request_pool *pool, uint16_t cid)
-{
-	size_t w = cid / 64;
-	size_t b = cid % 64;
-
-	return (pool->bitmap[w] >> b) & 1;
+	assert(cid < NVME_REQUEST_POOL_LEN);
+	return &pool->reqs[cid];
 }
