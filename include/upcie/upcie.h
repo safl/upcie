@@ -67,6 +67,7 @@ extern "C" {
 
 // uPCIe libraries
 #include <upcie/debug.h>
+#include <upcie/barriers.h>
 #include <upcie/bitfield.h>
 #include <upcie/hostmem.h>
 #include <upcie/hostmem_config.h>
