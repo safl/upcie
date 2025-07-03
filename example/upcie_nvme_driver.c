@@ -43,7 +43,7 @@ main(int argc, char **argv)
 		cmd.prp1 = hostmem_dma_v2p(&heap, ctrlr.buf);
 		cmd.cdw10 = 1; // CNS=1: Identify Controller
 
-		err = nvme_qpair_submit_sync(&ctrlr.aq, &ctrlr.aqrp, &cmd, ctrlr.timeout_ms, &cpl);
+		err = nvme_qpair_submit_sync(&ctrlr.aq, &cmd, ctrlr.timeout_ms, &cpl);
 		if (err) {
 			printf("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
 			goto exit;

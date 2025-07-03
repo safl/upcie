@@ -38,12 +38,14 @@ struct nvme_qpair {
 	uint16_t tail;  ///< Submissin Queue Tail Pointer
 	uint16_t head;  ///< Completion Queue Head Pointer
 	uint8_t phase;
-	struct hostmem_heap *heap; ///< For allocation / free of DMA-capable SQ/CQ entries
+	struct nvme_request_pool *rpool; ///< Command Identifier tracking and user-callback
+	struct hostmem_heap *heap;       ///< For allocation / free of DMA-capable SQ/CQ entries
 };
 
 static inline void
 nvme_qpair_term(struct nvme_qpair *qp)
 {
+	free(qp->rpool);
 	hostmem_dma_free(qp->heap, qp->sq);
 	hostmem_dma_free(qp->heap, qp->cq);
 }
@@ -81,6 +83,13 @@ nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, uint8_t *ba
 		return -errno;
 	}
 	memset(qp->cq, 0, nbytes);
+
+	qp->rpool = calloc(1, sizeof(*qp->rpool));
+	if (!qp->rpool) {
+		UPCIE_DEBUG("FAILED: calloc(rpool); errno(%d)", errno);
+		return -errno;
+	}
+	nvme_request_pool_init(qp->rpool);
 
 	return 0;
 }
@@ -159,13 +168,13 @@ nvme_qpair_submit(struct nvme_qpair *qp, struct nvme_command *cmd)
  * Submits the given command, notifies the controller, and waits for the completion
  */
 static inline int
-nvme_qpair_submit_sync(struct nvme_qpair *qp, struct nvme_request_pool *qprp,
-		       struct nvme_command *cmd, int timeout_us, struct nvme_completion *cpl)
+nvme_qpair_submit_sync(struct nvme_qpair *qp, struct nvme_command *cmd, int timeout_us,
+		       struct nvme_completion *cpl)
 {
 	struct nvme_request *req;
 	int err;
 
-	req = nvme_request_alloc(qprp);
+	req = nvme_request_alloc(qp->rpool);
 	if (!req) {
 		UPCIE_DEBUG("FAILED: nvme_request_alloc(); errno(%d)", errno);
 		return -errno;
@@ -176,6 +185,7 @@ nvme_qpair_submit_sync(struct nvme_qpair *qp, struct nvme_request_pool *qprp,
 	if (err) {
 		return -err;
 	}
+
 	nvme_qpair_sqdb_ring(qp);
 
 	err = nvme_qpair_reap_cpl(qp, timeout_us, cpl);
@@ -183,7 +193,7 @@ nvme_qpair_submit_sync(struct nvme_qpair *qp, struct nvme_request_pool *qprp,
 		return -err;
 	}
 
-	nvme_request_free(qprp, cpl->cid);
+	nvme_request_free(qp->rpool, cpl->cid);
 
 	if (cpl->status & 0x1FE) {
 		err = -EIO;

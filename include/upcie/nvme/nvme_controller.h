@@ -17,7 +17,6 @@
  */
 struct nvme_controller {
 	struct pci_func func;                 ///< The PCIe function and mapped bars
-	struct nvme_request_pool aqrp;        ///< Request pool for the admin-queue
 	struct nvme_qpair aq;                 ///< Admin qpair
 	uint64_t qids[NVME_QID_BITMAP_WORDS]; ///< Allocation status of IO queues
 
@@ -58,7 +57,6 @@ nvme_controller_open(struct nvme_controller *ctrlr, const char *bdf, struct host
 	}
 	memset(ctrlr->buf, 0, 4096);
 
-	nvme_request_pool_init(&ctrlr->aqrp);
 	nvme_qid_bitmap_init(ctrlr->qids);
 
 	err = pci_func_open(bdf, &ctrlr->func);
@@ -154,8 +152,7 @@ nvme_controller_create_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair
 		cmd.cdw10 = ((depth - 1) << 16) | qid;
 		cmd.cdw11 = 0x1; ///< Physically contigous
 
-		err = nvme_qpair_submit_sync(&ctrlr->aq, &ctrlr->aqrp, &cmd, ctrlr->timeout_ms,
-					     &cpl);
+		err = nvme_qpair_submit_sync(&ctrlr->aq, &cmd, ctrlr->timeout_ms, &cpl);
 		if (err) {
 			printf("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
 			return err;
@@ -171,8 +168,7 @@ nvme_controller_create_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair
 		cmd.cdw10 = ((depth - 1) << 16) | qid;
 		cmd.cdw11 = (qid << 16) | 0x1; ///< CQID and Physically contigous
 
-		err = nvme_qpair_submit_sync(&ctrlr->aq, &ctrlr->aqrp, &cmd, ctrlr->timeout_ms,
-					     &cpl);
+		err = nvme_qpair_submit_sync(&ctrlr->aq, &cmd, ctrlr->timeout_ms, &cpl);
 		if (err) {
 			printf("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
 			return err;
