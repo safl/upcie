@@ -134,30 +134,20 @@ nvme_qpair_sqdb_ring(struct nvme_qpair *qp)
 /**
  * Submits a command to an NVMe submission queue
  *
- * That is, writes it into the submission queue memory and increments the tail-pointer. Note that
- * 'cmd' will be modified by assignment of command-identifier.
+ * That is, writes it into the submission queue memory and increments the tail-pointer, it does
+ * **not** write the tail to the sq-doorbell.
  *
  * @param qp The queue-pair
  * @param cmd Command to submit
- * @param pool Request pool used to allocate a new CID
  * @param user Optional opaque pointer returned on completion
  *
  * @return On success 0 is returned. On error then negative errno is set to indicate the error.
  */
 static inline int
-nvme_qpair_submit(struct nvme_qpair *qp, struct nvme_request_pool *pool, struct nvme_command *cmd,
-		  void *user)
+nvme_qpair_submit(struct nvme_qpair *qp, struct nvme_command *cmd)
 {
 	volatile struct nvme_command *sq = qp->sq;
-	struct nvme_request *req;
 
-	req = nvme_request_alloc(pool);
-	if (!req) {
-		return -ENOSPC;
-	}
-
-	req->user = user;
-	cmd->cid = req->cid;
 	sq[qp->tail] = *cmd;
 
 	qp->tail = (qp->tail + 1) % qp->depth;
@@ -172,9 +162,17 @@ static inline int
 nvme_qpair_submit_sync(struct nvme_qpair *qp, struct nvme_request_pool *qprp,
 		       struct nvme_command *cmd, int timeout_us, struct nvme_completion *cpl)
 {
+	struct nvme_request *req;
 	int err;
 
-	err = nvme_qpair_submit(qp, qprp, cmd, NULL);
+	req = nvme_request_alloc(qprp);
+	if (!req) {
+		UPCIE_DEBUG("FAILED: nvme_request_alloc(); errno(%d)", errno);
+		return -errno;
+	}
+	cmd->cid = req->cid;
+
+	err = nvme_qpair_submit(qp, cmd);
 	if (err) {
 		return -err;
 	}
