@@ -185,6 +185,8 @@ nvme_qpair_submit_sync(struct nvme_qpair *qp, struct nvme_request_pool *qprp,
 		return -err;
 	}
 
+	nvme_request_free(qprp, cpl->cid);
+
 	if (cpl->status & 0x1FE) {
 		err = -EIO;
 	}
