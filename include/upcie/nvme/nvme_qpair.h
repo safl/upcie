@@ -36,7 +36,8 @@ struct nvme_qpair {
 	uint32_t qid;   ///< The admin: queue-id == 0 ; io: queue-id > 0;
 	uint16_t depth; ///< Length of the queue-pair
 	uint16_t tail;  ///< Submissin Queue Tail Pointer
-	uint16_t head;  ///< Completion Queue Head Pointer
+	uint16_t tail_last_written; ///< Last tail-value written to DB-reg. init to UINT16_MAX
+	uint16_t head;              ///< Completion Queue Head Pointer
 	uint8_t phase;
 	struct nvme_request_pool *rpool; ///< Command Identifier tracking and user-callback
 	struct hostmem_heap *heap;       ///< For allocation / free of DMA-capable SQ/CQ entries
@@ -65,6 +66,7 @@ nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, uint8_t *ba
 	qp->cqdb = bar0 + 0x1000 + ((2 * qid + 1) << (2 + dstrd));
 	qp->qid = qid;
 	qp->tail = 0;
+	qp->tail_last_written = UINT16_MAX;
 	qp->head = 0;
 	qp->depth = depth;
 	qp->phase = 1;
@@ -132,12 +134,25 @@ nvme_qpair_reap_cpl(struct nvme_qpair *qp, int timeout_us, struct nvme_completio
 }
 
 /**
- * Write the SQ doorbell
+ * Update the submission queue tail doorbell if needed.
+ *
+ * This function writes the current SQ tail index to the MMIO doorbell register
+ * for the given queue pair, notifying the controller of new commands.
+ * To avoid redundant MMIO writes, the function checks whether the tail value
+ * has changed since the last call. The last written value is tracked in
+ * nvme_qpair->tail_last_written.
+ *
+ * @param qp Pointer to the NVMe queue pair whose SQ doorbell should be updated.
  */
 static inline void
-nvme_qpair_sqdb_ring(struct nvme_qpair *qp)
+nvme_qpair_sqdb_update(struct nvme_qpair *qp)
 {
+	if (qp->tail == qp->tail_last_written) {
+		return;
+	}
+
 	mmio_write32(qp->sqdb, 0, qp->tail);
+	qp->tail_last_written = qp->tail;
 }
 
 /**
@@ -186,7 +201,7 @@ nvme_qpair_submit_sync(struct nvme_qpair *qp, struct nvme_command *cmd, int time
 		return -err;
 	}
 
-	nvme_qpair_sqdb_ring(qp);
+	nvme_qpair_sqdb_update(qp);
 
 	err = nvme_qpair_reap_cpl(qp, timeout_us, cpl);
 	if (err) {
