@@ -39,6 +39,7 @@ struct nvme_qpair {
 	uint16_t tail_last_written; ///< Last tail-value written to DB-reg. init to UINT16_MAX
 	uint16_t head;              ///< Completion Queue Head Pointer
 	uint8_t phase;
+	uint8_t _rsdv[3];
 	struct nvme_request_pool *rpool; ///< Command Identifier tracking and user-callback
 	struct hostmem_heap *heap;       ///< For allocation / free of DMA-capable SQ/CQ entries
 };
