@@ -36,7 +36,7 @@
  * also gains access to those physical addresses—without needing CAP_SYS_ADMIN.
  *
  * @file hostmem.h
- * @version 0.2.5
+ * @version 0.3.0
  */
 
 /**

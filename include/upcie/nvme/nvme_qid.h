@@ -19,7 +19,7 @@
  * consume 512 bytes.
  *
  * @file nvme_qid.h
- * @version 0.2.5
+ * @version 0.3.0
  */
 
 #define BITS_PER_WORD 64

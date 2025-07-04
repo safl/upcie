@@ -24,7 +24,7 @@
  * The stack implementation has an upper-bound of NVME_REQUEST_POOL_LEN elements.
  *
  * @file nvme_request.h
- * @version 0.2.5
+ * @version 0.3.0
  */
 
 #define NVME_REQUEST_POOL_LEN 1024
