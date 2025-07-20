@@ -11,6 +11,9 @@ bump:
 config:
 	meson setup $(BUILD_DIR)
 
+config-debug:
+	meson setup $(BUILD_DIR) --buildtype=debug
+
 build:
 	meson compile -C $(BUILD_DIR)
 
