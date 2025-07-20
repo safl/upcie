@@ -31,15 +31,27 @@
 
 struct nvme_request {
 	uint16_t cid; ///< The NVMe command identifier
-	void *user;   ///< An arbitrary pointer for caller to pass on to completion
+	uint8_t rsvd[6];
+
+	void *user;        ///< An arbitrary pointer for caller to pass on to completion
+	uint64_t prp_addr; ///< Use this when constructing command.PRP2
+	void *prp;         ///< Use this when constructing the PRP-list itself
 };
 
 struct nvme_request_pool {
 	struct nvme_request reqs[NVME_REQUEST_POOL_LEN];
 	uint16_t stack[NVME_REQUEST_POOL_LEN];
 	size_t top;
+	void *prps; ///< Pointer to pre-allocated memory directly mapped to each reqs.
 };
 
+/**
+ * Initialize a request-pool
+ *
+ * When intending to use PRPs associated with the commands, then also use:
+ *
+ * - nvme_request_pool_{init,term}_prps()
+ */
 static inline void
 nvme_request_pool_init(struct nvme_request_pool *pool)
 {
@@ -47,6 +59,29 @@ nvme_request_pool_init(struct nvme_request_pool *pool)
 	for (uint16_t i = 0; i < NVME_REQUEST_POOL_LEN; ++i) {
 		pool->reqs[i].cid = i;
 		pool->stack[NVME_REQUEST_POOL_LEN - 1 - i] = i;
+	}
+}
+
+static inline void
+nvme_request_pool_term_prps(struct nvme_request_pool *pool, struct hostmem_heap *heap)
+{
+	hostmem_dma_free(heap, pool->prps);
+}
+
+static inline int
+nvme_request_pool_init_prps(struct nvme_request_pool *pool, struct hostmem_heap *heap)
+{
+	const size_t prps_nbytes = NVME_REQUEST_POOL_LEN * heap->config->pagesize;
+
+	pool->prps = hostmem_dma_malloc(heap, prps_nbytes);
+	if (!pool->prps) {
+		UPCIE_DEBUG("FAILED: hostmem_dma_alloc(%zu)", prps_nbytes);
+		return -ENOMEM;
+	}
+
+	for (uint16_t i = 0; i < NVME_REQUEST_POOL_LEN; ++i) {
+		pool->reqs[i].prp = ((uint8_t *)pool->prps) + (i * heap->config->pagesize);
+		pool->reqs[i].prp_addr = hostmem_dma_v2p(heap, pool->reqs[i].prp);
 	}
 }
 
