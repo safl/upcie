@@ -128,7 +128,7 @@ hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage,
 	int err;
 
 	if (size % (config->hugepgsz) != 0) {
-		fprintf(stderr, "size must be multiple of hugepgsz(%d)\n", config->hugepgsz);
+		UPCIE_DEBUG("FAILED: size must be multiple of hugepgsz(%d)", config->hugepgsz);
 		return -EINVAL;
 	}
 
@@ -140,7 +140,7 @@ hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage,
 		hugepage->fd =
 			hostmem_internal_memfd_create("hostmem", hugepage->config->memfd_flags);
 		if (hugepage->fd < 0) {
-			perror("memfd_create()");
+			UPCIE_DEBUG("FAILED: memfd_create(); errno(%errno)", errno);
 			return -errno;
 		}
 
@@ -154,7 +154,7 @@ hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage,
 
 		hugepage->fd = open(hugepage->path, O_CREAT | O_RDWR, 0600);
 		if (hugepage->fd < 0) {
-			perror("open(hugepage)");
+			UPCIE_DEBUG("FAILED: open(hugepage); ");
 			return -errno;
 		}
 
@@ -162,7 +162,7 @@ hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage,
 	}
 
 	if (ftruncate(hugepage->fd, hugepage->size) != 0) {
-		perror("ftruncate(hugepage)");
+		UPCIE_DEBUG("FAILED: ftruncate(hugepage)");
 		close(hugepage->fd);
 		return -ENOMEM;
 	}
@@ -170,14 +170,14 @@ hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage,
 	hugepage->virt =
 		mmap(NULL, hugepage->size, PROT_READ | PROT_WRITE, MAP_SHARED, hugepage->fd, 0);
 	if (hugepage->virt == MAP_FAILED) {
-		perror("mmap(hugepage)");
+		UPCIE_DEBUG("FAILED: mmap(hugepage)");
 		close(hugepage->fd);
 		return -ENOMEM;
 	}
 
 	err = mlock(hugepage->virt, hugepage->size);
 	if (err) {
-		perror("mlock(hugepage)");
+		UPCIE_DEBUG("FAILED: mlock(hugepage); err(%d)", err);
 		munmap(hugepage->virt, hugepage->size);
 		close(hugepage->fd);
 		return -ENOMEM;
@@ -195,7 +195,7 @@ hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage,
 
 	err = hostmem_pagemap_virt_to_phys(hugepage->virt, &hugepage->phys);
 	if (err) {
-		perror("hostmem_virt_to_phys(hugepage)");
+		UPCIE_DEBUG("FAILED: hostmem_virt_to_phys(hugepage); err(%d)", err);
 		munmap(hugepage->virt, hugepage->size);
 		close(hugepage->fd);
 		return -ENOMEM;
@@ -232,20 +232,20 @@ hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage,
 
 	hugepage->fd = open(hugepage->path, O_RDWR);
 	if (hugepage->fd < 0) {
-		perror("open(hugepage_import_path)");
+		UPCIE_DEBUG("FAILED: open(hugepage->path); errno(%d)", errno);
 		return -errno;
 	}
 
 	if (fstat(hugepage->fd, &st) != 0) {
-		perror("fstat(hugepage_import_path)");
+		UPCIE_DEBUG("FAILED: fstat(hugepage_import_path); errno(%d)", errno);
 		close(hugepage->fd);
 		return -errno;
 	}
 	hugepage->size = st.st_size;
 
 	if (hugepage->size % hugepage->config->hugepgsz != 0) {
-		fprintf(stderr, "Error: mapped file size (%zu) is not hugepgsz(%d) aligned\n",
-			st.st_size, hugepage->config->hugepgsz);
+		UPCIE_DEBUG("FAILED: mapped file size (%zu) is not hugepgsz(%d) aligned",
+			    st.st_size, hugepage->config->hugepgsz);
 		close(hugepage->fd);
 		return -EINVAL;
 	}
@@ -253,7 +253,7 @@ hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage,
 	hugepage->virt =
 		mmap(NULL, hugepage->size, PROT_READ | PROT_WRITE, MAP_SHARED, hugepage->fd, 0);
 	if (hugepage->virt == MAP_FAILED) {
-		perror("mmap(import)");
+		UPCIE_DEBUG("FAILED: mmap(import); errno(%d)", errno);
 		close(hugepage->fd);
 		return -errno;
 	}
@@ -272,7 +272,7 @@ hostmem_hugepage_import(const char *path, struct hostmem_hugepage *hugepage,
 
 	err = hostmem_pagemap_virt_to_phys(hugepage->virt, &hugepage->phys);
 	if (err) {
-		fprintf(stderr, "Failed to resolve physical address\n");
+		UPCIE_DEBUG("FAILED: hostmem_pagemap_virt_to_phys(); err(%d)", err);
 		munmap(hugepage->virt, st.st_size);
 		close(hugepage->fd);
 		return -ENOMEM;

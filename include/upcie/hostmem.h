@@ -47,19 +47,19 @@ hostmem_pagemap_virt_to_phys(void *virt, uint64_t *phys)
 
 	fd = open("/proc/self/pagemap", O_RDONLY);
 	if (fd < 0) {
-		perror("open(pagemap)");
+		UPCIE_DEBUG("FAILED: open(pagemap); errno(%d), fd(%d)", errno, fd);
 		return -errno;
 	}
 
 	if (pread(fd, &entry, pagemap_entry_bytes, virt_pfn * pagemap_entry_bytes) !=
 	    pagemap_entry_bytes) {
-		perror("pread(pagemap)");
+		UPCIE_DEBUG("FAILED: pread(pagemap); errno(%d)", errno);
 		close(fd);
 		return -errno;
 	}
 
 	if (!(entry & (1ULL << 63))) {
-		fprintf(stderr, "Page not present\n");
+		UPCIE_DEBUG("FAILED: Page not present");
 		close(fd);
 		return -EINVAL;
 	}

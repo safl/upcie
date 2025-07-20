@@ -48,7 +48,7 @@ hostmem_config_get_hugepgsz(int *hugepgsz)
 
 	fp = fopen("/proc/meminfo", "r");
 	if (!fp) {
-		perror("fopen(meminfo)");
+		UPCIE_DEBUG("FAIELD: fopen(meminfo); errno(%d)", errno);
 		return -errno;
 	}
 

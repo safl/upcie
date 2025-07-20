@@ -52,7 +52,7 @@ nvme_controller_open(struct nvme_controller *ctrlr, const char *bdf, struct host
 
 	ctrlr->buf = hostmem_dma_malloc(ctrlr->heap, 4096);
 	if (!ctrlr->buf) {
-		printf("FAILED: hostmem_dma_malloc(buf); errno(%d)\n", errno);
+		UPCIE_DEBUG("FAILED: hostmem_dma_malloc(buf); errno(%d)\n", errno);
 		return -errno;
 	}
 	memset(ctrlr->buf, 0, 4096);
@@ -61,13 +61,13 @@ nvme_controller_open(struct nvme_controller *ctrlr, const char *bdf, struct host
 
 	err = pci_func_open(bdf, &ctrlr->func);
 	if (err) {
-		printf("Failed to open PCI device: %s\n", bdf);
+		UPCIE_DEBUG("FAILED: pci_func_open(%.*s); err(%d)", 13, bdf, err);
 		return -err;
 	}
 
 	err = pci_bar_map(ctrlr->func.bdf, 0, &ctrlr->func.bars[0]);
 	if (err) {
-		printf("Failed to map BAR0\n");
+		UPCIE_DEBUG("FAILED: pci_bar_map(BAR0); err(%d)", err);
 		return -err;
 	}
 	bar0 = ctrlr->func.bars[0].region;
@@ -78,13 +78,13 @@ nvme_controller_open(struct nvme_controller *ctrlr, const char *bdf, struct host
 
 	err = nvme_mmio_csts_wait_until_not_ready(bar0, ctrlr->timeout_ms);
 	if (err) {
-		printf("FAILED: nvme_mmio_csts_wait_until_ready(); err(%d)\n", err);
+		UPCIE_DEBUG("FAILED: nvme_mmio_csts_wait_until_ready(); err(%d)\n", err);
 		return -err;
 	}
 
 	err = nvme_qpair_init(&ctrlr->aq, 0, 256, ctrlr->func.bars[0].region, ctrlr->heap);
 	if (err) {
-		printf("FAILED: nvme_qpair_init(); err(%d)\n", err);
+		UPCIE_DEBUG("FAILED: nvme_qpair_init(); err(%d)", err);
 		return -err;
 	}
 
@@ -106,7 +106,7 @@ nvme_controller_open(struct nvme_controller *ctrlr, const char *bdf, struct host
 
 	err = nvme_mmio_csts_wait_until_ready(bar0, ctrlr->timeout_ms);
 	if (err) {
-		printf("FAILED: nvme_mmio_csts_wait_until_ready(); err(%d)\n", err);
+		UPCIE_DEBUG("FAILED: nvme_mmio_csts_wait_until_ready(); err(%d)", err);
 		return -err;
 	}
 
@@ -137,7 +137,7 @@ nvme_controller_create_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair
 
 	err = nvme_qpair_init(qpair, qid, depth, ctrlr->func.bars[0].region, ctrlr->heap);
 	if (err) {
-		printf("FAILED: nvme_qpair_init(); err(%d)\n", err);
+		UPCIE_DEBUG("FAILED: nvme_qpair_init(); err(%d)\n", err);
 		nvme_qid_free(ctrlr->qids, depth);
 
 		return err;
@@ -154,7 +154,7 @@ nvme_controller_create_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair
 
 		err = nvme_qpair_submit_sync(&ctrlr->aq, &cmd, ctrlr->timeout_ms, &cpl);
 		if (err) {
-			printf("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
+			UPCIE_DEBUG("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
 			return err;
 		}
 	}
@@ -170,7 +170,7 @@ nvme_controller_create_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair
 
 		err = nvme_qpair_submit_sync(&ctrlr->aq, &cmd, ctrlr->timeout_ms, &cpl);
 		if (err) {
-			printf("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
+			UPCIE_DEBUG("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
 			return err;
 		}
 	}

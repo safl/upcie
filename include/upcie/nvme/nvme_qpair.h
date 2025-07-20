@@ -75,14 +75,14 @@ nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, uint8_t *ba
 	// qp->sq = hostmem_dma_malloc(1024 * ctrlr->iosqes_nbytes);
 	qp->sq = hostmem_dma_malloc(qp->heap, nbytes);
 	if (!qp->sq) {
-		printf("FAILED: hostmem_dma_malloc(sq); errno(%d)\n", errno);
+		UPCIE_DEBUG("FAILED: hostmem_dma_malloc(sq); errno(%d)\n", errno);
 		return -errno;
 	}
 	memset(qp->sq, 0, nbytes);
 
 	qp->cq = hostmem_dma_malloc(qp->heap, nbytes);
 	if (!qp->cq) {
-		printf("FAILED: hostmem_dma_malloc(cq); errno(%d)\n", errno);
+		UPCIE_DEBUG("FAILED: hostmem_dma_malloc(cq); errno(%d)\n", errno);
 		return -errno;
 	}
 	memset(qp->cq, 0, nbytes);
