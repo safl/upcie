@@ -19,7 +19,7 @@
  * nvme_qpair_term():      Frees resources associated with a queue pair.
  * nvme_qpair_reap_cpl():  Polls the CQ for a completion, updates head/phase, and rings CQ
  * doorbell. nvme_qpair_sqdb_ring(): Notifies the controller by ringing the SQ doorbell.
- * nvme_qpair_submit():    Enqueues a command into the SQ and assigns a CID.
+ * nvme_qpair_enqueue():     Writes the given command into the SQ
  * nvme_qpair_submit_sync(): Submits a command and waits synchronously for its completion.
  *
  * See also: nvme_qid.h for queue ID (qid) management.
@@ -157,7 +157,7 @@ nvme_qpair_sqdb_update(struct nvme_qpair *qp)
 }
 
 /**
- * Submits a command to an NVMe submission queue
+ * Enqueue a command into an NVMe submission queue of a `nvme_qpair`
  *
  * That is, writes it into the submission queue memory and increments the tail-pointer, it does
  * **not** write the tail to the sq-doorbell.
@@ -169,7 +169,7 @@ nvme_qpair_sqdb_update(struct nvme_qpair *qp)
  * @return On success 0 is returned. On error then negative errno is set to indicate the error.
  */
 static inline int
-nvme_qpair_submit(struct nvme_qpair *qp, struct nvme_command *cmd)
+nvme_qpair_enqueue(struct nvme_qpair *qp, struct nvme_command *cmd)
 {
 	volatile struct nvme_command *sq = qp->sq;
 
@@ -197,7 +197,7 @@ nvme_qpair_submit_sync(struct nvme_qpair *qp, struct nvme_command *cmd, int time
 	}
 	cmd->cid = req->cid;
 
-	err = nvme_qpair_submit(qp, cmd);
+	err = nvme_qpair_enqueue(qp, cmd);
 	if (err) {
 		return -err;
 	}
