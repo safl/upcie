@@ -56,3 +56,17 @@
 #else
 #define UPCIE_UNUSED(x) UNUSED_##x
 #endif
+
+static inline unsigned int
+upcie_util_shift_from_size(size_t page_size)
+{
+	unsigned int shift = 0;
+
+	assert(page_size != 0 && (page_size & (page_size - 1)) == 0);
+
+	while ((1UL << shift) < page_size) {
+		shift++;
+	}
+
+	return shift;
+}
