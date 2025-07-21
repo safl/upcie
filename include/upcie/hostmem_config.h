@@ -14,6 +14,7 @@ struct hostmem_config {
 	int backend;
 	int count;
 	int pagesize; ///< Host memory pagesize (not HUGEPAGE size)
+	int pagesize_shift;
 	int hugepgsz; ///< THIS, is the HUGEPAGE size
 };
 
@@ -35,6 +36,7 @@ hostmem_config_pp(struct hostmem_config *config)
 	wrtn += printf("  backend: 0x%x\n", config->backend);
 	wrtn += printf("  count: %d\n", config->count);
 	wrtn += printf("  pagesize: %d\n", config->pagesize);
+	wrtn += printf("  pagesize_shift: %d\n", config->pagesize_shift);
 	wrtn += printf("  hugepgsz: %d\n", config->hugepgsz);
 
 	return wrtn;
@@ -75,6 +77,7 @@ hostmem_config_init(struct hostmem_config *config)
 
 	sprintf(config->hugetlb_path, "/mnt/huge");
 	config->pagesize = getpagesize();
+	config->pagesize_shift = upcie_util_shift_from_size(config->pagesize);
 
 	err = hostmem_config_get_hugepgsz(&config->hugepgsz);
 	if (err) {
