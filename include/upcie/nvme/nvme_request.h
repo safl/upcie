@@ -83,6 +83,8 @@ nvme_request_pool_init_prps(struct nvme_request_pool *pool, struct hostmem_heap 
 		pool->reqs[i].prp = ((uint8_t *)pool->prps) + (i * heap->config->pagesize);
 		pool->reqs[i].prp_addr = hostmem_dma_v2p(heap, pool->reqs[i].prp);
 	}
+
+	return 0;
 }
 
 /**
