@@ -9,7 +9,7 @@
  * suitable for low-level or embedded NVMe driver implementations.
  *
  * @file nvme_command.h
- * @version 0.3.1
+ * @version 0.3.2
  */
 
 struct nvme_completion {

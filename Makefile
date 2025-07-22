@@ -1,5 +1,5 @@
 BUILD_DIR ?= builddir
-VERSION ?= 0.3.1
+VERSION ?= 0.3.2
 
 .PHONY: all config build test install uninstall clean docs
 
