@@ -48,10 +48,11 @@ nvme_init(struct nvme *nvme, const char *bdf, struct rte *rte)
 	}
 
 	cmd.opc = 0x6; ///< IDENTIFY
-	cmd.prp1 = hostmem_dma_v2p(&rte->heap, nvme->ctrlr.buf);
 	cmd.cdw10 = 1; // CNS=1: Identify Controller
 
-	err = nvme_qpair_submit_sync(&nvme->ctrlr.aq, &cmd, nvme->ctrlr.timeout_ms, &cpl);
+	err = nvme_qpair_submit_sync_contig_prps(&nvme->ctrlr.aq, nvme->ctrlr.heap,
+						 nvme->ctrlr.buf, 4096, &cmd,
+						 nvme->ctrlr.timeout_ms, &cpl);
 	if (err) {
 		printf("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
 		nvme_controller_close(&nvme->ctrlr);
