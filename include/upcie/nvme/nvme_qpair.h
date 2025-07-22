@@ -180,8 +180,18 @@ nvme_qpair_enqueue(struct nvme_qpair *qp, struct nvme_command *cmd)
 	return 0;
 }
 
-/**
- * Submits the given command, notifies the controller, and waits for the completion
+ /**
+ * Submits a command on the given qpair, waits for completion, and populates `cpl`.
+ *
+ * This is intended for synchronous I/O or Admin commands where the caller manages the payload
+ * and sets up PRP1/PRP2 manually. The function does not modify or validate the PRP fields.
+ *
+ * @param qp         Pointer to the submission queue pair.
+ * @param cmd        Pointer to the command to submit; `cid` will be assigned.
+ * @param timeout_us Timeout in microseconds to wait for command completion.
+ * @param cpl        Pointer to a completion structure to receive the result.
+ *
+ * @return On success 0 is returned. On error, negative errno is returned to indicate the error.
  */
 static inline int
 nvme_qpair_submit_sync(struct nvme_qpair *qp, struct nvme_command *cmd, int timeout_us,
