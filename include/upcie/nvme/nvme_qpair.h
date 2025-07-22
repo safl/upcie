@@ -180,7 +180,7 @@ nvme_qpair_enqueue(struct nvme_qpair *qp, struct nvme_command *cmd)
 	return 0;
 }
 
- /**
+/**
  * Submits a command on the given qpair, waits for completion, and populates `cpl`.
  *
  * This is intended for synchronous I/O or Admin commands where the caller manages the payload
@@ -206,6 +206,61 @@ nvme_qpair_submit_sync(struct nvme_qpair *qp, struct nvme_command *cmd, int time
 		return -errno;
 	}
 	cmd->cid = req->cid;
+
+	err = nvme_qpair_enqueue(qp, cmd);
+	if (err) {
+		return -err;
+	}
+
+	nvme_qpair_sqdb_update(qp);
+
+	err = nvme_qpair_reap_cpl(qp, timeout_us, cpl);
+	if (err) {
+		return -err;
+	}
+
+	nvme_request_free(qp->rpool, cpl->cid);
+
+	if (cpl->status & 0x1FE) {
+		err = -EIO;
+	}
+
+	return err;
+}
+
+/**
+ * Submits a command with a contiguous PRP payload, waits for completion, and populates `cpl`.
+ *
+ * This is intended for synchronous I/O or Admin commands using a physically contiguous buffer.
+ * The function prepares the PRP entries automatically using the provided `heap` and `dbuf`,
+ * sets up the command, submits it on the given qpair, and waits for completion.
+ *
+ * @param qp          Pointer to the submission queue pair.
+ * @param heap        Pointer to the host memory heap used for resolving physical addresses.
+ * @param dbuf        Pointer to the data buffer to be described via PRPs.
+ * @param dbuf_nbytes Size of the data buffer in bytes.
+ * @param cmd         Pointer to the command to submit; `cid` will be assigned and PRPs set.
+ * @param timeout_us  Timeout in microseconds to wait for command completion.
+ * @param cpl         Pointer to a completion structure to receive the result.
+ *
+ * @return On success 0 is returned. On error, negative errno is returned to indicate the error.
+ */
+static inline int
+nvme_qpair_submit_sync_contig_prps(struct nvme_qpair *qp, struct hostmem_heap *heap, void *dbuf,
+				   size_t dbuf_nbytes, struct nvme_command *cmd, int timeout_us,
+				   struct nvme_completion *cpl)
+{
+	struct nvme_request *req;
+	int err;
+
+	req = nvme_request_alloc(qp->rpool);
+	if (!req) {
+		UPCIE_DEBUG("FAILED: nvme_request_alloc(); errno(%d)", errno);
+		return -errno;
+	}
+	cmd->cid = req->cid;
+
+	nvme_request_prep_command_prps_contig(req, heap, dbuf, dbuf_nbytes, cmd);
 
 	err = nvme_qpair_enqueue(qp, cmd);
 	if (err) {
