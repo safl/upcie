@@ -47,6 +47,8 @@ struct nvme_qpair {
 static inline void
 nvme_qpair_term(struct nvme_qpair *qp)
 {
+	nvme_request_pool_term_prps(qp->rpool, qp->heap);
+	
 	free(qp->rpool);
 	hostmem_dma_free(qp->heap, qp->sq);
 	hostmem_dma_free(qp->heap, qp->cq);
@@ -61,6 +63,7 @@ nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, uint8_t *ba
 {
 	int dstrd = nvme_reg_cap_get_dstrd(nvme_mmio_cap_read(bar0));
 	size_t nbytes = 1024 * 64;
+	int err;
 
 	qp->heap = heap;
 	qp->sqdb = bar0 + 0x1000 + ((2 * qid) << (2 + dstrd));
@@ -83,6 +86,7 @@ nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, uint8_t *ba
 	qp->cq = hostmem_dma_malloc(qp->heap, nbytes);
 	if (!qp->cq) {
 		UPCIE_DEBUG("FAILED: hostmem_dma_malloc(cq); errno(%d)\n", errno);
+		hostmem_dma_free(qp->heap, qp->sq);
 		return -errno;
 	}
 	memset(qp->cq, 0, nbytes);
@@ -90,9 +94,21 @@ nvme_qpair_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, uint8_t *ba
 	qp->rpool = calloc(1, sizeof(*qp->rpool));
 	if (!qp->rpool) {
 		UPCIE_DEBUG("FAILED: calloc(rpool); errno(%d)", errno);
+		hostmem_dma_free(qp->heap, qp->sq);
+		hostmem_dma_free(qp->heap, qp->cq);
 		return -errno;
 	}
 	nvme_request_pool_init(qp->rpool);
+
+	err = nvme_request_pool_init_prps(qp->rpool, heap);
+	if (err) {
+		hostmem_dma_free(qp->heap, qp->sq);
+		hostmem_dma_free(qp->heap, qp->cq);
+		free(qp->rpool);
+
+		UPCIE_DEBUG("FAILED: nvme_request_pool_init_prps; err(%d)", err);
+		return -errno;
+	}
 
 	return 0;
 }
