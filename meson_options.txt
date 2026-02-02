@@ -1,0 +1,1 @@
+option('debug-logging', type: 'feature', value: 'auto')

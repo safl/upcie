@@ -140,7 +140,7 @@ hostmem_hugepage_alloc(size_t size, struct hostmem_hugepage *hugepage,
 		hugepage->fd =
 			hostmem_internal_memfd_create("hostmem", hugepage->config->memfd_flags);
 		if (hugepage->fd < 0) {
-			UPCIE_DEBUG("FAILED: memfd_create(); errno(%errno)", errno);
+			UPCIE_DEBUG("FAILED: memfd_create(); errno(%d)", errno);
 			return -errno;
 		}
 
