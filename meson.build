@@ -10,6 +10,21 @@ project('upcie', 'c',
 
 fs = import('fs')
 
+conf_data = configuration_data()
+if get_option('debug-logging').enabled()
+  conf_data.set('UPCIE_DEBUG_ENABLED', true)
+elif get_option('debug-logging').disabled()
+  conf_data.set('UPCIE_DEBUG_ENABLED', false)
+else
+  conf_data.set('UPCIE_DEBUG_ENABLED', get_option('buildtype') == 'debug')
+endif
+
+conf = configure_file(
+  configuration : conf_data,
+  output : 'upcie_config.h'
+)
+add_project_arguments(['-include', 'upcie_config.h'], language: 'c')
+
 install_headers(
   [
     'include/upcie/bitfield.h',
