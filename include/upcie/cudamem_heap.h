@@ -210,18 +210,13 @@ cudamem_heap_block_free(struct cudamem_heap *heap, void *ptr)
 
 	vaddr = (uint64_t) ptr;
 
-	// Two loops to make sure we clean up correctly
-	block = heap->freelist;
-	while(block) {
-		if (block->vaddr == vaddr) {
-			block->free = 1;
-			break;
-		}
-		block = block->next;
-	}
-	
 	block = heap->freelist;
 	while(block && block->next) {
+		if (block->vaddr == vaddr) {
+			block->free = 1;
+		} else if (block->next->vaddr == vaddr) {
+			block->next->free = 1;
+		}
 		if (block->free && block->next->free) {
 			tmp = block->next;
 			block->size += tmp->size;
