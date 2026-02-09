@@ -13,6 +13,7 @@ fs = import('fs')
 install_headers(
   [
     'include/upcie/bitfield.h',
+    'include/upcie/cudamem_heap.h',
     'include/upcie/dmabuf.h',
     'include/upcie/hostmem_dma.h',
     'include/upcie/hostmem.h',
@@ -27,6 +28,7 @@ install_headers(
     'include/upcie/nvme/nvme_request.h',
     'include/upcie/pci.h',
     'include/upcie/upcie.h',
+    'include/upcie/upcie_cuda.h',
     'include/upcie/vfioctl.h',
   ],
   subdir: 'upcie'

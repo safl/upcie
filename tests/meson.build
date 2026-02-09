@@ -20,3 +20,27 @@ foreach src : test_sources
   )
 endforeach
 
+# Tests depending on linking with CUDA
+cutest_sources = files(
+  'test_cudamem_heap.c',
+  'test_cudamem_dmabuf.c',
+)
+
+cuda_dep = dependency(
+  'cuda',
+  required: false,
+)
+
+if cuda_dep.found()
+  foreach src : cutest_sources
+    bin_name = fs.stem(src)
+    exe = executable(
+      bin_name,
+      src,
+      include_directories: incdir,
+      dependencies: [cuda_dep],
+      link_args: ['-lcuda'],
+      install: true,
+    )
+  endforeach
+endif
