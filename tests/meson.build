@@ -25,6 +25,7 @@ endforeach
 cutest_sources = files(
   'test_cudamem_heap.c',
   'test_cudamem_dmabuf.c',
+  'test_cudamem_nvme_readwrite.c',
 )
 
 cuda_dep = dependency(
