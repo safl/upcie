@@ -29,7 +29,7 @@ cutest_sources = files(
 )
 
 cuda_dep = dependency(
-  'cuda',
+  'cuda', modules: ['cuda'],
   required: false,
 )
 
@@ -41,7 +41,6 @@ if cuda_dep.found()
       src,
       include_directories: incdir,
       dependencies: [cuda_dep],
-      link_args: ['-lcuda'],
       install: true,
     )
   endforeach
