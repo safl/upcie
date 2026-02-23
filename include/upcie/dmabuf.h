@@ -87,6 +87,7 @@ dmabuf_get_lut(struct dmabuf *dmabuf, size_t nphys, uint64_t *phys_lut, uint64_t
 	return 0;
 }
 
+#ifdef UDMABUF_ATTACH
 /**
  * Attach to dma-buf with given FD
  * 
@@ -154,7 +155,17 @@ exit:
 	close(udmabuf_fd);
 	return err;
 }
+#else
+static inline int
+dmabuf_attach(int UPCIE_UNUSED(dmabuf_fd), struct dmabuf *UPCIE_UNUSED(dmabuf))
+{
+	UPCIE_DEBUG("FAILED: ioctl(UDMABUF_ATTACH) not supported by Linux Kernel");
+	return -ENOTSUP;
+}
+#endif // UDMABUF_ATTACH
 
+
+#ifdef UDMABUF_DETACH
 /**
  * Detach from given dma-buf
  *
@@ -184,4 +195,11 @@ dmabuf_detach(struct dmabuf *dmabuf)
 	close(udmabuf_fd);
 	return err;
 }
-
+#else
+static inline int
+dmabuf_detach(struct dmabuf *UPCIE_UNUSED(dmabuf))
+{
+	UPCIE_DEBUG("FAILED: ioctl(UDMABUF_DETACH) not supported by Linux Kernel");
+	return -ENOTSUP;
+}
+#endif // UDMABUF_DETACH
