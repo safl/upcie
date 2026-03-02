@@ -176,7 +176,7 @@ static inline void
 nvme_request_prep_command_prps_contig(struct nvme_request *request, struct hostmem_heap *heap,
 				      void *dbuf, size_t dbuf_nbytes, struct nvme_command *cmd)
 {
-	const uint64_t npages = dbuf_nbytes >> heap->config->pagesize_shift;
+	const uint64_t npages = (dbuf_nbytes + heap->config->pagesize - 1) >> heap->config->pagesize_shift;
 	const uint64_t pagesize = heap->config->pagesize;
 
 	/* Chaining is not supported, thus assert that the given dbuf fits. */
