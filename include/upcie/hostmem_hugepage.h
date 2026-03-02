@@ -105,6 +105,10 @@ hostmem_hugepage_free(struct hostmem_hugepage *hugepage)
 		munmap(hugepage->virt, hugepage->size);
 	}
 
+	if (hugepage->fd >= 0) {
+		close(hugepage->fd);
+	}
+
 	if (HOSTMEM_BACKEND_HUGETLBFS == hugepage->config->backend) {
 		unlink(hugepage->path);
 	}
