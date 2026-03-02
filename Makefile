@@ -1,12 +1,19 @@
 BUILD_DIR ?= builddir
-VERSION ?= 0.3.2
+VERSION ?= 0.4.0
 
 .PHONY: all config build test install uninstall clean docs
 
 all: clean config build install test
 
 bump:
-	@python3 -c "import sys, re, pathlib; [p.write_text(re.sub(r'(@version)\s+.*', rf'\1 {sys.argv[1]}', p.read_text()), encoding='utf-8') for p in pathlib.Path('.').rglob('*.h') if '@version' in p.read_text()]" $(VERSION)
+ifndef NEW_VERSION
+	$(error Usage: make bump NEW_VERSION=x.y.z)
+endif
+	@echo "Bumping version to $(NEW_VERSION)"
+	@sed -i "s/^\(VERSION ?= \).*/\1$(NEW_VERSION)/" Makefile
+	@sed -i "s/\(version: '\)[^']*'/\1$(NEW_VERSION)'/" meson.build
+	@python3 -c "import sys, re, pathlib; [p.write_text(re.sub(r'(@version)\s+.*', rf'\1 {sys.argv[1]}', p.read_text()), encoding='utf-8') for p in pathlib.Path('.').rglob('*.h') if '@version' in p.read_text()]" $(NEW_VERSION)
+	@echo "Done"
 
 config:
 	meson setup $(BUILD_DIR)
