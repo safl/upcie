@@ -75,8 +75,8 @@ nvme_request_prep_command_prps_contig_cuda(struct nvme_request *request, struct 
  * @param cmd Pointer to the NVMe command to be prepared with PRP entries.
  */
 static inline void
-nvme_request_prep_command_prps_iov(struct nvme_request *request, struct cudamem_heap *heap,
-				   struct iovec *dvec, size_t dvec_cnt, struct nvme_command *cmd)
+nvme_request_prep_command_prps_iov_cuda(struct nvme_request *request, struct cudamem_heap *heap,
+				   	struct iovec *dvec, size_t dvec_cnt, struct nvme_command *cmd)
 {
 	const uint64_t pagesize = heap->config->pagesize;
 	uint64_t *prp_list = request->prp;
