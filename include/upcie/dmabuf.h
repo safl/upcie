@@ -142,7 +142,7 @@ dmabuf_attach(int dmabuf_fd, struct dmabuf *dmabuf)
 	dmabuf->npages = map->count;
 	pages_size = sizeof(struct dmabuf_page) * dmabuf->npages;
 	dmabuf->pages = malloc(pages_size);
-	if (!dmabuf) {
+	if (!dmabuf->pages) {
 		err = -errno;
 		UPCIE_DEBUG("FAILED: malloc(dmabuf->pages), errno: %d", err);
 		goto exit;
