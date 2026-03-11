@@ -50,6 +50,7 @@ dmabuf_pp(struct dmabuf *dmabuf)
 		struct dmabuf_page page = dmabuf->pages[i];
 		wrtn += printf("  - addr: 0x%" PRIx64 ", len: %" PRIu64 "\n", page.addr, page.len);
 	}
+
 	return wrtn;
 }
 
@@ -107,6 +108,7 @@ dmabuf_attach(int dmabuf_fd, struct dmabuf *dmabuf)
 		UPCIE_DEBUG("FAILED: open(/dev/udmabuf), errno: %d", err);
 		return err;
 	}
+
 	memset(&attach, 0, sizeof(attach));
 	attach.fd = dmabuf_fd;
 
@@ -125,6 +127,7 @@ dmabuf_attach(int dmabuf_fd, struct dmabuf *dmabuf)
 		ioctl(udmabuf_fd, UDMABUF_DETACH, &dmabuf_fd);
 		goto exit;
 	}
+
 	memset(map, 0, sizeof(*map));
 	map->fd = dmabuf_fd;
 	map->count = attach.count;

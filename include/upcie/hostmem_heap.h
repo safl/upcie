@@ -207,9 +207,9 @@ hostmem_heap_block_alloc_aligned(struct hostmem_heap *heap, size_t size, size_t 
 			}
 
 			block->free = 0;
-
 			return (char *)block + alignment;
 		}
+
 		block = block->next;
 	}
 
