@@ -157,6 +157,7 @@ cudamem_heap_init(struct cudamem_heap *heap, size_t size)
 		UPCIE_DEBUG("FAILED: malloc(freelist), errno: %d", err);
 		goto error;
 	}
+
 	heap->freelist->vaddr = heap->vaddr;
 	heap->freelist->size = heap->size;
 	heap->freelist->free = 1;
@@ -176,6 +177,7 @@ cudamem_heap_init(struct cudamem_heap *heap, size_t size)
 		UPCIE_DEBUG("FAILED: calloc(phys_lut), errno: %d", err);
 		goto error;
 	}
+
 	err = dmabuf_get_lut(&heap->dmabuf, heap->nphys, heap->phys_lut, heap->pagesize);
 	if (err) {
 		UPCIE_DEBUG("FAILED: dmabuf_get_lut(), err: %d", err);
@@ -209,9 +211,9 @@ cudamem_heap_block_free(struct cudamem_heap *heap, void *ptr)
 	}
 
 	vaddr = (uint64_t) ptr;
-
 	block = heap->freelist;
-	while(block && block->next) {
+
+	while (block && block->next) {
 		if (block->vaddr == vaddr) {
 			block->free = 1;
 		} else if (block->next->vaddr == vaddr) {
@@ -255,12 +257,12 @@ cudamem_heap_block_alloc_aligned(struct cudamem_heap *heap, size_t size, size_t 
 
 				block->next = newblock;
 				block->size = size;
-
 			}
 
 			block->free = 0;
 			return (void *) block->vaddr;
 		}
+	
 		block = block->next;
 	}
 
