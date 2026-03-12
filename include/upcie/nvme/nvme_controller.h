@@ -35,7 +35,7 @@ nvme_controller_close(struct nvme_controller *ctrlr)
 {
 	hostmem_dma_free(ctrlr->heap, ctrlr->buf);
 	pci_func_close(&ctrlr->func);
-	memset(ctrlr, 0, sizeof(*memset));
+	memset(ctrlr, 0, sizeof(*ctrlr));
 }
 
 /**
