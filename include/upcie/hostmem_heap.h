@@ -182,6 +182,88 @@ hostmem_heap_block_free(struct hostmem_heap *heap, void *ptr)
 }
 
 static inline void *
+hostmem_heap_block_alloc_array_aligned(struct hostmem_heap *heap, size_t elem_count, size_t elem_size, size_t alignment)
+{
+	struct hostmem_heap_block *block = heap->freelist;
+	size_t total_size;
+
+	if (elem_count > SIZE_MAX / elem_size) {
+		UPCIE_DEBUG("FAILED: Cannot allocate memory; elem_size(%ld) * elem_count(%ld) too large", 
+			elem_size, elem_count);
+		errno = EINVAL;
+		return NULL;
+	}
+
+	total_size = elem_count * elem_size;
+
+	assert(sizeof(*block) < alignment);
+
+	if (elem_size > (size_t)heap->config->hugepgsz || (total_size > (size_t)heap->config->hugepgsz 
+		&& (size_t)heap->config->hugepgsz % elem_size != 0)
+	) {
+		UPCIE_DEBUG("FAILED: Cannot allocate memory; elem_size(%ld) must be aligned to hugepage size(%d)", 
+			elem_size, heap->config->hugepgsz);
+		errno = ENOMEM;
+		return NULL;
+	}
+
+	while (block) {
+		if (block->free && block->size >= (total_size + alignment)) {
+			struct hostmem_heap_block *newblock;
+			size_t offset, in_hpage_offset, hpage_remaining, disalignment, remaining;
+			
+			offset = (char *)block - (char *)heap->memory.virt;
+			in_hpage_offset = offset % heap->config->hugepgsz;
+			hpage_remaining = heap->config->hugepgsz - in_hpage_offset;
+			disalignment = (hpage_remaining - alignment) % elem_size;
+
+			if (hpage_remaining < (total_size + alignment) && disalignment) {
+				// Not enough room in hpage and allocating here will cause disalignment
+				// with hpages - create a block to ensure alignment
+				newblock = (void *)((char *)block + alignment + disalignment);
+				newblock->size = block->size - alignment - disalignment;
+				newblock->free = 1;
+				newblock->next = block->next;
+
+				block->next = newblock;
+				block->size = disalignment;
+
+				// Skip forward
+				block = block->next;
+				continue;
+			}
+
+			remaining = block->size - total_size - alignment;
+
+			if (remaining > sizeof(*block)) {
+				newblock = (void *)((char *)block + alignment + total_size);
+				newblock->size = remaining;
+				newblock->free = 1;
+				newblock->next = block->next;
+
+				block->next = newblock;
+				block->size = total_size;
+			}
+
+			block->free = 0;
+
+			return (char *)block + alignment;
+		}
+
+		block = block->next;
+	}
+
+	errno = ENOMEM;
+	return NULL;
+}
+
+static inline void *
+hostmem_heap_block_alloc_array(struct hostmem_heap *heap, size_t elem_count, size_t elem_size)
+{
+	return hostmem_heap_block_alloc_array_aligned(heap, elem_count, elem_size, heap->config->pagesize);
+}
+
+static inline void *
 hostmem_heap_block_alloc_aligned(struct hostmem_heap *heap, size_t size, size_t alignment)
 {
 	struct hostmem_heap_block *block = heap->freelist;
