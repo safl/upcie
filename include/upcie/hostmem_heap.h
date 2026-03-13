@@ -184,7 +184,6 @@ hostmem_heap_block_free(struct hostmem_heap *heap, void *ptr)
 static inline void *
 hostmem_heap_block_element_alloc_aligned(struct hostmem_heap *heap, size_t nmemb, size_t size, size_t alignment)
 {
-	struct hostmem_heap_block *block = heap->freelist;
 	size_t total_size = nmemb * size;
 
 	assert(sizeof(*block) < alignment);
@@ -257,36 +256,13 @@ static inline void *
 hostmem_heap_block_alloc_aligned(struct hostmem_heap *heap, size_t size, size_t alignment)
 {
 	struct hostmem_heap_block *block = heap->freelist;
+	size_t nmemb, total_size;
+	
+	total_size = (size + heap->config->pagesize - 1) & ~(heap->config->pagesize - 1);
+	nmemb = total_size / heap->config->pagesize;
+	size = heap->config->pagesize;
 
-	assert(sizeof(*block) < alignment);
-
-	size = (size + alignment - 1) & ~(alignment - 1);
-
-	while (block) {
-		if (block->free && block->size >= (size + alignment)) {
-			size_t remaining = block->size - size - alignment;
-
-			if (remaining > sizeof(*block)) {
-				struct hostmem_heap_block *newblock;
-
-				newblock = (void *)((char *)block + alignment + size);
-				newblock->size = remaining;
-				newblock->free = 1;
-				newblock->next = block->next;
-
-				block->next = newblock;
-				block->size = size;
-			}
-
-			block->free = 0;
-
-			return (char *)block + alignment;
-		}
-		block = block->next;
-	}
-
-	errno = ENOMEM;
-	return NULL;
+	return hostmem_heap_block_element_alloc_aligned(heap, nmemb, size, alignment);
 }
 
 static inline void *
