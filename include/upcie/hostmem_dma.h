@@ -96,6 +96,30 @@ hostmem_dma_malloc_aligned(struct hostmem_heap *heap, size_t size, size_t alignm
 }
 
 /**
+ * Allocate `nmemb * size` bytes of DMA-capable memory
+ * 
+ * If `nmemb * size` is larger than the size of a hugepage, `size` must be a divisor of the
+ * hugepage size.
+ *
+ * @param nmemb Number of members to allocate. Passing `nmemb=0` is considered invalid-input by
+ *             hostmem_dma_calloc().
+ * @param size Number of bytes to allocate per member. Passing `size=0` is considered invalid-
+ *             input by hostmem_dma_calloc().
+ * @return On success, a pointer to the allocated memory is returned. On error, NULL is returned
+ *         and `errno` set to indicate the error. or NULL on failure.
+ */
+static inline void *
+hostmem_dma_element_alloc(struct hostmem_heap *heap, size_t nmemb, size_t size)
+{
+	if (!size || !nmemb) {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	return hostmem_heap_block_element_alloc(heap, nmemb, size);
+}
+
+/**
  * Resolve the physical address of a given virtual address.
  *
  * @param virt Pointer to memory previously allocated by hostmem_dma_malloc().
