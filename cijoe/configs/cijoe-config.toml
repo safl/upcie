@@ -2,7 +2,7 @@
 # https://www.paramiko.org/ This is common CIJOE infrastructure
 #
 # Used by: cijoe.run() / cijoe.get() / cijoe.put()
-[cijoe.transport.qemu_guest]
+[cijoe.transport.ssh]
 username = "root"
 password = "root"
 hostname = "localhost"
@@ -14,12 +14,6 @@ fail_fast=true
 [upcie.repository]
 remote = "https://github.com/safl/upcie.git"
 path = "{{ local.env.HOME }}/git/upcie"
-
-# This is utilized by repository syncing during development.
-[upcie.repository.sync]
-branch = "wip"
-remote_alias = "guest"
-remote_path = "/root/git/upcie"
 
 [devices.pcie.'0000:04:00.0']
 
@@ -34,8 +28,8 @@ bin = "qemu-system-aarch64"
 bin = "qemu-system-x86_64"
 
 # Used by: qemu.guest_initialize.py, qemu.guest_start.py, and qemu.guest_kill.py
-[qemu.guests.generic-bios-kvm-x86_64]
-path = "{{ local.env.HOME }}/guests/generic-bios-kvm-x86_64"
+[qemu.guests.debian-trixie-amd64]
+path = "{{ local.env.HOME }}/guests/debian-trixie-amd64"
 
 # Label of the qemu-system emulerator to use; see "qemu.systems"
 system_label = "x86_64"
