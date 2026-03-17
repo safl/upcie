@@ -1,0 +1,41 @@
+---
+doc: |
+  Provision, build, and test upcie inside a QEMU guest
+
+  Expects artifacts in /tmp/artifacts (produced by 'make gen-artifacts').
+
+steps:
+- name: guest_check
+  run: |
+    hostname
+
+- name: source_sync
+  uses: source_from_tgz
+  with:
+    artifacts: /tmp/artifacts
+    source: /tmp/upcie_source
+
+- name: build
+  uses: meson_build
+  with:
+    source: /tmp/upcie_source
+
+- name: install
+  uses: meson_install
+  with:
+    source: /tmp/upcie_source
+
+- name: modprobe
+  run: |
+    modprobe uio_pci_generic || true
+    modprobe vfio-pci || true
+
+- name: hugepages
+  run: |
+    hugepages setup --size 2048 --count 1024
+
+- name: test
+  uses: core.testrunner
+  with:
+    args: '{{ config.upcie.repository.path }}/tests'
+    random_order: false

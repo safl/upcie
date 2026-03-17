@@ -1,9 +1,9 @@
 BUILD_DIR ?= builddir
 VERSION ?= 0.4.0
 
-.PHONY: all config build test install uninstall clean docs
+.PHONY: all config build verify install uninstall clean docs
 
-all: clean config build install test
+all: clean config build install verify
 
 bump:
 ifndef NEW_VERSION
@@ -27,6 +27,13 @@ build:
 install:
 	meson install -C $(BUILD_DIR)
 
+gen-artifacts:
+	meson setup $(BUILD_DIR) || true
+	meson dist -C $(BUILD_DIR) --no-tests --formats gztar --allow-dirty
+	mkdir -p /tmp/artifacts
+	cp $(BUILD_DIR)/meson-dist/upcie-$(VERSION).tar.gz /tmp/artifacts/upcie-src.tar.gz
+	ls -l /tmp/artifacts
+
 guest:
 	@cd cijoe && cijoe \
 		tasks/guest_setup.yaml \
@@ -34,7 +41,7 @@ guest:
 		-l \
 		-m
 
-test:
+verify: gen-artifacts
 	@cd cijoe && cijoe \
 		tasks/guest_test.yaml \
 		--config configs/cijoe-config.toml \
