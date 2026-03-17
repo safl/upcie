@@ -13,12 +13,12 @@ steps:
 - name: guest_kill
   uses: qemu.guest_kill
   with:
-    guest_name: generic-bios-kvm-x86_64
+    guest_name: debian-trixie-amd64
   
 - name: guest_start
   uses: qemu_guest_start_nvme
   with:
-    guest_name: generic-bios-kvm-x86_64
+    guest_name: debian-trixie-amd64
 
 - name: guest_check
   run: |
