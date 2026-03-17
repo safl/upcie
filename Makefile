@@ -29,15 +29,15 @@ install:
 
 guest:
 	@cd cijoe && cijoe \
+		tasks/guest_setup.yaml \
 		--config configs/cijoe-config.toml \
-		--workflow workflows/guest_setup.yaml \
 		-l \
 		-m
 
 test:
 	@cd cijoe && cijoe \
+		tasks/guest_test.yaml \
 		--config configs/cijoe-config.toml \
-		--workflow workflows/guest_test.yaml \
 		-l \
 		-m
 
