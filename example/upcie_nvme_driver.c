@@ -65,6 +65,8 @@ nvme_init(struct nvme *nvme, const char *bdf, struct rte *rte)
 	err = nvme_controller_create_io_qpair(&nvme->ctrlr, &nvme->ioq, 32);
 	if (err) {
 		printf("FAILED: nvme_device_create_io_qpair(); err(%d)\n", err);
+		nvme_controller_close(&nvme->ctrlr);
+		return err;
 	}
 
 	return 0;
