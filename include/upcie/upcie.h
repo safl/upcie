@@ -87,6 +87,7 @@ extern "C" {
 #include <upcie/nvme/nvme_qid.h>
 #include <upcie/nvme/nvme_qpair.h>
 #include <upcie/nvme/nvme_controller.h>
+#include <upcie/nvme/nvme_controller_vfio.h>
 #endif
 
 #ifdef __cplusplus
