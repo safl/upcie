@@ -34,7 +34,7 @@ int main(void) {
     return 1;
   }
 
-  err = vfio_group_get_status(&group, &group.status);
+  err = vfio_group_get_status(&group);
   if (err < 0) {
     perror("vfio_group_get_status");
     goto exit;
