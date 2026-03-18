@@ -41,6 +41,7 @@ install_headers(
     'include/upcie/mmio.h',
     'include/upcie/nvme/nvme_command.h',
     'include/upcie/nvme/nvme_controller.h',
+    'include/upcie/nvme/nvme_controller_vfio.h',
     'include/upcie/nvme/nvme_mmio.h',
     'include/upcie/nvme/nvme_qid.h',
     'include/upcie/nvme/nvme_qpair.h',
