@@ -71,11 +71,9 @@ nvme_request_pool_term_prps(struct nvme_request_pool *pool, struct hostmem_heap 
 static inline int
 nvme_request_pool_init_prps(struct nvme_request_pool *pool, struct hostmem_heap *heap)
 {
-	const size_t prps_nbytes = NVME_REQUEST_POOL_LEN * heap->config->pagesize;
-
-	pool->prps = hostmem_dma_malloc(heap, prps_nbytes);
+	pool->prps = hostmem_dma_alloc_array(heap, NVME_REQUEST_POOL_LEN, heap->config->pagesize);
 	if (!pool->prps) {
-		UPCIE_DEBUG("FAILED: hostmem_dma_alloc(%zu)", prps_nbytes);
+		UPCIE_DEBUG("FAILED: hostmem_dma_alloc_array(prps); errno(%d)", errno);
 		return -ENOMEM;
 	}
 
