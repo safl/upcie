@@ -1,5 +1,5 @@
 project('upcie', 'c',
-  version: '0.4.0',
+  version: '0.4.1',
   license: 'BSD-3-Clause',
   default_options: [
     'c_std=c11',
