@@ -294,7 +294,7 @@ cudamem_heap_block_virt_to_phys(struct cudamem_heap *heap, void *virt, uint64_t 
 		return -EINVAL;
 	}
 
-	if (vaddr < heap->vaddr || vaddr > heap->vaddr + heap->size) {
+	if (vaddr < heap->vaddr || vaddr >= heap->vaddr + heap->size) {
 		return -EINVAL;
 	}
 
