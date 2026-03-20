@@ -116,7 +116,7 @@ nvme_init(struct nvme *nvme, const char *bdf, struct rte *rte)
 	struct nvme_command cmd = {0};
 	int err;
 
-	err = nvme_controller_open(&nvme->ctrlr, bdf, &rte->heap);
+	err = nvme_controller_cuda_open(&nvme->ctrlr, bdf, &rte->heap);
 	if (err) {
 		printf("FAILED: nvme_device_open(); err(%d)\n", err);
 		return err;
