@@ -327,6 +327,7 @@ hostmem_heap_block_vtp(struct hostmem_heap *heap, void *virt)
 
 	// Determine which hugepage this address falls into
 	hpage_idx = offset / heap->config->hugepgsz;
+	assert(hpage_idx < heap->nphys);
 
 	// Offset within that hugepage
 	in_hpage_offset = offset % heap->config->hugepgsz;
