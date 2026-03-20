@@ -148,6 +148,7 @@ dmabuf_attach(int dmabuf_fd, struct dmabuf *dmabuf)
 	if (!dmabuf->pages) {
 		err = -errno;
 		UPCIE_DEBUG("FAILED: malloc(dmabuf->pages), errno: %d", err);
+		ioctl(udmabuf_fd, UDMABUF_DETACH, &dmabuf_fd);
 		goto exit;
 	}
 

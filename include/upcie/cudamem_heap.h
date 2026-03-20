@@ -175,17 +175,19 @@ cudamem_heap_init(struct cudamem_heap *heap, size_t size)
 	if (!heap->phys_lut) {
 		err = -errno;
 		UPCIE_DEBUG("FAILED: calloc(phys_lut), errno: %d", err);
-		goto error;
+		goto error_after_attach;
 	}
 
 	err = dmabuf_get_lut(&heap->dmabuf, heap->nphys, heap->phys_lut, heap->pagesize);
 	if (err) {
 		UPCIE_DEBUG("FAILED: dmabuf_get_lut(), err: %d", err);
-		goto error;
+		goto error_after_attach;
 	}
 
 	return 0;
 
+error_after_attach:
+	dmabuf_detach(&heap->dmabuf);
 error:
 	free(heap->freelist);
 	free(heap->phys_lut);
