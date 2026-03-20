@@ -234,7 +234,7 @@ nvme_qpair_submit_sync(struct nvme_qpair *qp, struct nvme_command *cmd, int time
 		return -err;
 	}
 
-	nvme_request_free(qp->rpool, cpl->cid);
+	nvme_request_free(qp->rpool, req->cid);
 
 	if (cpl->status & 0x1FE) {
 		err = -EIO;
@@ -289,7 +289,7 @@ nvme_qpair_submit_sync_contig_prps(struct nvme_qpair *qp, struct hostmem_heap *h
 		return -err;
 	}
 
-	nvme_request_free(qp->rpool, cpl->cid);
+	nvme_request_free(qp->rpool, req->cid);
 
 	if (cpl->status & 0x1FE) {
 		err = -EIO;
@@ -344,7 +344,7 @@ nvme_qpair_submit_sync_iov_prps(struct nvme_qpair *qp, struct hostmem_heap *heap
 		return -err;
 	}
 
-	nvme_request_free(qp->rpool, cpl->cid);
+	nvme_request_free(qp->rpool, req->cid);
 
 	if (cpl->status & 0x1FE) {
 		err = -EIO;
