@@ -333,6 +333,7 @@ cudamem_heap_block_vtp(struct cudamem_heap *heap, void *virt)
 
 	// Determine which page this address falls into
 	page_idx = offset / heap->pagesize;
+	assert(page_idx < heap->nphys);
 
 	// Offset within that page
 	in_page_offset = offset % heap->pagesize;
