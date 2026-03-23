@@ -3,6 +3,7 @@
 
 int main(void)
 {
+	struct cudamem_config config = {0};
 	struct cudamem_heap heap = {0};
 	const size_t nbuffers = 10;
 	void *buffers[nbuffers];
@@ -28,7 +29,13 @@ int main(void)
 		return err;
 	}
 
-	err = cudamem_heap_init(&heap, 1024 * 1024 * 256ULL);
+	err = cudamem_config_init(&config, 0);
+	if (err) {
+		printf("# FAILED: cudamem_config_init(); err(%d)\n", err);
+		return err;
+	}
+
+	err = cudamem_heap_init(&heap, 1024 * 1024 * 256ULL, &config);
 	if (err) {
 		printf("# FAILED: cudamem_heap_init(); err(%d)\n", err);
 		return -err;

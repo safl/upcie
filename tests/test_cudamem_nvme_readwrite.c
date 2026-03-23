@@ -6,6 +6,7 @@
 struct rte {
 	struct hostmem_config config;
 	struct hostmem_heap heap;
+	struct cudamem_config cuda_config;
 	struct cudamem_heap cuda_heap;
 	CUcontext cu_ctx;
 };
@@ -51,7 +52,13 @@ rte_init(struct rte *rte)
 		return err;
 	}
 
-	err = cudamem_heap_init(&rte->cuda_heap, 1024 * 1024 * 128ULL);
+	err = cudamem_config_init(&rte->cuda_config, 0);
+	if (err) {
+		printf("FAILED: cudamem_config_init(); err(%d)\n", err);
+		return err;
+	}
+
+	err = cudamem_heap_init(&rte->cuda_heap, 1024 * 1024 * 128ULL, &rte->cuda_config);
 	if (err) {
 		printf("FAILED: cudamem_heap_init(); err(%d)\n", err);
 		return err;

@@ -33,11 +33,11 @@ static inline void
 nvme_request_prep_command_prps_contig_cuda(struct nvme_request *request, struct cudamem_heap *heap,
                                            void *dbuf, size_t dbuf_nbytes, struct nvme_command *cmd)
 {
-	const uint64_t npages = (dbuf_nbytes + heap->pagesize - 1) >> heap->pagesize_shift;
-	const uint64_t pagesize = heap->pagesize;
+	const uint64_t npages = (dbuf_nbytes + heap->config->pagesize - 1) >> heap->config->pagesize_shift;
+	const uint64_t pagesize = heap->config->pagesize;
 
 	/* Chaining is not supported, thus assert that the given dbuf fits. */
-	assert(npages <= 1 + 8192);
+	assert(npages <= 1 + 512);
 
 	cmd->prp1 = cudamem_heap_block_vtp(heap, dbuf);
 
@@ -50,7 +50,7 @@ nvme_request_prep_command_prps_contig_cuda(struct nvme_request *request, struct 
 
 		cmd->prp2 = request->prp_addr;
 		for (uint64_t i = 1; i < npages; ++i) {
-			prp_list[i - 1] = cmd->prp1 + (i << heap->pagesize_shift);
+			prp_list[i - 1] = cmd->prp1 + (i << heap->config->pagesize_shift);
 		}
 	}
 }
@@ -78,7 +78,7 @@ static inline void
 nvme_request_prep_command_prps_iov_cuda(struct nvme_request *request, struct cudamem_heap *heap,
 				   	struct iovec *dvec, size_t dvec_cnt, struct nvme_command *cmd)
 {
-	const uint64_t pagesize = heap->pagesize;
+	const uint64_t pagesize = heap->config->pagesize;
 	uint64_t *prp_list = request->prp;
 	size_t prp_idx = 0;
 
