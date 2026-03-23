@@ -30,6 +30,7 @@ install_headers(
     'include/upcie/barriers.h',
     'include/upcie/bitfield.h',
     'include/upcie/cudamem_config.h',
+    'include/upcie/cudamem_dma.h',
     'include/upcie/cudamem_heap.h',
     'include/upcie/dmabuf.h',
     'include/upcie/hostmem_config.h',

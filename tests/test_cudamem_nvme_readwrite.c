@@ -177,17 +177,17 @@ main(int argc, char **argv)
 		return err;
 	}
 
-	write_buf = cudamem_heap_block_alloc(&rte.cuda_heap, buffer_size);
+	write_buf = cudamem_dma_malloc(&rte.cuda_heap, buffer_size);
 	if (!write_buf) {
 		err = errno;
-		printf("FAILED: cudamem_heap_block_alloc(write_buf); err(%d)\n", err);
+		printf("FAILED: cudamem_dma_malloc(write_buf); err(%d)\n", err);
 		goto exit;
 	}
 
-	read_buf = cudamem_heap_block_alloc(&rte.cuda_heap, buffer_size);
+	read_buf = cudamem_dma_malloc(&rte.cuda_heap, buffer_size);
 	if (!read_buf) {
 		err = errno;
-		printf("FAILED: cudamem_heap_block_alloc(read_buf); err(%d)\n", err);
+		printf("FAILED: cudamem_dma_malloc(read_buf); err(%d)\n", err);
 		goto exit;
 	}
 
@@ -254,8 +254,8 @@ main(int argc, char **argv)
 	printf("SUCCES: written data == read data\n");
 
 exit:
-	cudamem_heap_block_free(&rte.cuda_heap, write_buf);
-	cudamem_heap_block_free(&rte.cuda_heap, read_buf);
+	cudamem_dma_free(&rte.cuda_heap, write_buf);
+	cudamem_dma_free(&rte.cuda_heap, read_buf);
 	free(expected);
 	free(actual);
 	nvme_controller_close(&nvme.ctrlr);
