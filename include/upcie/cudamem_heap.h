@@ -199,8 +199,8 @@ error:
 /**
  * Free a block allocated on the given heap
  *
- * Only blocks allocated by cudamem_heap_block_alloc() or
- * cudamem_heap_block_alloc_aligned() can be freed.
+ * Only blocks allocated by cudamem_heap_block_alloc(), cudamem_heap_block_alloc_aligned(),
+ * cudamem_heap_block_alloc_array(), or cudamem_heap_block_alloc_array_aligned() can be freed.
  */
 static inline void
 cudamem_heap_block_free(struct cudamem_heap *heap, void *ptr)
@@ -234,18 +234,73 @@ cudamem_heap_block_free(struct cudamem_heap *heap, void *ptr)
 }
 
 /**
- * Allocate a block on the given heap with a custom alignment
+ * Allocate an array of elements on the given heap with a custom alignment
+ *
+ * Elements are guaranteed not to straddle device page boundaries, matching
+ * the hugepage-boundary guarantee in hostmem_heap_block_alloc_array_aligned().
+ *
+ * NOTE: Unlike hostmem, the freelist metadata is stored in host memory (not
+ * inside the GPU heap) because GPU virtual addresses cannot be dereferenced
+ * from the CPU.
  */
 static inline void *
-cudamem_heap_block_alloc_aligned(struct cudamem_heap *heap, size_t size, size_t alignment)
+cudamem_heap_block_alloc_array_aligned(struct cudamem_heap *heap, size_t elem_count,
+				       size_t elem_size, size_t alignment)
 {
 	struct cudamem_heap_block *block = heap->freelist;
+	size_t total_size;
 
-	size = (size + alignment - 1) & ~(alignment - 1);
+	if (elem_count > SIZE_MAX / elem_size) {
+		UPCIE_DEBUG("FAILED: Cannot allocate memory; elem_size(%zu) * elem_count(%zu) too large",
+			    elem_size, elem_count);
+		errno = EINVAL;
+		return NULL;
+	}
+
+	total_size = elem_count * elem_size;
+
+	if (elem_size > (size_t)heap->config->device_pagesize ||
+	    (total_size > (size_t)heap->config->device_pagesize &&
+	     (size_t)heap->config->device_pagesize % elem_size != 0)) {
+		UPCIE_DEBUG("FAILED: Cannot allocate memory; elem_size(%zu) must fit within device page size(%d)",
+			    elem_size, heap->config->device_pagesize);
+		errno = ENOMEM;
+		return NULL;
+	}
+
+	total_size = (total_size + alignment - 1) & ~(alignment - 1);
 
 	while (block) {
-		if (block->free && block->size >= size) {
-			size_t remaining = block->size - size;
+		if (block->free && block->size >= total_size) {
+			size_t offset, in_dpage_offset, dpage_remaining, disalignment, remaining;
+
+			offset = block->vaddr - heap->vaddr;
+			in_dpage_offset = offset % heap->config->device_pagesize;
+			dpage_remaining = heap->config->device_pagesize - in_dpage_offset;
+			disalignment = dpage_remaining % elem_size;
+
+			if (dpage_remaining < total_size && disalignment) {
+				// Not enough room in device page and allocating here would straddle
+				// the device page boundary — insert a skip block to force alignment
+				struct cudamem_heap_block *newblock = malloc(sizeof(struct cudamem_heap_block));
+				if (!newblock) {
+					UPCIE_DEBUG("FAILED: malloc(newblock), errno: %d", errno);
+					return NULL;
+				}
+
+				newblock->vaddr = block->vaddr + disalignment;
+				newblock->size = block->size - disalignment;
+				newblock->free = 1;
+				newblock->next = block->next;
+
+				block->next = newblock;
+				block->size = disalignment;
+
+				block = block->next;
+				continue;
+			}
+
+			remaining = block->size - total_size;
 			if (remaining) {
 				struct cudamem_heap_block *newblock = malloc(sizeof(struct cudamem_heap_block));
 				if (!newblock) {
@@ -253,19 +308,19 @@ cudamem_heap_block_alloc_aligned(struct cudamem_heap *heap, size_t size, size_t 
 					return NULL;
 				}
 
-				newblock->vaddr = block->vaddr + size;
-				newblock->free = 1;
+				newblock->vaddr = block->vaddr + total_size;
 				newblock->size = remaining;
+				newblock->free = 1;
 				newblock->next = block->next;
 
 				block->next = newblock;
-				block->size = size;
+				block->size = total_size;
 			}
 
 			block->free = 0;
-			return (void *) block->vaddr;
+			return (void *)block->vaddr;
 		}
-	
+
 		block = block->next;
 	}
 
@@ -274,7 +329,32 @@ cudamem_heap_block_alloc_aligned(struct cudamem_heap *heap, size_t size, size_t 
 }
 
 /**
- * Allocate a block on the given heap aligned to the GPU pagesize (64K)
+ * Allocate an array of elements on the given heap aligned to the host page size
+ */
+static inline void *
+cudamem_heap_block_alloc_array(struct cudamem_heap *heap, size_t elem_count, size_t elem_size)
+{
+	return cudamem_heap_block_alloc_array_aligned(heap, elem_count, elem_size,
+						      heap->config->pagesize);
+}
+
+/**
+ * Allocate a block on the given heap with a custom alignment
+ */
+static inline void *
+cudamem_heap_block_alloc_aligned(struct cudamem_heap *heap, size_t size, size_t alignment)
+{
+	size_t total_size, elem_count, elem_size;
+
+	total_size = (size + heap->config->pagesize - 1) & ~(heap->config->pagesize - 1);
+	elem_count = total_size / heap->config->pagesize;
+	elem_size = heap->config->pagesize;
+
+	return cudamem_heap_block_alloc_array_aligned(heap, elem_count, elem_size, alignment);
+}
+
+/**
+ * Allocate a block on the given heap aligned to the host page size (4KB)
  */
 static inline void *
 cudamem_heap_block_alloc(struct cudamem_heap *heap, size_t size)
