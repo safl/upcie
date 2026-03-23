@@ -39,11 +39,10 @@ struct cudamem_heap {
 	uint64_t vaddr;				///< Virtual address of the beginning of the heap (stored as integer to avoid segfaults)
 	struct cudamem_heap_block *freelist;	///< Pointers to description of free memory in the heap
 	struct dmabuf dmabuf;			///< Representation of a dma-buf
+	struct cudamem_config *config;		///< Device memory configuration (page sizes)
 	size_t size;				///< Size of the heap
-	size_t pagesize;			///< Size of a physical page
-	size_t pagesize_shift;                  ///< Size of a physical page as a power of two, pagesize == 1 << pagesize_shift
-	size_t nphys;				///< Number of physical pages backing 'memory'
-	uint64_t *phys_lut;			///< An array of physical addresses; one for each page in 'memory'
+	size_t nphys;				///< Number of device pages backing 'memory' (size / config->device_pagesize)
+	uint64_t *phys_lut;			///< An array of physical addresses; one for each device page in 'memory'
 };
 
 /**
@@ -64,7 +63,8 @@ cudamem_heap_pp(struct cudamem_heap *heap)
 	wrtn += printf("\n");
 
 	wrtn += printf("  size: '%zu'\n", heap->size);
-	wrtn += printf("  pagesize: '%zu'\n", heap->pagesize);
+	wrtn += printf("  pagesize: '%d'\n", heap->config->pagesize);
+	wrtn += printf("  device_pagesize: '%d'\n", heap->config->device_pagesize);
 	wrtn += printf("  nphys: '%zu'\n", heap->nphys);
 	wrtn += printf("  phys:\n");
 	for (size_t i = 0; i < heap->nphys; ++i) {
@@ -120,18 +120,21 @@ cudamem_heap_term(struct cudamem_heap *heap)
  * NOTE: Set up CUDA Driver (cuInit()) and CUDA Context (cuCtxCreate())
  * before calling this function.
  *
+ * NOTE: 'config' must remain valid for the lifetime of 'heap'.
+ *
  */
 static inline int
-cudamem_heap_init(struct cudamem_heap *heap, size_t size)
+cudamem_heap_init(struct cudamem_heap *heap, size_t size, struct cudamem_config *config)
 {
 	CUdeviceptr vaddr;
 	int dmabuf_fd, err;
 
-	if (!heap) {
+	if (!heap || !config) {
 		return -EINVAL;
 	}
 
 	memset(heap, 0, sizeof(*heap));
+	heap->config = config;
 
 	err = cuMemAlloc(&vaddr, size);
 	if (err) {
@@ -147,8 +150,6 @@ cudamem_heap_init(struct cudamem_heap *heap, size_t size)
 
 	heap->vaddr = (uint64_t) vaddr;
 	heap->size = size;
-	heap->pagesize_shift = 16;
-	heap->pagesize = 1 << heap->pagesize_shift; // 64K
 
 	// Initialize a single free block spanning the entire heap
 	heap->freelist = malloc(sizeof(struct cudamem_heap_block));
@@ -169,8 +170,8 @@ cudamem_heap_init(struct cudamem_heap *heap, size_t size)
 		goto error;
 	}
 
-	// Setup the LUT
-	heap->nphys = heap->size / heap->pagesize;
+	// Setup the LUT at device page granularity, matching the dma-buf page size
+	heap->nphys = heap->size / heap->config->device_pagesize;
 	heap->phys_lut = calloc(heap->nphys, sizeof(uint64_t));
 	if (!heap->phys_lut) {
 		err = -errno;
@@ -178,7 +179,7 @@ cudamem_heap_init(struct cudamem_heap *heap, size_t size)
 		goto error_after_attach;
 	}
 
-	err = dmabuf_get_lut(&heap->dmabuf, heap->nphys, heap->phys_lut, heap->pagesize);
+	err = dmabuf_get_lut(&heap->dmabuf, heap->nphys, heap->phys_lut, heap->config->device_pagesize);
 	if (err) {
 		UPCIE_DEBUG("FAILED: dmabuf_get_lut(), err: %d", err);
 		goto error_after_attach;
@@ -278,7 +279,7 @@ cudamem_heap_block_alloc_aligned(struct cudamem_heap *heap, size_t size, size_t 
 static inline void *
 cudamem_heap_block_alloc(struct cudamem_heap *heap, size_t size)
 {
-	return cudamem_heap_block_alloc_aligned(heap, size, heap->pagesize);
+	return cudamem_heap_block_alloc_aligned(heap, size, heap->config->pagesize);
 }
 
 /**
@@ -302,14 +303,14 @@ cudamem_heap_block_virt_to_phys(struct cudamem_heap *heap, void *virt, uint64_t 
 	offset = vaddr - heap->vaddr;
 
 	// Determine which page this address falls into
-	page_idx = offset / heap->pagesize;
+	page_idx = offset / heap->config->device_pagesize;
 
 	if (page_idx >= heap->nphys) {
 		return -EINVAL;
 	}
 
 	// Offset within that page
-	in_page_offset = offset % heap->pagesize;
+	in_page_offset = offset % heap->config->device_pagesize;
 
 	*phys = heap->phys_lut[page_idx] + in_page_offset;
 
@@ -332,11 +333,11 @@ cudamem_heap_block_vtp(struct cudamem_heap *heap, void *virt)
 	offset = vaddr - heap->vaddr;
 
 	// Determine which page this address falls into
-	page_idx = offset / heap->pagesize;
+	page_idx = offset / heap->config->device_pagesize;
 	assert(page_idx < heap->nphys);
 
 	// Offset within that page
-	in_page_offset = offset % heap->pagesize;
+	in_page_offset = offset % heap->config->device_pagesize;
 
 	return heap->phys_lut[page_idx] + in_page_offset;
 }
