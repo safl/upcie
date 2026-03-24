@@ -27,9 +27,11 @@ add_project_arguments(['-include', 'upcie_config.h'], language: 'c')
 
 install_headers(
   [
+    'include/upcie/barriers.h',
     'include/upcie/bitfield.h',
     'include/upcie/cudamem_heap.h',
     'include/upcie/dmabuf.h',
+    'include/upcie/hostmem_config.h',
     'include/upcie/hostmem_dma.h',
     'include/upcie/hostmem.h',
     'include/upcie/hostmem_heap.h',
