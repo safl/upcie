@@ -238,6 +238,14 @@ cudamem_heap_block_free(struct cudamem_heap *heap, void *ptr)
 			block = block->next;
 		}
 	}
+
+	// The loop terminates when block->next is NULL, which means the last
+	// block is never visited via the block->next->vaddr path. Handle it
+	// explicitly so that freeing the final (or only) block in the freelist
+	// is not silently dropped.
+	if (block && block->vaddr == vaddr) {
+		block->free = 1;
+	}
 }
 
 /**
