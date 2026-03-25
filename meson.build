@@ -59,6 +59,5 @@ upcie_dep = declare_dependency(
 )
 
 # Add the test programs
-subdir('scripts')
 subdir('example')
 subdir('tests')
