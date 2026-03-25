@@ -9,6 +9,12 @@ steps:
   run: |
     hostname
 
+- name: install_tools
+  run: |
+    apt-get -y install pipx
+    pipx install devbind==0.1.0
+    pipx install hugepages==0.1.0
+
 - name: source_sync
   uses: source_from_tgz
   with:
