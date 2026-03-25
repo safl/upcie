@@ -196,6 +196,7 @@ dmabuf_detach(struct dmabuf *dmabuf)
 		// fall-through
 	}
 
+	close(dmabuf->fd);
 	close(udmabuf_fd);
 	return err;
 }
