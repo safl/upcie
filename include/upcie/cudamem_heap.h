@@ -127,7 +127,7 @@ static inline int
 cudamem_heap_init(struct cudamem_heap *heap, size_t size, struct cudamem_config *config)
 {
 	CUdeviceptr vaddr;
-	int dmabuf_fd, err;
+	int dmabuf_fd = -1, err;
 
 	if (!heap || !config) {
 		return -EINVAL;
@@ -189,9 +189,16 @@ cudamem_heap_init(struct cudamem_heap *heap, size_t size, struct cudamem_config 
 
 error_after_attach:
 	dmabuf_detach(&heap->dmabuf);
+	free(heap->freelist);
+	free(heap->phys_lut);
+	cuMemFree(vaddr);
+	return err;
 error:
 	free(heap->freelist);
 	free(heap->phys_lut);
+	if (dmabuf_fd >= 0) {
+		close(dmabuf_fd);
+	}
 	cuMemFree(vaddr);
 	return err;
 }
