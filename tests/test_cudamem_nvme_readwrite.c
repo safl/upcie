@@ -88,7 +88,7 @@ nvme_io(struct nvme *nvme, struct cudamem_heap *cuda_heap, uint8_t opc, void *bu
 	cmd.cdw10 = 0; ///< SLBA == 0
 	cmd.cdw12 = 0; ///< NLB == 0
 
-	nvme_request_prep_command_prps_contig_cuda(req, cuda_heap, buffer, buffer_size, &cmd);
+	nvme_request_prep_command_prps_contig_cuda_heap(req, cuda_heap, buffer, buffer_size, &cmd);
 
 	err = nvme_qpair_enqueue(&nvme->ioq, &cmd);
 	if (err) {
