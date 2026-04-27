@@ -33,6 +33,7 @@ install_headers(
     'include/upcie/cudamem_config.h',
     'include/upcie/cudamem_dma.h',
     'include/upcie/cudamem_heap.h',
+    'include/upcie/cudamem_mapping.h',
     'include/upcie/dmabuf.h',
     'include/upcie/hostmem_config.h',
     'include/upcie/hostmem_dma.h',
