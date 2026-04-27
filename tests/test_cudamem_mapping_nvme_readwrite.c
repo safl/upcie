@@ -7,7 +7,6 @@ struct rte {
 	struct hostmem_config config;
 	struct hostmem_heap heap;
 	struct cudamem_config cuda_config;
-	struct cudamem_heap cuda_heap;
 	CUcontext cu_ctx;
 };
 
@@ -21,7 +20,7 @@ rte_init(struct rte *rte)
 {
 	CUdevice cu_dev;
 	int err;
-	
+
 	err = hostmem_config_init(&rte->config);
 	if (err) {
 		printf("FAILED: hostmem_config_init(); err(%d)\n", err);
@@ -33,7 +32,7 @@ rte_init(struct rte *rte)
 		printf("FAILED: hostmem_heap_init(); err(%d)\n", err);
 		return err;
 	}
-	
+
 	err = cuInit(0);
 	if (err) {
 		printf("FAILED: cuInit(); err(%d)\n", err);
@@ -58,17 +57,12 @@ rte_init(struct rte *rte)
 		return err;
 	}
 
-	err = cudamem_heap_init(&rte->cuda_heap, 1024 * 1024 * 128ULL, &rte->cuda_config);
-	if (err) {
-		printf("FAILED: cudamem_heap_init(); err(%d)\n", err);
-		return err;
-	}
-
 	return 0;
 }
 
 int
-nvme_io(struct nvme *nvme, struct cudamem_heap *cuda_heap, uint8_t opc, void *buffer, size_t buffer_size)
+nvme_io(struct nvme *nvme, struct cudamem_mapping *mappings, uint8_t opc, void *buffer,
+	size_t buffer_size)
 {
 	struct nvme_completion cpl = {0};
 	struct nvme_command cmd = {0};
@@ -88,7 +82,12 @@ nvme_io(struct nvme *nvme, struct cudamem_heap *cuda_heap, uint8_t opc, void *bu
 	cmd.cdw10 = 0; ///< SLBA == 0
 	cmd.cdw12 = 0; ///< NLB == 0
 
-	nvme_request_prep_command_prps_contig_cuda_heap(req, cuda_heap, buffer, buffer_size, &cmd);
+	err = nvme_request_prep_command_prps_contig_cuda_mapped(req, mappings, buffer, buffer_size,
+								&cmd);
+	if (err) {
+		printf("FAILED: prps_contig_cuda_mapped(); err(%d)\n", err);
+		return err;
+	}
 
 	err = nvme_qpair_enqueue(&nvme->ioq, &cmd);
 	if (err) {
@@ -132,9 +131,8 @@ nvme_init(struct nvme *nvme, const char *bdf, struct rte *rte)
 	cmd.opc = 0x6; ///< IDENTIFY
 	cmd.cdw10 = 1; // CNS=1: Identify Controller
 
-	err = nvme_qpair_submit_sync_contig_prps(&nvme->ctrlr.aq, nvme->ctrlr.heap,
-						 nvme->ctrlr.buf, 4096, &cmd,
-						 nvme->ctrlr.timeout_ms, &cpl);
+	err = nvme_qpair_submit_sync_contig_prps(&nvme->ctrlr.aq, nvme->ctrlr.heap, nvme->ctrlr.buf,
+						 4096, &cmd, nvme->ctrlr.timeout_ms, &cpl);
 	if (err) {
 		printf("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
 		nvme_controller_close(&nvme->ctrlr);
@@ -155,7 +153,10 @@ main(int argc, char **argv)
 {
 	struct nvme nvme = {0};
 	struct rte rte = {0};
+	struct cudamem_mapping *mappings = NULL;
 	const size_t buffer_size = 82 * sizeof(char);
+	size_t mapping_size, page;
+	CUdeviceptr raw_write = 0, raw_read = 0;
 	void *write_buf = NULL, *read_buf = NULL;	///< CUDA IO buffers
 	char *expected = NULL, *actual = NULL;		///< HOST buffers for comparison
 	int err;
@@ -177,17 +178,37 @@ main(int argc, char **argv)
 		return err;
 	}
 
-	write_buf = cudamem_dma_malloc(&rte.cuda_heap, buffer_size);
-	if (!write_buf) {
-		err = errno;
-		printf("FAILED: cudamem_dma_malloc(write_buf); err(%d)\n", err);
+	/*
+	 * cudamem_mapping requires vaddr and nbytes aligned to device_pagesize.
+	 * cuMemAlloc does not guarantee that alignment, so over-allocate by one
+	 * page and round the start up.
+	 */
+	page = rte.cuda_config.device_pagesize;
+	mapping_size = page;
+
+	err = cuMemAlloc(&raw_write, mapping_size + page);
+	if (err) {
+		printf("FAILED: cuMemAlloc(write); err(%d)\n", err);
+		goto exit;
+	}
+	write_buf = (void *)(((uintptr_t)raw_write + page - 1) & ~((uintptr_t)page - 1));
+
+	err = cuMemAlloc(&raw_read, mapping_size + page);
+	if (err) {
+		printf("FAILED: cuMemAlloc(read); err(%d)\n", err);
+		goto exit;
+	}
+	read_buf = (void *)(((uintptr_t)raw_read + page - 1) & ~((uintptr_t)page - 1));
+
+	err = cudamem_mapping_add(&mappings, write_buf, mapping_size, &rte.cuda_config, NULL);
+	if (err) {
+		printf("FAILED: cudamem_mapping_add(write); err(%d)\n", err);
 		goto exit;
 	}
 
-	read_buf = cudamem_dma_malloc(&rte.cuda_heap, buffer_size);
-	if (!read_buf) {
-		err = errno;
-		printf("FAILED: cudamem_dma_malloc(read_buf); err(%d)\n", err);
+	err = cudamem_mapping_add(&mappings, read_buf, mapping_size, &rte.cuda_config, NULL);
+	if (err) {
+		printf("FAILED: cudamem_mapping_add(read); err(%d)\n", err);
 		goto exit;
 	}
 
@@ -209,7 +230,7 @@ main(int argc, char **argv)
 	for (size_t i = 0; i < buffer_size; i++) {
 		expected[i] = (i % 26) + 65;
 	}
-	
+
 	memset(actual, 0, buffer_size);
 
 	err = cuMemcpyHtoD((CUdeviceptr)write_buf, expected, buffer_size);
@@ -224,19 +245,18 @@ main(int argc, char **argv)
 		goto exit;
 	}
 
-	err = nvme_io(&nvme, &rte.cuda_heap, 0x1, write_buf, buffer_size);
+	err = nvme_io(&nvme, mappings, 0x1, write_buf, buffer_size);
 	if (err) {
 		printf("FAILED: nvme_io(write); err(%d)\n", err);
 		goto exit;
 	}
 
-	err = nvme_io(&nvme, &rte.cuda_heap, 0x2, read_buf, buffer_size);
+	err = nvme_io(&nvme, mappings, 0x2, read_buf, buffer_size);
 	if (err) {
 		printf("FAILED: nvme_io(read); err(%d)\n", err);
 		goto exit;
 	}
 
-	
 	err = cuMemcpyDtoH(actual, (CUdeviceptr)read_buf, buffer_size);
 	if (err) {
 		printf("FAILED: cuMemcpyDtoH(read_buf -> actual); err(%d)\n", err);
@@ -254,13 +274,17 @@ main(int argc, char **argv)
 	printf("SUCCES: written data == read data\n");
 
 exit:
-	cudamem_dma_free(&rte.cuda_heap, write_buf);
-	cudamem_dma_free(&rte.cuda_heap, read_buf);
+	cudamem_mapping_clear(&mappings);
+	if (raw_write) {
+		cuMemFree(raw_write);
+	}
+	if (raw_read) {
+		cuMemFree(raw_read);
+	}
 	free(expected);
 	free(actual);
 	nvme_controller_close(&nvme.ctrlr);
 	hostmem_heap_term(&rte.heap);
-	cudamem_heap_term(&rte.cuda_heap);
 	cuCtxDestroy(rte.cu_ctx);
 
 	return err;
