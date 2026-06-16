@@ -50,7 +50,7 @@ static void
 nvme_cleanup(struct nvme *nvme)
 {
 	if (nvme->ioq.rpool) {
-		nvme_qpair_term(&nvme->ioq);
+		nvme_controller_delete_io_qpair(&nvme->ctrlr, &nvme->ioq);
 		memset(&nvme->ioq, 0, sizeof(nvme->ioq));
 	}
 
