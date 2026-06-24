@@ -44,6 +44,8 @@ steps:
   run: |
     hostname
     uname -a
+    echo "cmdline: $(cat /proc/cmdline)"
+    echo "iommu_groups: $(ls /sys/kernel/iommu_groups 2>/dev/null | wc -l)"
 
 - name: install_tools
   run: |
