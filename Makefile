@@ -1,7 +1,12 @@
 BUILD_DIR ?= builddir
 VERSION ?= 0.4.2
 
-.PHONY: all config build verify install uninstall clean docs
+# cijoe configuration selecting the guest IOMMU mode:
+#   configs/debian-trixie-iommu_disabled.toml  IOMMU disabled, uio_pci_generic
+#   configs/debian-trixie-iommu_enabled.toml   IOMMU enabled, vfio-pci + iommufd
+CIJOE_CONFIG ?= configs/debian-trixie-iommu_disabled.toml
+
+.PHONY: all config build verify provision test guest install uninstall clean docs
 
 all: clean config build install verify
 
@@ -37,16 +42,28 @@ gen-artifacts:
 guest:
 	@cd cijoe && cijoe \
 		tasks/guest_setup.yaml \
-		--config configs/cijoe-config.toml \
+		--config $(CIJOE_CONFIG) \
+		--config configs/system_imaging.toml \
 		-l \
 		-m
 
-verify: gen-artifacts
+provision: gen-artifacts
 	@cd cijoe && cijoe \
-		tasks/guest_test.yaml \
-		--config configs/cijoe-config.toml \
+		tasks/provision.yaml \
+		--config $(CIJOE_CONFIG) \
+		--config configs/system_imaging.toml \
 		-l \
 		-m
+
+test:
+	@cd cijoe && cijoe \
+		tasks/test.yaml \
+		--config $(CIJOE_CONFIG) \
+		--config configs/system_imaging.toml \
+		-l \
+		-m
+
+verify: provision test
 
 uninstall:
 	cd $(BUILD_DIR) && meson --internal uninstall

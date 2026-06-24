@@ -1,0 +1,77 @@
+---
+doc: |
+  Provision a QEMU guest from the nosi image and install uPCIe
+
+  Brings up the guest defined by qemu.default_guest using the system-image
+  qemu.default_systemimage. The nosi disk-image referenced by [guest_image].url
+  is staged into the system-imaging disk.path before initialization.
+
+  The local folder /tmp/artifacts must contain upcie-src.tar.gz (produced by
+  'make gen-artifacts'). It is transferred to the guest, unpacked in
+  /tmp/upcie_source, then built and installed.
+
+  The guest is left running so 'test.yaml' can run against it. Select the IOMMU
+  mode by which guest config is passed, e.g.:
+
+    cijoe tasks/provision.yaml \
+      --config configs/debian-trixie-iommu_disabled.toml \
+      --config configs/system_imaging.toml
+
+steps:
+- name: guest_kill
+  uses: qemu.guest_kill
+  with:
+    guest_name: "{{ config.qemu.default_guest }}"
+
+- name: stage_nosi_guest
+  uses: stage_nosi_guest
+
+- name: guest_initialize
+  uses: qemu.guest_initialize
+  with:
+    guest_name: "{{ config.qemu.default_guest }}"
+    system_image_name: "{{ config.qemu.default_systemimage }}"
+
+- name: guest_start
+  uses: qemu_guest_start_nvme
+  with:
+    guest_name: "{{ config.qemu.default_guest }}"
+
+- name: root_unlock
+  uses: root_unlock
+
+- name: guest_check
+  run: |
+    hostname
+    uname -a
+
+- name: install_tools
+  run: |
+    apt-get -y install pipx
+    pipx install devbind==0.1.0
+    pipx install hugepages==0.1.0
+
+- name: source_sync
+  uses: source_from_tgz
+  with:
+    artifacts: /tmp/artifacts
+    source: /tmp/upcie_source
+
+- name: build
+  uses: meson_build
+  with:
+    source: /tmp/upcie_source
+
+- name: install
+  uses: meson_install
+  with:
+    source: /tmp/upcie_source
+
+- name: modprobe
+  run: |
+    modprobe uio_pci_generic || true
+    modprobe vfio-pci || true
+
+- name: hugepages
+  run: |
+    hugepages setup --size 2048 --count 1024
