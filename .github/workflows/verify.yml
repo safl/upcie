@@ -1,0 +1,213 @@
+---
+name: verify
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  #
+  # Produce the uPCIe source archive consumed by the guest 'verify' job
+  #
+  source-archive:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Grab source
+      uses: actions/checkout@v7.0.0
+
+    - name: Install build requirements
+      run: |
+        sudo apt-get update -qy
+        sudo apt-get install -qy meson ninja-build gcc git
+
+    - name: Generate source archive
+      run: make gen-artifacts
+
+    - name: Upload source archive
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: upcie-src-archive
+        path: /tmp/artifacts/upcie-src.tar.gz
+        if-no-files-found: error
+
+  #
+  # Compile the header-only library and its C tests across a few distributions.
+  # uPCIe has zero external dependencies beyond the Linux UAPI headers, so this
+  # needs no hardware.
+  #
+  build-linux:
+    needs: source-archive
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        container:
+        - {os: 'debian', image: 'debian:trixie'}
+        - {os: 'ubuntu', image: 'ubuntu:noble'}
+        - {os: 'fedora', image: 'fedora:44'}
+
+    container:
+      image: ${{ matrix.container.image }}
+
+    steps:
+    - name: Install build requirements (debian/ubuntu)
+      if: matrix.container.os == 'debian' || matrix.container.os == 'ubuntu'
+      run: |
+        apt-get update -qy
+        apt-get install -qy meson ninja-build gcc git linux-libc-dev
+
+    - name: Install build requirements (fedora)
+      if: matrix.container.os == 'fedora'
+      run: |
+        dnf install -qy meson ninja-build gcc git kernel-headers
+
+    - name: Grab source
+      uses: actions/checkout@v7.0.0
+
+    - name: Configure and build
+      run: |
+        meson setup builddir
+        meson compile -C builddir
+
+    - name: Build a translation unit through the umbrella header
+      run: |
+        gcc -std=c11 -Wall -Wextra -Iinclude -c tests/test_vfioctl.c -o /tmp/test_vfioctl.o
+
+  #
+  # Provision a QEMU guest from the nosi image and run the test-suite, once with
+  # the IOMMU disabled (uio_pci_generic) and once enabled (vfio-pci + iommufd).
+  #
+  # Runs inside the nosi container, which ships qemu + cijoe. The job needs
+  # /dev/kvm and pulls a multi-GB guest image, so it targets a KVM-capable
+  # runner. /mnt is the runner's large ephemeral disk; the nosi qcow2 + raw
+  # decompression overflow the container overlay otherwise.
+  #
+  verify:
+    needs: source-archive
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [iommu_disabled, iommu_enabled]
+
+    container:
+      image: ghcr.io/safl/nosi/ubuntu-2604-docker:latest
+      options: --privileged -v /mnt:/mnt
+
+    steps:
+    - name: Grab source
+      uses: actions/checkout@v7.0.0
+
+    - name: Retrieve the uPCIe source archive
+      uses: actions/download-artifact@v8.0.1
+      with:
+        name: upcie-src-archive
+        path: /tmp/artifacts
+
+    - name: Prepare environment
+      run: |
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        # cijoe is a pipx app; expose its venv bin so core.testrunner finds the
+        # bundled pytest (and loads the cijoe plugin from the same environment).
+        cijoe_bin_dir="$(dirname "$(readlink -f "$(command -v cijoe)")")"
+        echo "cijoe venv bin: $cijoe_bin_dir"
+        echo "$cijoe_bin_dir" >> $GITHUB_PATH
+        # The pytest test-runner resolves tests from upcie.repository.path.
+        mkdir -p "$HOME/git"
+        ln -sfn "$GITHUB_WORKSPACE" "$HOME/git/upcie"
+        # Land the nosi qcow2 + raw decompression on /mnt, not the cramped overlay.
+        mkdir -p /mnt/system_imaging
+        ln -sfn /mnt/system_imaging "$HOME/system_imaging"
+        find /tmp/artifacts
+
+    - name: CIJOE, check availability
+      run: cijoe -r
+
+    - name: CIJOE, provision guest
+      run: |
+        cd cijoe && cijoe \
+          tasks/provision.yaml \
+          --config "configs/debian-trixie-${{ matrix.mode }}.toml" \
+          --config "configs/system_imaging.toml" \
+          --monitor \
+          --output "verify-${{ matrix.mode }}-provision"
+
+    - name: CIJOE, test
+      run: |
+        cd cijoe && cijoe \
+          tasks/test.yaml \
+          --config "configs/debian-trixie-${{ matrix.mode }}.toml" \
+          --config "configs/system_imaging.toml" \
+          --monitor \
+          --output "verify-${{ matrix.mode }}-test"
+
+    - name: CIJOE, dump result logs on failure
+      if: failure()
+      run: |
+        find cijoe -name "*.output" -exec cat {} +
+        tail -c 20000 "$HOME/guests/debian-trixie-amd64/serial.output" 2>/dev/null || true
+
+    - name: CIJOE, upload output dirs
+      if: always()
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: verify-${{ matrix.mode }}-report
+        path: cijoe/verify-${{ matrix.mode }}*
+        if-no-files-found: warn
+
+  #
+  # Aggregate the per-mode output of the matrix into two downloads: one bundle
+  # of all cijoe-output dirs, and a supplemental folder with each run's
+  # report.html renamed after the run it came from.
+  #
+  reports:
+    needs: verify
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Download verify output dirs
+      uses: actions/download-artifact@v8.0.1
+      with:
+        pattern: verify-*-report
+        path: downloaded
+
+    - name: Bundle the cijoe-output dirs
+      run: |
+        find downloaded -maxdepth 3 -type d | sort
+        tar czf cijoe-output.tar.gz -C downloaded .
+
+    - name: Collect report.html from each run, named accordingly
+      run: |
+        mkdir -p reports
+        find downloaded -name report.html | while read -r f; do
+          # parent dir identifies the run, e.g. verify-iommu_disabled-provision
+          run="$(basename "$(dirname "$f")")"
+          cp "$f" "reports/${run}.html"
+        done
+        ls -lh reports || echo "no report.html found"
+
+    - name: Upload the bundled cijoe-output
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: cijoe-output
+        path: cijoe-output.tar.gz
+        if-no-files-found: warn
+
+    - name: Upload the per-run report.html
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: reports
+        path: reports/
+        if-no-files-found: warn
