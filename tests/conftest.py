@@ -21,3 +21,16 @@ def uio_devices():
         devices.append(props.get("bdf"))
 
     return devices
+
+
+@lru_cache(maxsize=None)
+def iommu_available():
+    """Return True when the guest exposes IOMMU groups, i.e. vfio-pci is usable."""
+
+    cijoe = pytest.cijoe_instance
+
+    err, state = cijoe.run("ls /sys/kernel/iommu_groups")
+    if err:
+        return False
+
+    return bool(state.output().strip())
