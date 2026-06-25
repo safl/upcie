@@ -81,14 +81,12 @@ cudamem_config_pp(struct cudamem_config *config)
  * contiguity check in cudamem_mapping_chunk_populate (returning -EOPNOTSUPP
  * when violated) catches a hardware/driver mismatch at runtime.
  *
- * BAR1 size is read via pci_bar_size(bdf, 1, ...), where <bdf> is obtained
- * from cuDeviceGetPCIBusId(). The PCI BAR index 1 follows NVIDIA's discrete
- * GPU convention (BAR0 is 32-bit MMIO, BAR1 is the framebuffer aperture); a
- * 64-bit BAR0 layout (consuming registers 0 and 1) would shift the FB
- * aperture to resource2 and is not supported. The function fails if BAR1
- * size is smaller than total device memory: PCIe P2P DMA over the full
- * device memory range requires the BAR1 to span it, which in turn requires
- * resizable BAR (or a similarly sized fixed BAR) to be enabled in firmware.
+ * The framebuffer aperture size is read via pci_bar_largest_size(bdf, ...),
+ * where <bdf> is obtained from cuDeviceGetPCIBusId(); the largest BAR is the
+ * framebuffer aperture regardless of whether BAR0 is 32-bit or 64-bit. PCIe
+ * P2P DMA over the full device memory range requires the aperture to span it,
+ * which in turn requires resizable BAR (or a similarly sized fixed BAR) to be
+ * enabled in firmware.
  *
  * @param config  Pointer to the config struct to initialize
  * @param gpu_id  CUDA device ordinal
@@ -140,9 +138,9 @@ cudamem_config_init(struct cudamem_config *config, int gpu_id)
 		}
 	}
 
-	err = pci_bar_size(bdf, 1, &config->bar1_size);
+	err = pci_bar_largest_size(bdf, &config->bar1_size);
 	if (err) {
-		UPCIE_DEBUG("FAILED: pci_bar_size(%s, 1), err: %d", bdf, err);
+		UPCIE_DEBUG("FAILED: pci_bar_largest_size(%s), err: %d", bdf, err);
 		return err;
 	}
 

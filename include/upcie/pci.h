@@ -279,6 +279,48 @@ pci_bar_size(const char *bdf, uint8_t id, size_t *size)
 	return 0;
 }
 
+/**
+ * Read the size of the largest PCI memory BAR for the function at `bdf`.
+ *
+ * Scans all BARs and returns the largest. Non-existent resourceN entries
+ * (unmapped BARs and the high half of a 64-bit BAR) are skipped.
+ *
+ * @return 0 on success with *size set, negative errno on failure.
+ */
+static inline int
+pci_bar_largest_size(const char *bdf, size_t *size)
+{
+	size_t largest = 0;
+	int found = 0;
+
+	if (!bdf || !size) {
+		return -EINVAL;
+	}
+
+	for (uint8_t id = 0; id < PCI_NBARS; ++id) {
+		size_t bar = 0;
+		int err = pci_bar_size(bdf, id, &bar);
+
+		if (err == -ENOENT) {
+			continue; // unmapped BAR, or high half of a 64-bit BAR
+		}
+		if (err) {
+			return err;
+		}
+		found = 1;
+		if (bar > largest) {
+			largest = bar;
+		}
+	}
+
+	if (!found) {
+		return -ENOENT;
+	}
+
+	*size = largest;
+	return 0;
+}
+
 static inline int
 pci_bar_map(const char *bdf, uint8_t id, struct pci_func_bar *bar)
 {
