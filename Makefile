@@ -2,11 +2,11 @@ BUILD_DIR ?= builddir
 VERSION ?= 0.4.2
 
 # cijoe configuration selecting the guest IOMMU mode:
-#   configs/debian-trixie-iommu_disabled.toml  IOMMU disabled, uio_pci_generic
-#   configs/debian-trixie-iommu_enabled.toml   IOMMU enabled, vfio-pci + iommufd
-CIJOE_CONFIG ?= configs/debian-trixie-iommu_disabled.toml
+#   configs/ubuntu-2604-iommu_disabled.toml  IOMMU disabled, uio_pci_generic
+#   configs/ubuntu-2604-iommu_enabled.toml   IOMMU enabled, vfio-pci + iommufd
+CIJOE_CONFIG ?= configs/ubuntu-2604-iommu_disabled.toml
 
-.PHONY: all config build verify provision test guest install uninstall clean docs
+.PHONY: all config build verify verify-iommu-disabled verify-iommu-enabled provision test guest install uninstall clean docs
 
 all: clean config build install verify
 
@@ -63,22 +63,27 @@ test:
 		-l \
 		-m
 
-verify: provision test
+verify:
+	$(MAKE) verify-iommu-disabled
+	$(MAKE) verify-iommu-enabled
+
+verify-iommu-disabled:
+	$(MAKE) provision test CIJOE_CONFIG=configs/ubuntu-2604-iommu_disabled.toml
+
+verify-iommu-enabled:
+	$(MAKE) provision test CIJOE_CONFIG=configs/ubuntu-2604-iommu_enabled.toml
 
 uninstall:
 	cd $(BUILD_DIR) && meson --internal uninstall
 
-#
-# This assumes a pipx-based Python environment is available e.g.:
-# 
-#   pipx install sphinx
-#   pipx inject sphinx breathe
-#   pipx inject sphinx furo
-# 
+# Build the documentation. Installs the doc tooling (pipx) on first use, then
+# builds with warnings-as-errors so missing pages or broken references fail.
 docs:
-	doxygen docs/Doxyfile
-	cd docs; make html
-	
+	@command -v upcie-docs-build-html >/dev/null 2>&1 || { \
+		echo "uPCIe docs: installing the doc tooling ..."; \
+		$(MAKE) -C docs deps; }
+	$(MAKE) -C docs html
+
 
 clean:
 	rm -rf $(BUILD_DIR)
