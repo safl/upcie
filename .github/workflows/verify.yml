@@ -123,6 +123,11 @@ jobs:
         cijoe_bin_dir="$(dirname "$(readlink -f "$(command -v cijoe)")")"
         echo "cijoe venv bin: $cijoe_bin_dir"
         echo "$cijoe_bin_dir" >> $GITHUB_PATH
+        # stage_nosi_guest resolves the oras:// image ref via withcache. The
+        # cijoe pipx venv ships no pip, so bootstrap one with ensurepip and
+        # install withcache into the venv the cijoe python runs from.
+        "$cijoe_bin_dir/python" -m ensurepip --upgrade >/dev/null
+        "$cijoe_bin_dir/python" -m pip install --quiet withcache
         # The pytest test-runner resolves tests from upcie.repository.path.
         mkdir -p "$HOME/git"
         ln -sfn "$GITHUB_WORKSPACE" "$HOME/git/upcie"
