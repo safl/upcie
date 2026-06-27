@@ -1,20 +1,26 @@
-# Minimal makefile for Sphinx documentation
-#
+.DEFAULT_GOAL := help
 
-# You can set these variables from the command line, and also
-# from the environment for the first two.
-SPHINXOPTS    ?=
-SPHINXBUILD   ?= sphinx-build
-SOURCEDIR     = source
-BUILDDIR      = build
+.PHONY: help deps html pdf serve clean
 
-# Put it first so that "make" without argument is like "make help".
 help:
-	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
+	@echo "uPCIe docs:"
+	@echo "  deps    pipx install ./tooling  (provides upcie-docs-{serve,build-html,build-pdf})"
+	@echo "  html    upcie-docs-build-html   -> _build/html/"
+	@echo "  pdf     upcie-docs-build-pdf    -> _build/latex/upcie.pdf  (requires LaTeX)"
+	@echo "  serve   upcie-docs-serve        (live rebuild on http://localhost:8000)"
+	@echo "  clean   remove _build/"
 
-.PHONY: help Makefile
+deps:
+	pipx install ./tooling
 
-# Catch-all target: route all unknown targets to Sphinx using the new
-# "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).
-%: Makefile
-	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
+html:
+	upcie-docs-build-html
+
+pdf:
+	upcie-docs-build-pdf
+
+serve:
+	upcie-docs-serve
+
+clean:
+	rm -rf _build
