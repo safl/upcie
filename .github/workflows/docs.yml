@@ -1,0 +1,83 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Install pipx and LaTeX (for the PDF build)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pipx \
+            doxygen \
+            texlive-latex-recommended \
+            texlive-latex-extra \
+            texlive-fonts-recommended \
+            tex-gyre \
+            fonts-freefont-otf \
+            latexmk \
+            make
+
+      - name: Install the docs tooling
+        run: |
+          pipx install ./docs/tooling
+          pipx ensurepath
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Build HTML
+        working-directory: docs
+        run: upcie-docs-build-html
+
+      - name: Build PDF
+        working-directory: docs
+        run: upcie-docs-build-pdf
+
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: docs-html
+          path: docs/_build/html
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: docs-pdf
+          path: docs/_build/latex/*.pdf
+          if-no-files-found: warn
+
+  deploy:
+    name: Deploy to GitHub Pages
+    # Deploy on pushes to main only; PR and dispatch builds stay artifacts-only.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: docs-html
+          path: html/
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: html/
+
+      - id: deployment
+        uses: actions/deploy-pages@v5
