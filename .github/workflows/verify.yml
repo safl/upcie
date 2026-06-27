@@ -138,7 +138,7 @@ jobs:
       run: |
         cd cijoe && cijoe \
           tasks/provision.yaml \
-          --config "configs/debian-trixie-${{ matrix.mode }}.toml" \
+          --config "configs/ubuntu-2604-${{ matrix.mode }}.toml" \
           --config "configs/system_imaging.toml" \
           --monitor \
           --output "verify-${{ matrix.mode }}-provision"
@@ -147,7 +147,7 @@ jobs:
       run: |
         cd cijoe && cijoe \
           tasks/test.yaml \
-          --config "configs/debian-trixie-${{ matrix.mode }}.toml" \
+          --config "configs/ubuntu-2604-${{ matrix.mode }}.toml" \
           --config "configs/system_imaging.toml" \
           --monitor \
           --output "verify-${{ matrix.mode }}-test"
@@ -156,7 +156,7 @@ jobs:
       if: failure()
       run: |
         find cijoe -name "*.output" -exec cat {} +
-        tail -c 20000 "$HOME/guests/debian-trixie-amd64/serial.output" 2>/dev/null || true
+        tail -c 20000 "$HOME/guests/ubuntu-2604-amd64/serial.output" 2>/dev/null || true
 
     - name: CIJOE, upload output dirs
       if: always()

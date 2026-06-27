@@ -14,7 +14,7 @@ doc: |
   mode by which guest config is passed, e.g.:
 
     cijoe tasks/provision.yaml \
-      --config configs/debian-trixie-iommu_disabled.toml \
+      --config configs/ubuntu-2604-iommu_disabled.toml \
       --config configs/system_imaging.toml
 
 steps:
@@ -47,11 +47,8 @@ steps:
     echo "cmdline: $(cat /proc/cmdline)"
     echo "iommu_groups: $(ls /sys/kernel/iommu_groups 2>/dev/null | wc -l)"
 
-- name: install_tools
-  run: |
-    apt-get -y install pipx
-    pipx install devbind==0.1.0
-    pipx install hugepages==0.1.0
+- name: system_check
+  run: 'for t in devbind hugepages iommu; do command -v "$t" >/dev/null || { echo "missing tool $t"; exit 1; }; done'
 
 - name: source_sync
   uses: source_from_tgz

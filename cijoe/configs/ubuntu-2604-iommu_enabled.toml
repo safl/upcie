@@ -5,12 +5,12 @@
 # system_imaging.toml, e.g.:
 #
 #   cijoe tasks/provision.yaml \
-#     --config configs/debian-trixie-iommu_enabled.toml \
+#     --config configs/ubuntu-2604-iommu_enabled.toml \
 #     --config configs/system_imaging.toml
 #
 # The guest kernel must boot with 'intel_iommu=on iommu=pt' for vfio-pci to
 # attach. For the IOMMU-disabled (uio_pci_generic) counterpart see
-# debian-trixie-iommu_disabled.toml.
+# ubuntu-2604-iommu_disabled.toml.
 
 # The SSH options are passed verbatim to paramiko; see https://www.paramiko.org/
 [cijoe.transport.root]
@@ -31,8 +31,8 @@ port = 4200
 fail_fast = true
 
 [os]
-name = "debian"
-version = "trixie"
+name = "ubuntu"
+version = "26.04"
 
 [build.compiler]
 bin = "gcc"
@@ -46,15 +46,15 @@ path = "{{ local.env.HOME }}/git/upcie"
 # Used by: the qemu.*.py scripts
 [qemu]
 img_bin = "qemu-img"
-default_guest = "trixie_amd64"
-default_systemimage = "debian-13-x86_64"
+default_guest = "ubuntu_2604_amd64"
+default_systemimage = "ubuntu-2604-x86_64"
 
 [qemu.systems.x86_64]
 bin = "qemu-system-x86_64"
 
 # Used by: qemu.guest_start.py and qemu.guest_kill.py
-[qemu.guests.trixie_amd64]
-path = "{{ local.env.HOME }}/guests/debian-trixie-amd64"
+[qemu.guests.ubuntu_2604_amd64]
+path = "{{ local.env.HOME }}/guests/ubuntu-2604-amd64"
 system_label = "x86_64"
 
 # Keyword arguments: joined onto the form: "-cpu host -smp 4 -m 4" etc.
@@ -71,4 +71,4 @@ system_args.tcp_forward = {host = 4200, guest = 22}
 
 # nosi guest image pulled by stage_nosi_guest into the system-imaging disk.path
 [guest_image]
-url = "https://ghcr.io/v2/safl/nosi/debian-13-headless/blobs/sha256:1cdbf24c081516500735ce7f3f96e3212a472fb0528276e23c939035791900dc"
+url = "https://ghcr.io/v2/safl/nosi/ubuntu-2604-headless/blobs/sha256:ba8a8e478a067fa3f566dcb05559d83abf3c823b10d93c0b27fb896192d03628"
