@@ -1,5 +1,5 @@
 BUILD_DIR ?= builddir
-VERSION ?= 0.4.2
+VERSION ?= 0.4.3
 
 # cijoe configuration selecting the guest IOMMU mode:
 #   configs/ubuntu-2604-iommu_disabled.toml  IOMMU disabled, uio_pci_generic
