@@ -7,6 +7,9 @@
  * This header extends the functionality defined in the uPCIe NVMe Controller
  * header `upcie/nvme/nvme_controller.h` with functions for CUDA compatible
  * NVMe controllers.
+ * 
+ * @file nvme_controller_cuda.h
+ * @version 0.4.2
  */
 
 

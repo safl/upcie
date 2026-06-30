@@ -2,6 +2,14 @@
 // Copyright (c) Jaeyoon Choi <j_yoon.choi@samsung.com>
 
 /**
+ * VFIO NVMe Controller Extension
+ * ==============================
+ * 
+ * @file nvme_controller_vfio.h
+ * @version 0.4.2
+ */
+
+/**
  * VFIO state needed to access a single NVMe controller from user space.
  */
 struct vfio_ctx {
