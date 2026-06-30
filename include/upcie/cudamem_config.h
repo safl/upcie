@@ -173,3 +173,19 @@ cudamem_config_init(struct cudamem_config *config, int gpu_id)
 
 	return 0;
 }
+
+/**
+ * Create a CUDA context for the device, hiding the CUDA 13 driver-API change.
+ *
+ * CUDA 13 redefines cuCtxCreate -> cuCtxCreate_v4, which takes an extra
+ * CUctxCreateParams* (NULL = the old default); CUDA 12 keeps the 3-arg form.
+ */
+static inline CUresult
+cudamem_ctx_create(CUcontext *ctx, CUdevice dev)
+{
+#if CUDA_VERSION >= 13000
+	return cuCtxCreate(ctx, NULL, 0, dev);
+#else
+	return cuCtxCreate(ctx, 0, dev);
+#endif
+}

@@ -25,7 +25,7 @@ int main(void)
 		return err;
 	}
 
-	err = cuCtxCreate(&cu_ctx, 0, cu_dev);
+	err = cudamem_ctx_create(&cu_ctx, cu_dev);
 	if (err) {
 		printf("# FAILED: cuCtxCreate(); err(%d)\n", err);
 		goto exit;
