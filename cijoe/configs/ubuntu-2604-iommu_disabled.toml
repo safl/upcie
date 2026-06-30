@@ -4,7 +4,7 @@
 # raw physical addresses, which is what uio_pci_generic and the hugepage-backed
 # DMA path rely on. Pair with system_imaging.toml, e.g.:
 #
-#   cijoe tasks/provision.yaml \
+#   cijoe tasks/guest_setup.yaml \
 #     --config configs/ubuntu-2604-iommu_disabled.toml \
 #     --config configs/system_imaging.toml
 #

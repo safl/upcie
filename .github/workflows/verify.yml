@@ -147,21 +147,28 @@ jobs:
     - name: CIJOE, check availability
       run: cijoe -r
 
-    - name: CIJOE, provision guest
+    - name: CIJOE, bring up guest
       run: |
         cd cijoe && cijoe \
-          tasks/provision.yaml \
+          tasks/guest_setup.yaml \
           --config "configs/ubuntu-2604-${{ matrix.mode }}.toml" \
           --config "configs/system_imaging.toml" \
           --monitor \
-          --output "verify-${{ matrix.mode }}-provision"
+          --output "verify-${{ matrix.mode }}-guest"
+
+    - name: CIJOE, deploy uPCIe
+      run: |
+        cd cijoe && cijoe \
+          tasks/deploy.yaml \
+          --config "configs/ubuntu-2604-${{ matrix.mode }}.toml" \
+          --monitor \
+          --output "verify-${{ matrix.mode }}-deploy"
 
     - name: CIJOE, test
       run: |
         cd cijoe && cijoe \
           tasks/test.yaml \
           --config "configs/ubuntu-2604-${{ matrix.mode }}.toml" \
-          --config "configs/system_imaging.toml" \
           --monitor \
           --output "verify-${{ matrix.mode }}-test"
 

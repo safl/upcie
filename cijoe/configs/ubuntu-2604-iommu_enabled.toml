@@ -4,7 +4,7 @@
 # through vfio-pci and mapped via the iommufd /dev/iommu API. Pair with
 # system_imaging.toml, e.g.:
 #
-#   cijoe tasks/provision.yaml \
+#   cijoe tasks/guest_setup.yaml \
 #     --config configs/ubuntu-2604-iommu_enabled.toml \
 #     --config configs/system_imaging.toml
 #
