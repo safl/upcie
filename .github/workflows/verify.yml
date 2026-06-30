@@ -55,6 +55,7 @@ jobs:
         - {os: 'debian', image: 'debian:trixie'}
         - {os: 'ubuntu', image: 'ubuntu:noble'}
         - {os: 'fedora', image: 'fedora:44'}
+        - {os: 'alpine', image: 'ghcr.io/refenv/alpine-bash:latest'}
 
     container:
       image: ${{ matrix.container.image }}
@@ -70,6 +71,13 @@ jobs:
       if: matrix.container.os == 'fedora'
       run: |
         dnf install -qy meson ninja-build gcc git kernel-headers
+
+    - name: Install build requirements (alpine)
+      if: matrix.container.os == 'alpine'
+      run: |
+        # gcompat lets the glibc actions/checkout node run on musl; the rest
+        # is the header-only build's toolchain plus the Linux UAPI headers.
+        apk add --no-cache gcompat meson ninja gcc git musl-dev linux-headers
 
     - name: Grab source
       uses: actions/checkout@v7.0.0
