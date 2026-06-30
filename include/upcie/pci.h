@@ -17,7 +17,7 @@
  *   and pci_region_write64
  *
  * @file pci.h
- * @version 0.4.3
+ * @version 0.4.4
  */
 #define PCI_BDF_LEN 12
 #define PCI_NBARS 6
