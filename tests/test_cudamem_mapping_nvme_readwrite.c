@@ -45,7 +45,7 @@ rte_init(struct rte *rte)
 		return err;
 	}
 
-	err = cuCtxCreate(&rte->cu_ctx, 0, cu_dev);
+	err = cudamem_ctx_create(&rte->cu_ctx, cu_dev);
 	if (err) {
 		printf("FAILED: cuCtxCreate(); err(%d)\n", err);
 		return err;

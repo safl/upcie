@@ -76,6 +76,9 @@ if cuda_dep.found()
       [src, nvme_cuda_kernels_obj],
       include_directories: incdir,
       dependencies: [cuda_dep],
+      # nvcc emits a C++ static-init guard in the kernel object (CUDA 13), so
+      # link libstdc++ for __cxa_guard_acquire/release in this C target.
+      link_args: ['-lstdc++'],
       install: true,
     )
   endforeach

@@ -65,7 +65,7 @@ rte_init(struct rte *rte, size_t cuda_heap_size)
 		return err;
 	}
 
-	err = cuCtxCreate(&rte->cu_ctx, 0, cu_dev);
+	err = cudamem_ctx_create(&rte->cu_ctx, cu_dev);
 	if (err) {
 		printf("FAILED: cuCtxCreate(); err(%d)\n", err);
 		hostmem_heap_term(&rte->heap);
