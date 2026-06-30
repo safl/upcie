@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) Jaeyoon Choi <j_yoon.choi@samsung.com>
 
+#include <linux/limits.h>
+
 /**
  * VFIO NVMe Controller Extension
  * ==============================
