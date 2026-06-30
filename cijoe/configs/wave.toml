@@ -1,0 +1,43 @@
+# uPCIe cijoe configuration: wave (real nosi hardware, AMD GPU)
+#
+# Same EPYC board as warp, with a single NVMe and an AMD Radeon RX 7800 XT
+# (Navi 32) on amdgpu, used as the dma-buf producer. Use with the retargetable
+# tasks:
+#
+#   make gen-artifacts
+#   cijoe tasks/deploy.yaml --config configs/wave.toml
+#
+# root SSH was opened from the console (root password below). deploy.yaml's
+# root_unlock probes root first and is a no-op once root SSH works.
+
+# SSH options are passed verbatim to paramiko; see https://www.paramiko.org/
+[cijoe.transport.root]
+username = "root"
+password = "odus.321!"
+hostname = "wave"
+port = 22
+
+# Operator account (nosi default password); only used if root SSH is not up.
+[cijoe.transport.odus]
+username = "odus"
+password = "odus.321"
+hostname = "wave"
+port = 22
+
+[cijoe.workflow]
+fail_fast = true
+
+[os]
+name = "ubuntu"
+version = "26.04"
+
+[build.compiler]
+bin = "gcc"
+
+[upcie.repository]
+remote = "https://github.com/safl/upcie.git"
+path = "{{ local.env.HOME }}/git/upcie"
+
+# The lone NVMe (the OS is on /dev/sda, so it is free). The AMD GPU at
+# 0000:83:00.0 is the dma-buf producer, reached via /dev/dri/renderD128.
+[devices.pcie.'0000:01:00.0']
