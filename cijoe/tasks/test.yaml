@@ -1,13 +1,13 @@
 ---
 doc: |
-  Run the uPCIe test-suite against a provisioned guest
+  Run the uPCIe test-suite against the transport target
 
-  Expects a guest already brought up by 'provision.yaml' (built, installed, with
-  drivers loaded and hugepages allocated). Pass the same guest config, e.g.:
+  Expects uPCIe already deployed by 'deploy.yaml' (built, installed, drivers
+  loaded, hugepages allocated) on the target, which may be a QEMU guest brought
+  up by 'guest_setup.yaml' or a real machine reached over SSH. Pass the same
+  config, e.g.:
 
-    cijoe tasks/test.yaml \
-      --config configs/ubuntu-2604-iommu_disabled.toml \
-      --config configs/system_imaging.toml
+    cijoe tasks/test.yaml --config configs/ubuntu-2604-iommu_disabled.toml
 
 steps:
 - name: test

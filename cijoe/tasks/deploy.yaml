@@ -1,0 +1,55 @@
+---
+doc: |
+  Deploy uPCIe to the transport target (retargetable)
+
+  CIJOE runs build, install, and test over the configured transport, so the same
+  flow that follows a QEMU bring-up also deploys to a real machine reached over
+  SSH. nosi targets ship with root locked, so this opens root over the operator
+  account first (a no-op once root SSH works), then checks the tooling, syncs the
+  source tarball, builds and installs uPCIe, and loads the drivers and hugepages.
+
+  /tmp/artifacts must hold upcie-src.tar.gz (from 'make gen-artifacts'). Point the
+  default cijoe.transport at the target, then:
+
+    make gen-artifacts
+    cijoe tasks/deploy.yaml --config configs/<target>.toml
+    cijoe tasks/test.yaml   --config configs/<target>.toml
+
+steps:
+- name: root_unlock
+  uses: root_unlock
+
+- name: target_check
+  run: |
+    hostname
+    uname -a
+    echo "cmdline: $(cat /proc/cmdline)"
+    echo "iommu_groups: $(ls /sys/kernel/iommu_groups 2>/dev/null | wc -l)"
+
+- name: system_check
+  run: 'for t in devbind hugepages iommu; do command -v "$t" >/dev/null || { echo "missing tool $t"; exit 1; }; done'
+
+- name: source_sync
+  uses: source_from_tgz
+  with:
+    artifacts: /tmp/artifacts
+    source: /tmp/upcie_source
+
+- name: build
+  uses: meson_build
+  with:
+    source: /tmp/upcie_source
+
+- name: install
+  uses: meson_install
+  with:
+    source: /tmp/upcie_source
+
+- name: modprobe
+  run: |
+    modprobe vfio-pci || true
+    modprobe udmabuf || true
+
+- name: hugepages
+  run: |
+    hugepages setup --size 2048 --count 1024

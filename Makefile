@@ -6,7 +6,7 @@ VERSION ?= 0.4.4
 #   configs/ubuntu-2604-iommu_enabled.toml   IOMMU enabled, vfio-pci + iommufd
 CIJOE_CONFIG ?= configs/ubuntu-2604-iommu_disabled.toml
 
-.PHONY: all config build verify verify-iommu-disabled verify-iommu-enabled provision test guest install uninstall clean docs
+.PHONY: all config build verify verify-iommu-disabled verify-iommu-enabled deploy test guest install uninstall clean docs
 
 all: clean config build install verify
 
@@ -39,6 +39,8 @@ gen-artifacts:
 	cp $(BUILD_DIR)/meson-dist/upcie-$(VERSION).tar.gz /tmp/artifacts/upcie-src.tar.gz
 	ls -l /tmp/artifacts
 
+# Bring up the QEMU guest. QEMU-specific, so it takes the system_imaging config;
+# the retargetable deploy/test below do not.
 guest:
 	@cd cijoe && cijoe \
 		tasks/guest_setup.yaml \
@@ -47,11 +49,13 @@ guest:
 		-l \
 		-m
 
-provision: gen-artifacts
+# Deploy uPCIe to the transport target: build, install, drivers, hugepages. The
+# same task retargets to a real machine by selecting a CIJOE_CONFIG whose first
+# transport points at it (see configs/hw-example.toml).
+deploy: gen-artifacts
 	@cd cijoe && cijoe \
-		tasks/provision.yaml \
+		tasks/deploy.yaml \
 		--config $(CIJOE_CONFIG) \
-		--config configs/system_imaging.toml \
 		-l \
 		-m
 
@@ -59,7 +63,6 @@ test:
 	@cd cijoe && cijoe \
 		tasks/test.yaml \
 		--config $(CIJOE_CONFIG) \
-		--config configs/system_imaging.toml \
 		-l \
 		-m
 
@@ -68,10 +71,10 @@ verify:
 	$(MAKE) verify-iommu-enabled
 
 verify-iommu-disabled:
-	$(MAKE) provision test CIJOE_CONFIG=configs/ubuntu-2604-iommu_disabled.toml
+	$(MAKE) guest deploy test CIJOE_CONFIG=configs/ubuntu-2604-iommu_disabled.toml
 
 verify-iommu-enabled:
-	$(MAKE) provision test CIJOE_CONFIG=configs/ubuntu-2604-iommu_enabled.toml
+	$(MAKE) guest deploy test CIJOE_CONFIG=configs/ubuntu-2604-iommu_enabled.toml
 
 uninstall:
 	cd $(BUILD_DIR) && meson --internal uninstall

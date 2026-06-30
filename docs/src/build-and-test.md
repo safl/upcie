@@ -23,22 +23,22 @@ sections of the guest config).
 The default guest image is a [nosi](https://github.com/safl/nosi) build, which
 already ships the `devbind`, `hugepages`, and `iommu` tools the test-suite uses.
 
-The default target is a QEMU guest. Provisioning boots it, then builds and
-installs uPCIe inside it; the test-suite then runs against it. `make verify`
-covers both IOMMU modes back to back:
+The default target is a QEMU guest: `make guest` brings it up, `make deploy`
+builds and installs uPCIe on it, and `make test` runs the suite. `make verify`
+chains all three across both IOMMU modes:
 
 ```bash
-make provision               # boot the guest, build and install uPCIe inside it
+make guest                   # bring up the QEMU guest
+make deploy                  # build and install uPCIe on the target
 make test                    # run the test-suite against the target
-make verify                  # provision and test across both IOMMU modes
+make verify                  # guest, deploy, and test across both IOMMU modes
 make verify-iommu-disabled   # just the IOMMU-off path (uio_pci_generic)
 make verify-iommu-enabled    # just the IOMMU-on path (vfio-pci)
 ```
 
-The two modes differ in the QEMU machine, so each is a full provision-and-test
-cycle rather than two passes against one guest. CI runs both on every push and
-pull request. `CIJOE_CONFIG` selects the config for the bare provision, test,
-and guest targets if you need to override it.
+The two modes differ in the QEMU machine, so each is a full cycle rather than two
+passes against one guest. CI runs both on every push and pull request.
+`CIJOE_CONFIG` selects the config for the bare guest, deploy, and test targets.
 
 Provisioning pulls a multi-gigabyte guest image and requires `/dev/kvm`, QEMU,
 and cijoe on the host. The image is resolved and pulled with
@@ -46,8 +46,16 @@ and cijoe on the host. The image is resolved and pulled with
 
 ## Retargeting
 
-The build, install, and test steps run over the configured transport, so the
-same flow re-targets to another machine by changing only the transport. Point
-`cijoe.transport` at the local host, or at a remote machine over SSH, to build
-and test there instead of in the QEMU guest. The QEMU provisioning steps are
-specific to the guest target; the build, install, and test steps are not.
+The bring-up is deliberately a separate task from the deploy. `guest_setup.yaml`
+is QEMU-specific (it depends on the qemu and system-imaging config), while
+`deploy.yaml` and `test.yaml` run over the configured transport and do not care
+what is on the other end. So they retarget to a real machine unchanged: point a
+config's first transport at it (see `configs/hw-example.toml`) and run
+
+```bash
+make gen-artifacts
+make deploy test CIJOE_CONFIG=configs/hw-example.toml
+```
+
+skipping `make guest` entirely. The deploy builds and installs uPCIe on the
+target and loads the drivers and hugepages, then the test-suite runs there.

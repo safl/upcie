@@ -1,0 +1,40 @@
+# uPCIe cijoe configuration: a real machine reached over SSH (no QEMU)
+#
+# Pair with tasks/deploy.yaml to build and install uPCIe on the target, then
+# tasks/test.yaml (or a targeted run) to exercise it on real hardware:
+#
+#   make gen-artifacts
+#   cijoe tasks/deploy.yaml --config configs/hw-example.toml
+#   cijoe tasks/test.yaml   --config configs/hw-example.toml
+#
+# For the iommufd / dma-buf path the target kernel must boot with an enforcing
+# IOMMU (intel_iommu=on or amd_iommu=on) and expose /dev/iommu and udmabuf; the
+# IOAS_MAP_FILE path needs kernel ~6.14+ (older falls back to the -ENOSYS stub).
+#
+# The first transport is the default for cijoe.run(); point it at the target.
+
+# SSH options are passed verbatim to paramiko; see https://www.paramiko.org/
+[cijoe.transport.target]
+hostname = "CHANGEME"        # the target's hostname or IP
+port = 22
+username = "root"
+# One of password or key_filename:
+# password = "..."
+# key_filename = "{{ local.env.HOME }}/.ssh/id_ed25519"
+
+[cijoe.workflow]
+fail_fast = true
+
+[os]
+name = "ubuntu"
+version = "24.04"
+
+[build.compiler]
+bin = "gcc"
+
+[upcie.repository]
+remote = "https://github.com/safl/upcie.git"
+path = "{{ local.env.HOME }}/git/upcie"
+
+# The device under test: set the section name to its PCIe BDF.
+[devices.pcie.'0000:01:00.0']
