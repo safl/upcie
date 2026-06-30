@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
 
+#include <linux/limits.h>
+
 #define _UPCIE_WITH_NVME
 #include <upcie/upcie.h>
 
