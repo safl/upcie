@@ -31,7 +31,7 @@
  * after all memory has been freed.
  * 
  * @file cudamem_dma.h
- * @version 0.4.3
+ * @version 0.4.4
  */
 
 /**

@@ -31,7 +31,7 @@
  *   #include <upcie/upcie.h>
  *
  * @file upcie.h
- * @version 0.4.3
+ * @version 0.4.4
  */
 #ifndef UPCIE_H
 #define UPCIE_H
