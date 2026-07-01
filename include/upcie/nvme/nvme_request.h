@@ -151,6 +151,19 @@ nvme_request_get(struct nvme_request_pool *pool, uint16_t cid)
 }
 
 /**
+ * Re-translate a PRP entry that crosses a hugepage boundary.
+ *
+ * Kept out-of-line so the rare boundary path does not inline a v2p into the hot
+ * contig builder; the common in-hugepage case strides physically from PRP1, and
+ * the inlined stride loop keeps large-I/O builds free of any per-entry call.
+ */
+static inline uint64_t __attribute__((noinline))
+nvme_request_prp_retranslate(struct hostmem_heap *heap, void *virt)
+{
+	return hostmem_dma_v2p(heap, virt);
+}
+
+/**
  * Prepare the PRP list for a command with a contiguous data buffer.
  *
  * This function initializes the Physical Region Page (PRP) entries in the given NVMe command
@@ -161,7 +174,9 @@ nvme_request_get(struct nvme_request_pool *pool, uint16_t cid)
  * Caveats
  * -------
  *
- * - Assumes that the memory backing `dbuf` in `heap` is physically contiguous.
+ * - `dbuf` need not be physically contiguous; PRP entries are strided physically
+ *   from PRP1 within a hugepage and re-translated at each hugepage boundary, so
+ *   buffers may span physically scattered hugepages.
  * - Does *not* support PRP list chaining; only a single list page is constructed.
  *
  * @param request Pointer to the NVMe request context used for tracking and metadata.
@@ -179,9 +194,10 @@ nvme_request_prep_command_prps_contig(struct nvme_request *request, struct hostm
 	cmd->prp1 = hostmem_dma_v2p(heap, dbuf);
 
 	/* Only PRP1 may carry a sub-page offset; the page count and every later
-	 * entry are measured from the page floor. ceil((off+nbytes)/pagesize). */
-	const uint64_t page_off = cmd->prp1 & (pagesize - 1);
-	const uint64_t page_base = cmd->prp1 - page_off;
+	 * entry are measured from the page floor. ceil((off+nbytes)/pagesize). Take
+	 * the offset from the virtual address -- v2p preserves the sub-page offset --
+	 * so the page count and the npages == 1 branch do not wait on the v2p load. */
+	const uint64_t page_off = (uintptr_t)dbuf & (pagesize - 1);
 	const uint64_t npages =
 		(page_off + dbuf_nbytes + pagesize - 1) >> heap->config->pagesize_shift;
 
@@ -190,15 +206,39 @@ nvme_request_prep_command_prps_contig(struct nvme_request *request, struct hostm
 
 	if (npages == 1) {
 		return;
-	} else if (npages == 2) {
-		cmd->prp2 = page_base + pagesize;
-	} else {
-		uint64_t *prp_list = request->prp;
+	}
 
-		cmd->prp2 = request->prp_addr;
-		for (uint64_t i = 1; i < npages; ++i) {
-			prp_list[i - 1] = page_base + (i << heap->config->pagesize_shift);
+	/* The heap is virtually contiguous but physically contiguous only within a
+	 * hugepage. Stride PRP entries physically from PRP1 while inside the same
+	 * hugepage and re-translate when the running address crosses a hugepage
+	 * boundary. A buffer that fits within a single hugepage (the common case)
+	 * never crosses, so this reduces to the stride of a contiguous buffer. */
+	uint8_t *vbase = (uint8_t *)dbuf - page_off;
+	const uint64_t hp_off =
+		(uint64_t)(vbase - (uint8_t *)heap->memory.virt) & (heap->config->hugepgsz - 1);
+	uint64_t strides_left =
+		((heap->config->hugepgsz - hp_off) >> heap->config->pagesize_shift) - 1;
+	uint64_t page_phys = cmd->prp1 - page_off;
+
+	if (npages == 2) {
+		cmd->prp2 = strides_left ? page_phys + pagesize
+					 : nvme_request_prp_retranslate(heap, vbase + pagesize);
+		return;
+	}
+
+	uint64_t *prp_list = request->prp;
+
+	cmd->prp2 = request->prp_addr;
+	for (uint64_t i = 1; i < npages; ++i) {
+		if (strides_left) {
+			page_phys += pagesize;
+			strides_left--;
+		} else {
+			page_phys = nvme_request_prp_retranslate(
+				heap, vbase + (i << heap->config->pagesize_shift));
+			strides_left = (heap->config->hugepgsz >> heap->config->pagesize_shift) - 1;
 		}
+		prp_list[i - 1] = page_phys;
 	}
 }
 
