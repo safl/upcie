@@ -83,3 +83,27 @@ if cuda_dep.found()
     )
   endforeach
 endif
+
+# Tests depending on linking with ROCm (HIP host API + HSA runtime)
+hiptest_sources = files(
+  'test_hipmem_producer.c',
+  'test_hipmem_nvme_readwrite.c',
+)
+
+cc = meson.get_compiler('c')
+hip_lib = cc.find_library('amdhip64', required: false)
+hip_hdr = cc.has_header('hip/hip_runtime_api.h', args: '-D__HIP_PLATFORM_AMD__')
+
+if hip_lib.found() and hip_hdr
+  foreach src : hiptest_sources
+    bin_name = fs.stem(src)
+    executable(
+      bin_name,
+      src,
+      include_directories: incdir,
+      dependencies: [hip_lib],
+      c_args: ['-D__HIP_PLATFORM_AMD__'],
+      install: true,
+    )
+  endforeach
+endif

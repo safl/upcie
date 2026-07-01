@@ -1,0 +1,24 @@
+---
+doc: |
+  CPU-initiated NVMe read/write into AMD GPU memory
+
+  Bind a spare NVMe to uio_pci_generic and run test_hipmem_nvme_readwrite: the CPU
+  drives the NVMe (host-memory queues) while the SSD DMAs to/from AMD GPU VRAM
+  over PCIe. Requires iommu=pt, the udmabuf-import kernel, ROCm, and uPCIe
+  deployed (built against the patched udmabuf header). Set the BDF to the device
+  under test.
+
+steps:
+- name: drivers
+  run: |
+    modprobe uio_pci_generic || true
+    modprobe udmabuf || true
+
+- name: bind_uio
+  run: |
+    devbind --device 0000:01:00.0 --bind uio_pci_generic
+    devbind --device 0000:01:00.0 --list
+
+- name: readwrite
+  run: |
+    test_hipmem_nvme_readwrite 0000:01:00.0
