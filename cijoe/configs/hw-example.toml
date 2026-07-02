@@ -11,6 +11,9 @@
 # IOMMU (intel_iommu=on or amd_iommu=on) and expose /dev/iommu and udmabuf; the
 # IOAS_MAP_FILE path needs kernel ~6.14+ (older falls back to the -ENOSYS stub).
 #
+# For GPU-direct (CUDA or ROCm) the GPU driver stack is set up via AiSIO
+# (github.com/xnvme/aisio), not by uPCIe.
+#
 # The first transport is the default for cijoe.run(); point it at the target.
 
 # SSH options are passed verbatim to paramiko; see https://www.paramiko.org/
@@ -36,5 +39,6 @@ bin = "gcc"
 remote = "https://github.com/safl/upcie.git"
 path = "{{ local.env.HOME }}/git/upcie"
 
-# The device under test: set the section name to its PCIe BDF.
-[devices.pcie.'0000:01:00.0']
+# The device under test: the target's spare NVMe.
+[upcie.dut]
+nvme_bdf = "0000:01:00.0"

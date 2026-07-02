@@ -41,7 +41,9 @@ bin = "gcc"
 remote = "https://github.com/safl/upcie.git"
 path = "{{ local.env.HOME }}/git/upcie"
 
-[devices.pcie.'0000:01:00.0']
+# Device under test: the NVMe the guest exposes (see qemu_guest_start_nvme.py).
+[upcie.dut]
+nvme_bdf = "0000:01:00.0"
 
 # Used by: the qemu.*.py scripts
 [qemu]
