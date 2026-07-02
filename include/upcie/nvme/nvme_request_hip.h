@@ -7,6 +7,9 @@
  *
  * This header extends the functionality defined in the uPCIe NVMe Request header
  * `upcie/nvme/nvme_request.h` with a HIP dependent PRP preparation function.
+ *
+ * @file nvme_request_hip.h
+ * @version 0.5.0
  */
 
 /**

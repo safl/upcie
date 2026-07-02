@@ -95,6 +95,9 @@
  * the host bridge into nonzero IOVA space in practice. Code paths that
  * mutate state (`_add`, `_remove`, `_clear`) consult `lut_meta[idx].rc`
  * directly and do not depend on this sentinel.
+ *
+ * @file hipmem_mapping.h
+ * @version 0.5.0
  */
 
 /**

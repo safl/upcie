@@ -16,6 +16,9 @@
  *
  *	rocm-smi --showmeminfo vram
  *
+ *
+ * @file hipmem_heap.h
+ * @version 0.5.0
  */
 
 /**

@@ -14,6 +14,9 @@
  * reap) is deliberately NOT pulled in here. It carries machinery (pthreads,
  * per-queue host relays) that the CPU-initiated paths do not need. Include
  * `upcie/upcie_hip_gpuinit.h` to opt into it.
+ *
+ * @file upcie_hip.h
+ * @version 0.5.0
  */
 
 #ifndef HIPUPCIE_H

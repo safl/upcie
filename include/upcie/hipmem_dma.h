@@ -29,6 +29,9 @@
  *
  * You must call hipmem_heap_init() before any allocation and hipmem_heap_term()
  * after all memory has been freed.
+ *
+ * @file hipmem_dma.h
+ * @version 0.5.0
  */
 
 /**

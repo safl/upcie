@@ -19,6 +19,9 @@
  *
  * One config describes one device. Process-wide multi-GPU usage requires one
  * hipmem_config (and one hipmem_mapping_registry, one hipmem_heap) per GPU.
+ *
+ * @file hipmem_config.h
+ * @version 0.5.0
  */
 
 /**
