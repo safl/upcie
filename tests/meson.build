@@ -8,6 +8,7 @@ test_sources = files(
   'test_hostmem_dmabuf.c',
   'test_hostmem_nvme_readwrite.c',
   'test_hostmem_nvme_read_offset.c',
+  'test_dmamem_memfd.c',
 )
 
 incdir = include_directories('../include')
