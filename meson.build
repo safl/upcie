@@ -40,6 +40,8 @@ install_headers(
     'include/upcie/hostmem.h',
     'include/upcie/hostmem_heap.h',
     'include/upcie/hostmem_hugepage.h',
+    'include/upcie/iommufd.h',
+    'include/upcie/vfio_cdev.h',
     'include/upcie/mmio.h',
     'include/upcie/hipmem_config.h',
     'include/upcie/hipmem_dma.h',
