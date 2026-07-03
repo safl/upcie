@@ -9,6 +9,7 @@
 enum nvme_backend {
 	NVME_BACKEND_SYSFS = 0,
 	NVME_BACKEND_VFIO,
+	NVME_BACKEND_DMAMEM,
 };
 
 struct rte {
@@ -16,10 +17,26 @@ struct rte {
 	struct hostmem_heap heap;
 };
 
+struct nvme_dmamem_state {
+	struct iommufd iommufd;
+	uint32_t ioas_id;
+	struct dmamem dmem;
+	struct dmamem_heap heap;
+	struct nvme_dmamem_ctx ctx;
+	size_t buf_off;
+	void *buf;
+	int iommufd_alive;
+	int ioas_alive;
+	int dmem_alive;
+	int heap_alive;
+	int ctrlr_alive;
+};
+
 struct nvme {
 	struct nvme_controller ctrlr;
 	struct nvme_qpair ioq;
 	struct vfio_ctx vfio;
+	struct nvme_dmamem_state dm;
 	enum nvme_backend backend;
 };
 
@@ -48,6 +65,31 @@ device_get_driver_name(const char *bdf, char *driver_name, size_t driver_name_le
 	return 0;
 }
 
+static int
+resolve_vfio_cdev(const char *bdf, char *cdev_path, size_t cdev_path_len)
+{
+	char sysfs_path[PATH_MAX] = {0};
+	DIR *dir;
+	struct dirent *ent;
+	int found = 0;
+
+	snprintf(sysfs_path, sizeof(sysfs_path), "/sys/bus/pci/devices/%s/vfio-dev", bdf);
+	dir = opendir(sysfs_path);
+	if (!dir) {
+		return -errno;
+	}
+	while ((ent = readdir(dir))) {
+		if (strncmp(ent->d_name, "vfio", 4) != 0) {
+			continue;
+		}
+		snprintf(cdev_path, cdev_path_len, "/dev/vfio/devices/%s", ent->d_name);
+		found = 1;
+		break;
+	}
+	closedir(dir);
+	return found ? 0 : -ENOENT;
+}
+
 static void
 nvme_cleanup(struct nvme *nvme)
 {
@@ -58,6 +100,34 @@ nvme_cleanup(struct nvme *nvme)
 
 	if (nvme->backend == NVME_BACKEND_VFIO) {
 		nvme_controller_close_vfio(&nvme->ctrlr, &nvme->vfio);
+		return;
+	}
+
+	if (nvme->backend == NVME_BACKEND_DMAMEM) {
+		if (nvme->dm.buf) {
+			dmamem_heap_free(&nvme->dm.heap, nvme->dm.buf_off);
+			nvme->dm.buf = NULL;
+		}
+		if (nvme->dm.ctrlr_alive) {
+			nvme_controller_close_dmamem(&nvme->ctrlr, &nvme->dm.ctx, &nvme->dm.heap);
+			nvme->dm.ctrlr_alive = 0;
+		}
+		if (nvme->dm.heap_alive) {
+			dmamem_heap_term(&nvme->dm.heap);
+			nvme->dm.heap_alive = 0;
+		}
+		if (nvme->dm.dmem_alive) {
+			dmamem_destroy(&nvme->dm.dmem);
+			nvme->dm.dmem_alive = 0;
+		}
+		if (nvme->dm.ioas_alive) {
+			iommufd_destroy(&nvme->dm.iommufd, nvme->dm.ioas_id);
+			nvme->dm.ioas_alive = 0;
+		}
+		if (nvme->dm.iommufd_alive) {
+			iommufd_close(&nvme->dm.iommufd);
+			nvme->dm.iommufd_alive = 0;
+		}
 		return;
 	}
 
@@ -84,13 +154,128 @@ rte_init(struct rte *rte)
 	return 0;
 }
 
+static int
+nvme_open_dmamem(struct nvme *nvme, const char *bdf)
+{
+	char cdev_path[PATH_MAX] = {0};
+	size_t hugepgsz = 2ULL * 1024 * 1024;
+	size_t heap_size = hugepgsz * 4;
+	int err;
+
+	err = resolve_vfio_cdev(bdf, cdev_path, sizeof(cdev_path));
+	if (err) {
+		printf("FAILED: resolve_vfio_cdev(%s); err(%d)\n", bdf, err);
+		return err;
+	}
+
+	err = iommufd_open(&nvme->dm.iommufd);
+	if (err) {
+		printf("FAILED: iommufd_open(); err(%d)\n", err);
+		return err;
+	}
+	nvme->dm.iommufd_alive = 1;
+
+	err = iommufd_ioas_alloc(&nvme->dm.iommufd, &nvme->dm.ioas_id);
+	if (err) {
+		printf("FAILED: iommufd_ioas_alloc(); err(%d)\n", err);
+		goto fail;
+	}
+	nvme->dm.ioas_alive = 1;
+
+	err = dmamem_from_memfd(&nvme->dm.dmem, &nvme->dm.iommufd, nvme->dm.ioas_id, heap_size,
+				hugepgsz);
+	if (err) {
+		printf("FAILED: dmamem_from_memfd(); err(%d)\n", err);
+		goto fail;
+	}
+	nvme->dm.dmem_alive = 1;
+
+	err = dmamem_heap_init(&nvme->dm.heap, &nvme->dm.dmem, 4096);
+	if (err) {
+		printf("FAILED: dmamem_heap_init(); err(%d)\n", err);
+		goto fail;
+	}
+	nvme->dm.heap_alive = 1;
+
+	err = nvme_controller_open_dmamem(&nvme->ctrlr, &nvme->dm.ctx, &nvme->dm.iommufd,
+					  nvme->dm.ioas_id, &nvme->dm.heap, cdev_path);
+	if (err) {
+		printf("FAILED: nvme_controller_open_dmamem(); err(%d)\n", err);
+		goto fail;
+	}
+	nvme->dm.ctrlr_alive = 1;
+
+	err = dmamem_heap_alloc_aligned(&nvme->dm.heap, 4096, 4096, &nvme->dm.buf_off);
+	if (err) {
+		printf("FAILED: dmamem_heap_alloc_aligned(identify buf); err(%d)\n", err);
+		goto fail;
+	}
+	nvme->dm.buf = dmamem_heap_at_va(&nvme->dm.heap, nvme->dm.buf_off);
+	memset(nvme->dm.buf, 0, 4096);
+
+	return 0;
+
+fail:
+	nvme_cleanup(nvme);
+	return err;
+}
+
+static int
+nvme_identify_dmamem(struct nvme *nvme)
+{
+	struct nvme_completion cpl = {0};
+	struct nvme_command cmd = {0};
+	int err;
+
+	cmd.opc = 0x6; // IDENTIFY
+	cmd.cid = 1;
+	cmd.prp1 = dmamem_heap_at_iova(&nvme->dm.heap, nvme->dm.buf_off);
+	cmd.cdw10 = 1; // CNS=1: Identify Controller
+
+	err = nvme_qpair_enqueue(&nvme->ctrlr.aq, &cmd);
+	if (err) {
+		return err;
+	}
+	nvme_qpair_sqdb_update(&nvme->ctrlr.aq);
+
+	err = nvme_qpair_reap_cpl(&nvme->ctrlr.aq, nvme->ctrlr.timeout_ms, &cpl);
+	if (err) {
+		return err;
+	}
+	if ((cpl.status >> 1) & 0x7FF) {
+		printf("FAILED: IDENTIFY CQE status(0x%x)\n", cpl.status);
+		return -EIO;
+	}
+
+	printf("SN('%.*s')\n", 20, ((uint8_t *)nvme->dm.buf) + 4);
+	printf("MN('%.*s')\n", 40, ((uint8_t *)nvme->dm.buf) + 24);
+
+	return 0;
+}
+
 int
 nvme_init(struct nvme *nvme, const char *bdf, struct rte *rte)
 {
 	char driver_name[NAME_MAX + 1] = {0};
 	struct nvme_completion cpl = {0};
 	struct nvme_command cmd = {0};
+	const char *backend_env = getenv("UPCIE_BACKEND");
 	int err;
+
+	if (backend_env && !strcmp(backend_env, "dmamem")) {
+		nvme->backend = NVME_BACKEND_DMAMEM;
+		err = nvme_open_dmamem(nvme, bdf);
+		if (err) {
+			return -err;
+		}
+		err = nvme_identify_dmamem(nvme);
+		if (err) {
+			printf("FAILED: nvme_identify_dmamem(); err(%d)\n", err);
+			nvme_cleanup(nvme);
+			return -err;
+		}
+		return 0;
+	}
 
 	err = device_get_driver_name(bdf, driver_name, sizeof(driver_name));
 	if (err) {
