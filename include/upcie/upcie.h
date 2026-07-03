@@ -77,6 +77,9 @@ extern "C" {
 #include <upcie/hostmem_heap.h>
 #include <upcie/hostmem_dma.h>
 #include <upcie/iommufd.h>
+#include <upcie/dmamem.h>
+#include <upcie/dmamem_memfd.h>
+#include <upcie/dmamem_heap.h>
 #include <upcie/mmio.h>
 #include <upcie/pci.h>
 #include <upcie/vfioctl.h>
