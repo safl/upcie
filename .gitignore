@@ -2,3 +2,4 @@ build
 .cache
 docs/xml
 __pycache__
+cijoe-output/

@@ -1,0 +1,21 @@
+---
+doc: |
+  Run the dmamem memfd smoketest on the target
+
+  Assumes 'tasks/deploy.yaml' already ran against the same config (source
+  built at /tmp/upcie_source/builddir, hugepages reserved, iommufd/vfio
+  modules loaded). This task only runs the binary and reports the outcome.
+
+    make gen-artifacts
+    cijoe tasks/deploy.yaml            --config configs/hw-example.toml
+    cijoe tasks/dmamem_smoketest.yaml  --config configs/hw-example.toml
+
+steps:
+- name: iommu_check
+  run: |
+    ls -l /dev/iommu || echo "MISSING: /dev/iommu"
+
+- name: smoketest
+  run: |
+    ulimit -l unlimited || true
+    /tmp/upcie_source/builddir/tests/test_dmamem_memfd
