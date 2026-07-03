@@ -32,10 +32,18 @@
  * features (dma-buf import, dirty tracking, PASID) land and is the
  * target for the rest of the design.
  *
- * Constructors:
+ * Two constructor shapes:
  *
  *   dmamem_from_memfd(...) in dmamem_memfd.h creates a hugepage-backed
  *   memfd internally and imports it into an IOAS.
+ *
+ *   dmamem_from_dmabuf(...) in dmamem_dmabuf.h imports an existing
+ *   dma-buf fd from any exporter. Producers of dma-buf fds live in the
+ *   exporter's home header: for vfio-pci-bound devices the producer is
+ *   vfio_device_bar_export_dmabuf() in vfioctl.h; the CUDA/HIP/libdrm
+ *   producer functions are the vendor runtimes' own dma-buf export APIs
+ *   and land as dmamem_from_dmabuf callers when mainline iommufd
+ *   ungates non-vfio-pci exporters.
  *
  * dmamem_destroy() unmaps and releases in every case.
  *
