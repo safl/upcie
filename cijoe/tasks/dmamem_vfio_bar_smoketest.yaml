@@ -1,0 +1,15 @@
+---
+doc: |
+  Prove the mainline dma-buf-through-iommufd path: use
+  VFIO_DEVICE_FEATURE_DMA_BUF on an already-vfio-pci-bound device,
+  feed the resulting dma-buf to IOMMU_IOAS_MAP_FILE. Success confirms
+  the vfio-pci exporter path is what Linux 6.19 accepts. Runs against
+  the target NVMe from config.upcie.dut.nvme_bdf; BAR0 with a 16 KiB
+  slice.
+
+steps:
+- name: bind
+  run: 'devbind --device {{ config.upcie.dut.nvme_bdf }} --bind vfio-pci; ls /sys/bus/pci/devices/{{ config.upcie.dut.nvme_bdf }}/vfio-dev/'
+
+- name: smoketest
+  run: '/tmp/upcie_source/builddir/tests/test_dmamem_vfio_bar "/dev/vfio/devices/$(ls /sys/bus/pci/devices/{{ config.upcie.dut.nvme_bdf }}/vfio-dev/ | head -1)" 0 0x4000'
