@@ -390,3 +390,150 @@ nvme_controller_close_dmamem_vfio(struct nvme_controller *ctrlr, struct nvme_dma
 
 	return first_err;
 }
+
+/**
+ * Synchronous admin-command helper for the dmamem admin queue.
+ *
+ * The dmamem admin queue does not carry a request pool, so submit_sync
+ * cannot be used. This helper does a manual enqueue + doorbell + reap
+ * with a caller-supplied CID.
+ */
+static inline int
+nvme_admin_sync_dmamem(struct nvme_controller *ctrlr, struct nvme_command *cmd, uint16_t cid,
+		       struct nvme_completion *cpl)
+{
+	int err;
+
+	cmd->cid = cid;
+
+	err = nvme_qpair_enqueue(&ctrlr->aq, cmd);
+	if (err) {
+		return err;
+	}
+	nvme_qpair_sqdb_update(&ctrlr->aq);
+
+	err = nvme_qpair_reap_cpl(&ctrlr->aq, ctrlr->timeout_ms, cpl);
+	if (err) {
+		return err;
+	}
+	if ((cpl->status >> 1) & 0x7FF) {
+		UPCIE_DEBUG("FAILED: admin CQE status=0x%x", cpl->status);
+		return -EIO;
+	}
+	return 0;
+}
+
+/**
+ * Create an I/O queue pair on the dmamem path.
+ *
+ * Allocates SQ/CQ from the caller's dmamem_heap, then programs the
+ * controller via admin CREATE_IO_CQ + CREATE_IO_SQ so the controller
+ * knows about the new qpair. The resulting nvme_qpair is compatible
+ * with the heap-agnostic submit/reap primitives (nvme_qpair_enqueue,
+ * nvme_qpair_sqdb_update, nvme_qpair_reap_cpl).
+ *
+ * The qid is allocated from the controller's bitmap; the caller must
+ * hold on to the returned sq_offset/cq_offset until
+ * nvme_controller_delete_io_qpair_dmamem is called.
+ */
+static inline int
+nvme_controller_create_io_qpair_dmamem(struct nvme_controller *ctrlr, struct nvme_qpair *qp,
+				       uint16_t depth, struct dmamem_heap *heap,
+				       size_t *sq_offset_out, size_t *cq_offset_out)
+{
+	struct nvme_command cmd = {0};
+	struct nvme_completion cpl = {0};
+	uint64_t sq_iova = 0, cq_iova = 0;
+	uint16_t qid;
+	int err;
+
+	err = nvme_qid_find_free(ctrlr->qids);
+	if (err < 1) {
+		return -ENOMEM;
+	}
+	qid = err;
+
+	err = nvme_qid_alloc(ctrlr->qids, qid);
+	if (err) {
+		UPCIE_DEBUG("FAILED: nvme_qid_alloc; err(%d)", err);
+		return err;
+	}
+
+	err = nvme_qpair_dmamem_init(qp, qid, depth, ctrlr->func.bars[0].region, heap, sq_offset_out,
+				     cq_offset_out, &sq_iova, &cq_iova);
+	if (err) {
+		UPCIE_DEBUG("FAILED: nvme_qpair_dmamem_init(io); err(%d)", err);
+		nvme_qid_free(ctrlr->qids, qid);
+		return err;
+	}
+
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.opc = 0x5; /* Create I/O Completion Queue */
+	cmd.prp1 = cq_iova;
+	cmd.cdw10 = ((uint32_t)(depth - 1) << 16) | qid;
+	cmd.cdw11 = 0x1; /* Physically contiguous, no interrupts */
+	err = nvme_admin_sync_dmamem(ctrlr, &cmd, 2, &cpl);
+	if (err) {
+		UPCIE_DEBUG("FAILED: CREATE_IO_CQ(qid=%u); err(%d)", qid, err);
+		goto rollback_qpair;
+	}
+
+	memset(&cmd, 0, sizeof(cmd));
+	memset(&cpl, 0, sizeof(cpl));
+	cmd.opc = 0x1; /* Create I/O Submission Queue */
+	cmd.prp1 = sq_iova;
+	cmd.cdw10 = ((uint32_t)(depth - 1) << 16) | qid;
+	cmd.cdw11 = ((uint32_t)qid << 16) | 0x1; /* CQID | physically contiguous */
+	err = nvme_admin_sync_dmamem(ctrlr, &cmd, 3, &cpl);
+	if (err) {
+		struct nvme_command drop = {0};
+		struct nvme_completion drop_cpl = {0};
+
+		UPCIE_DEBUG("FAILED: CREATE_IO_SQ(qid=%u); err(%d)", qid, err);
+		drop.opc = 0x4; /* Delete I/O Completion Queue */
+		drop.cdw10 = qid;
+		(void)nvme_admin_sync_dmamem(ctrlr, &drop, 4, &drop_cpl);
+		goto rollback_qpair;
+	}
+
+	return 0;
+
+rollback_qpair:
+	nvme_qpair_dmamem_term(qp, heap, *sq_offset_out, *cq_offset_out);
+	nvme_qid_free(ctrlr->qids, qid);
+	return err;
+}
+
+/**
+ * Tear down an I/O queue pair created with the dmamem variant.
+ */
+static inline int
+nvme_controller_delete_io_qpair_dmamem(struct nvme_controller *ctrlr, struct nvme_qpair *qp,
+				       struct dmamem_heap *heap, size_t sq_offset, size_t cq_offset)
+{
+	struct nvme_command cmd = {0};
+	struct nvme_completion cpl = {0};
+	uint16_t qid = qp->qid;
+	int first_err = 0;
+	int err;
+
+	cmd.opc = 0x0; /* Delete I/O Submission Queue */
+	cmd.cdw10 = qid;
+	err = nvme_admin_sync_dmamem(ctrlr, &cmd, 5, &cpl);
+	if (err && !first_err) {
+		first_err = err;
+	}
+
+	memset(&cmd, 0, sizeof(cmd));
+	memset(&cpl, 0, sizeof(cpl));
+	cmd.opc = 0x4; /* Delete I/O Completion Queue */
+	cmd.cdw10 = qid;
+	err = nvme_admin_sync_dmamem(ctrlr, &cmd, 6, &cpl);
+	if (err && !first_err) {
+		first_err = err;
+	}
+
+	nvme_qpair_dmamem_term(qp, heap, sq_offset, cq_offset);
+	nvme_qid_free(ctrlr->qids, qid);
+	return first_err;
+}
