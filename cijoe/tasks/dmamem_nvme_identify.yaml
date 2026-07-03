@@ -1,0 +1,23 @@
+---
+doc: |
+  Bind the target NVMe to vfio-pci and run the dmamem IDENTIFY smoketest.
+
+  Assumes 'tasks/deploy.yaml' has been run against the same config
+  (source built at /tmp/upcie_source/builddir, hugepages reserved,
+  iommufd/vfio loaded). Binds config.upcie.dut.nvme_bdf to vfio-pci,
+  resolves the vfio cdev path, and invokes the smoketest with that
+  path.
+
+steps:
+- name: bind_nvme
+  run: |
+    devbind --device {{ config.upcie.dut.nvme_bdf }} --bind vfio-pci
+    devbind --device {{ config.upcie.dut.nvme_bdf }} --list
+
+- name: resolve_cdev
+  run: |
+    ls /sys/bus/pci/devices/{{ config.upcie.dut.nvme_bdf }}/vfio-dev/ || true
+    ls -la /dev/vfio/devices/ || true
+
+- name: smoketest
+  run: 'ulimit -l unlimited; /tmp/upcie_source/builddir/example/dmamem_nvme_identify_smoketest "/dev/vfio/devices/$(ls /sys/bus/pci/devices/{{ config.upcie.dut.nvme_bdf }}/vfio-dev/ | head -1)"'
