@@ -2,6 +2,7 @@ example_sources = files(
   'upcie_nvme_driver.c',
   'dmamem_memfd_smoketest.c',
   'dmamem_nvme_identify_smoketest.c',
+  'dmamem_vfio_bar_smoketest.c',
 )
 
 incdir = include_directories('../include', '.')
