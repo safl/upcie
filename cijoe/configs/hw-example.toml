@@ -42,3 +42,11 @@ path = "{{ local.env.HOME }}/git/upcie"
 # The device under test: the target's spare NVMe.
 [upcie.dut]
 nvme_bdf = "0000:01:00.0"
+
+# Optional GPU peer used by the NVMe -> VRAM smoketests. Point at any
+# vfio-pci-capable GPU on the target; set bar_size to the actual BAR
+# size (larger with ReBAR on).
+[upcie.peer_gpu]
+bdf = "0000:02:00.0"
+bar_index = 0
+bar_size = "0x40000000"

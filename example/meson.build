@@ -3,6 +3,7 @@ example_sources = files(
   'dmamem_memfd_smoketest.c',
   'dmamem_nvme_identify_smoketest.c',
   'dmamem_vfio_bar_smoketest.c',
+  'dmamem_nvme_vram_smoketest.c',
 )
 
 incdir = include_directories('../include', '.')

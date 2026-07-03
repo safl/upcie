@@ -1,0 +1,23 @@
+---
+doc: |
+  End-to-end NVMe -> GPU VRAM DMA proof via a shared iommufd IOAS.
+
+  Binds both the NVMe controller (config.upcie.dut.nvme_bdf) and the
+  GPU peer (config.upcie.peer_gpu.bdf) to vfio-pci, resolves their
+  vfio cdev paths, and runs the smoketest. Under the hood: both
+  attach to a single iommufd IOAS, the GPU BAR is imported as a
+  dmamem via VFIO_DEVICE_FEATURE_DMA_BUF + IOMMU_IOAS_MAP_FILE, an
+  admin IDENTIFY CONTROLLER lands the 4 KiB response in VRAM, then
+  an IO qpair issues NVME_CMD_READ from LBA 0 with PRP1 pointing
+  into a fresh VRAM offset. CPU verification is via mmap of the same
+  BAR through the vfio device fd.
+
+steps:
+- name: bind_nvme
+  run: 'devbind --device {{ config.upcie.dut.nvme_bdf }} --bind vfio-pci'
+
+- name: bind_gpu_group
+  run: 'gpu={{ config.upcie.peer_gpu.bdf }}; for bdf in $(ls /sys/bus/pci/devices/${gpu}/iommu_group/devices/); do cls=$(cat /sys/bus/pci/devices/$bdf/class 2>/dev/null); case "$cls" in 0x06*) continue;; esac; cur=$(basename $(readlink /sys/bus/pci/devices/$bdf/driver 2>/dev/null) 2>/dev/null); [ "$cur" = "vfio-pci" ] && continue; [ -n "$cur" ] && echo $bdf > /sys/bus/pci/devices/$bdf/driver/unbind; echo vfio-pci > /sys/bus/pci/devices/$bdf/driver_override; echo $bdf > /sys/bus/pci/drivers/vfio-pci/bind; done; ls /sys/bus/pci/devices/{{ config.upcie.dut.nvme_bdf }}/vfio-dev/; ls /sys/bus/pci/devices/${gpu}/vfio-dev/'
+
+- name: smoketest
+  run: '/tmp/upcie_source/builddir/example/dmamem_nvme_vram_smoketest "/dev/vfio/devices/$(ls /sys/bus/pci/devices/{{ config.upcie.dut.nvme_bdf }}/vfio-dev/ | head -1)" "/dev/vfio/devices/$(ls /sys/bus/pci/devices/{{ config.upcie.peer_gpu.bdf }}/vfio-dev/ | head -1)" {{ config.upcie.peer_gpu.bar_index }} {{ config.upcie.peer_gpu.bar_size }}'
