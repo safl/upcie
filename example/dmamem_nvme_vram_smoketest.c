@@ -114,7 +114,6 @@ main(int argc, char *argv[])
 	uint32_t gpu_bar_index;
 	uint64_t gpu_bar_size;
 	uint64_t identify_iova;
-	size_t aq_sq = 0, aq_cq = 0;
 	int err;
 
 	if (argc != 5) {
@@ -162,7 +161,7 @@ main(int argc, char *argv[])
 	}
 
 	err = nvme_controller_open_dmamem(&ctrlr, &nvme_ctx, &iommufd, ioas_id, &admin_heap,
-					  argv[1], &aq_sq, &aq_cq);
+					  argv[1]);
 	if (err) {
 		fprintf(stderr, "FAIL: nvme_controller_open_dmamem err(%d)\n", err);
 		goto out_admin_heap;
@@ -180,8 +179,8 @@ main(int argc, char *argv[])
 	cmd.prp1 = identify_iova;
 	cmd.cdw10 = 1; /* CNS=1: Identify Controller */
 
-	printf("issue: IDENTIFY CONTROLLER, PRP1=0x%" PRIx64
-	       " (gpu VRAM IOVA base 0x%" PRIx64 " + offset 0x%x)\n",
+	printf("issue: IDENTIFY CONTROLLER, PRP1=0x%" PRIx64 " (gpu VRAM IOVA base 0x%" PRIx64
+	       " + offset 0x%x)\n",
 	       identify_iova, gpu_bar_dmem.base_iova, IDENTIFY_OFFSET);
 
 	err = nvme_qpair_enqueue(&ctrlr.aq, &cmd);
@@ -226,8 +225,100 @@ main(int argc, char *argv[])
 
 	printf("OK: NVMe DMAed IDENTIFY response into GPU VRAM through iommufd IOAS\n");
 
+	/*
+	 * Step 2: real disk-to-VRAM READ through an IO queue pair. Create an
+	 * IO qpair on the dmamem path, issue NVMe READ from LBA 0 (8 blocks =
+	 * 4 KiB) with PRP1 pointing at a fresh VRAM offset, wait for the CQE,
+	 * and read a byte fingerprint back through the BAR mmap.
+	 */
+	{
+		struct nvme_qpair ioq = {0};
+		size_t ioq_sq = 0, ioq_cq = 0;
+		const size_t READ_OFFSET = 0x4000;
+		const uint32_t NSID = 1;
+		const uint32_t NBLOCKS_M1 = 7; /* 8 blocks (0-based) */
+		uint64_t read_iova = gpu_bar_dmem.base_iova + READ_OFFSET;
+		uint8_t fingerprint[16];
+
+		err = nvme_controller_create_io_qpair_dmamem(&ctrlr, &ioq, 32, &admin_heap,
+							     &ioq_sq, &ioq_cq);
+		if (err) {
+			fprintf(stderr, "FAIL: nvme_controller_create_io_qpair_dmamem err(%d)\n",
+				err);
+			goto out_ctrlr;
+		}
+
+		memset((uint8_t *)gpu_bar_va + READ_OFFSET, 0x00, 4096);
+
+		memset(&cmd, 0, sizeof(cmd));
+		memset(&cpl, 0, sizeof(cpl));
+		cmd.opc = 0x02; /* NVMe READ */
+		cmd.cid = 1;
+		cmd.nsid = NSID;
+		cmd.prp1 = read_iova;
+		cmd.cdw10 = 0;          /* SLBA[31:0] = 0 */
+		cmd.cdw11 = 0;          /* SLBA[63:32] */
+		cmd.cdw12 = NBLOCKS_M1; /* NLB[15:0], 0-based */
+
+		printf("issue: NVMe READ LBA 0..%u -> PRP1=0x%" PRIx64
+		       " (VRAM IOVA base 0x%" PRIx64 " + offset 0x%zx)\n",
+		       NBLOCKS_M1 + 1, read_iova, gpu_bar_dmem.base_iova, READ_OFFSET);
+
+		err = nvme_qpair_enqueue(&ioq, &cmd);
+		if (!err) {
+			nvme_qpair_sqdb_update(&ioq);
+			err = nvme_qpair_reap_cpl(&ioq, ctrlr.timeout_ms, &cpl);
+		}
+		if (!err && ((cpl.status >> 1) & 0x7FF)) {
+			fprintf(stderr, "FAIL: READ CQE status=0x%x\n", cpl.status);
+			err = -EIO;
+		}
+
+		if (!err) {
+			memcpy(fingerprint, (uint8_t *)gpu_bar_va + READ_OFFSET,
+			       sizeof(fingerprint));
+			printf("VRAM peek: LBA-0 first-16 bytes ="
+			       " %02x%02x%02x%02x %02x%02x%02x%02x"
+			       " %02x%02x%02x%02x %02x%02x%02x%02x\n",
+			       fingerprint[0], fingerprint[1], fingerprint[2], fingerprint[3],
+			       fingerprint[4], fingerprint[5], fingerprint[6], fingerprint[7],
+			       fingerprint[8], fingerprint[9], fingerprint[10], fingerprint[11],
+			       fingerprint[12], fingerprint[13], fingerprint[14], fingerprint[15]);
+
+			/*
+			 * A freshly-zeroed target that stays all-zero after the READ
+			 * would mean the DMA never happened. Anything else is a real
+			 * transfer.
+			 */
+			int all_zero = 1;
+			for (size_t i = 0; i < sizeof(fingerprint); i++) {
+				if (fingerprint[i] != 0) {
+					all_zero = 0;
+					break;
+				}
+			}
+			if (all_zero) {
+				fprintf(stderr,
+					"NOTE: VRAM contents all-zero after READ; LBA 0 may be\n"
+					"      zero on this disk, or the DMA did not land. This\n"
+					"      is inconclusive rather than a hard failure.\n");
+			} else {
+				printf("OK: NVMe READ LBA 0 into VRAM via IO qpair through"
+				       " iommufd IOAS\n");
+			}
+		}
+
+		{
+			int derr = nvme_controller_delete_io_qpair_dmamem(
+				&ctrlr, &ioq, &admin_heap, ioq_sq, ioq_cq);
+			if (derr && !err) {
+				err = derr;
+			}
+		}
+	}
+
 out_ctrlr:
-	nvme_controller_close_dmamem(&ctrlr, &nvme_ctx, &admin_heap, aq_sq, aq_cq);
+	nvme_controller_close_dmamem(&ctrlr, &nvme_ctx, &admin_heap);
 out_admin_heap:
 	dmamem_heap_term(&admin_heap);
 out_admin_dmem:
