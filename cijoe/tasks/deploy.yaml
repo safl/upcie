@@ -25,6 +25,7 @@ steps:
     uname -a
     echo "cmdline: $(cat /proc/cmdline)"
     echo "iommu_groups: $(ls /sys/kernel/iommu_groups 2>/dev/null | wc -l)"
+    iommu show || true
 
 - name: system_check
   run: 'for t in devbind hugepages iommu; do command -v "$t" >/dev/null || { echo "missing tool $t"; exit 1; }; done'
@@ -47,6 +48,7 @@ steps:
 
 - name: modprobe
   run: |
+    modprobe iommufd || true
     modprobe vfio-pci || true
     modprobe udmabuf || true
 
