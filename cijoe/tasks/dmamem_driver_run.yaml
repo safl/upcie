@@ -1,0 +1,13 @@
+---
+doc: |
+  Run upcie_nvme_driver on the target NVMe with the dmamem backend.
+
+  Assumes 'tasks/deploy.yaml' plus 'tasks/dmamem_nvme_identify.yaml'
+  have been run (NVMe already bound to vfio-pci). Sets
+  UPCIE_BACKEND=dmamem so upcie_nvme_driver takes the vfio-cdev +
+  iommufd + dmamem path. The target NVMe BDF is read from
+  config.upcie.dut.nvme_bdf.
+
+steps:
+- name: driver
+  run: 'ulimit -l unlimited; UPCIE_BACKEND=dmamem /tmp/upcie_source/builddir/example/upcie_nvme_driver {{ config.upcie.dut.nvme_bdf }}'
