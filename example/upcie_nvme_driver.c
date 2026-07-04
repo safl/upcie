@@ -7,10 +7,41 @@
 #include <upcie/upcie.h>
 
 enum nvme_backend {
-	NVME_BACKEND_SYSFS = 0,
-	NVME_BACKEND_VFIO,
-	NVME_BACKEND_DMAMEM,
+	NVME_BACKEND_SYSFS = 0,    ///< uio_pci_generic + hostmem
+	NVME_BACKEND_VFIO_TYPE1,   ///< vfio-pci + vfio type1 container + hostmem
+	NVME_BACKEND_VFIO_IOMMUFD, ///< vfio-pci + iommufd + dmamem
 };
+
+static int
+iommufd_available(void)
+{
+#ifdef IOMMU_IOAS_MAP_FILE
+	return access("/dev/iommu", R_OK | W_OK) == 0;
+#else
+	return 0;
+#endif
+}
+
+/*
+ * Pick the vfio-pci DMA backend from UPCIE_VFIO_MODE (auto|type1|iommufd);
+ * auto uses iommufd when /dev/iommu is usable, otherwise legacy vfio type1.
+ */
+static enum nvme_backend
+resolve_vfio_backend(void)
+{
+	const char *mode = getenv("UPCIE_VFIO_MODE");
+
+	if (mode && !strcmp(mode, "type1")) {
+		return NVME_BACKEND_VFIO_TYPE1;
+	}
+	if (mode && !strcmp(mode, "iommufd")) {
+		return NVME_BACKEND_VFIO_IOMMUFD;
+	}
+	if (mode && *mode && strcmp(mode, "auto")) {
+		printf("WARN: UPCIE_VFIO_MODE='%s' unknown; using auto\n", mode);
+	}
+	return iommufd_available() ? NVME_BACKEND_VFIO_IOMMUFD : NVME_BACKEND_VFIO_TYPE1;
+}
 
 struct rte {
 	struct hostmem_config config;
@@ -97,12 +128,12 @@ nvme_cleanup(struct nvme *nvme)
 		memset(&nvme->ioq, 0, sizeof(nvme->ioq));
 	}
 
-	if (nvme->backend == NVME_BACKEND_VFIO) {
+	if (nvme->backend == NVME_BACKEND_VFIO_TYPE1) {
 		nvme_controller_close_vfio(&nvme->ctrlr, &nvme->vfio);
 		return;
 	}
 
-	if (nvme->backend == NVME_BACKEND_DMAMEM) {
+	if (nvme->backend == NVME_BACKEND_VFIO_IOMMUFD) {
 		if (nvme->dm.buf) {
 			dmamem_heap_free(&nvme->dm.heap, nvme->dm.buf_off);
 			nvme->dm.buf = NULL;
@@ -257,23 +288,7 @@ nvme_init(struct nvme *nvme, const char *bdf, struct rte *rte)
 	char driver_name[NAME_MAX + 1] = {0};
 	struct nvme_completion cpl = {0};
 	struct nvme_command cmd = {0};
-	const char *backend_env = getenv("UPCIE_BACKEND");
 	int err;
-
-	if (backend_env && !strcmp(backend_env, "dmamem")) {
-		nvme->backend = NVME_BACKEND_DMAMEM;
-		err = nvme_open_dmamem(nvme, bdf);
-		if (err) {
-			return err;
-		}
-		err = nvme_identify_dmamem(nvme);
-		if (err) {
-			printf("FAILED: nvme_identify_dmamem(); err(%d)\n", err);
-			nvme_cleanup(nvme);
-			return err;
-		}
-		return 0;
-	}
 
 	err = device_get_driver_name(bdf, driver_name, sizeof(driver_name));
 	if (err) {
@@ -281,12 +296,25 @@ nvme_init(struct nvme *nvme, const char *bdf, struct rte *rte)
 		return err;
 	}
 
-	if (!strcmp(driver_name, "vfio-pci")) {
-		nvme->backend = NVME_BACKEND_VFIO;
-		err = nvme_controller_open_vfio(&nvme->ctrlr, &nvme->vfio, bdf, &rte->heap);
-	} else if (!strcmp(driver_name, "uio_pci_generic")) {
+	if (!strcmp(driver_name, "uio_pci_generic")) {
 		nvme->backend = NVME_BACKEND_SYSFS;
 		err = nvme_controller_open(&nvme->ctrlr, bdf, &rte->heap);
+	} else if (!strcmp(driver_name, "vfio-pci")) {
+		nvme->backend = resolve_vfio_backend();
+		if (nvme->backend == NVME_BACKEND_VFIO_IOMMUFD) {
+			err = nvme_open_dmamem(nvme, bdf);
+			if (err) {
+				return err;
+			}
+			err = nvme_identify_dmamem(nvme);
+			if (err) {
+				printf("FAILED: nvme_identify_dmamem(); err(%d)\n", err);
+				nvme_cleanup(nvme);
+				return err;
+			}
+			return 0;
+		}
+		err = nvme_controller_open_vfio(&nvme->ctrlr, &nvme->vfio, bdf, &rte->heap);
 	} else {
 		printf("FAILED: unsupported driver '%s'\n", driver_name);
 		return -ENOTSUP;
@@ -315,7 +343,7 @@ nvme_init(struct nvme *nvme, const char *bdf, struct rte *rte)
 	if (err) {
 		printf("FAILED: nvme_device_create_io_qpair(); err(%d)\n", err);
 
-		if (nvme->backend == NVME_BACKEND_VFIO) {
+		if (nvme->backend == NVME_BACKEND_VFIO_TYPE1) {
 			nvme_controller_close_vfio(&nvme->ctrlr, &nvme->vfio);
 		} else {
 			nvme_controller_close(&nvme->ctrlr);
