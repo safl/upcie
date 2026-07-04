@@ -83,42 +83,6 @@ nvme_dmamem_vfio_ctx_close(struct nvme_dmamem_vfio_ctx *ctx)
 }
 
 /**
- * Enable PCI bus master on the vfio device via config-space write.
- *
- * The dmamem controller relies on the device DMAing into IOAS-mapped
- * memory, which requires BM=1.
- */
-static inline int
-nvme_dmamem_pci_bus_master_enable(int device_fd)
-{
-	struct vfio_region_info config = {0};
-	uint16_t cmd;
-	ssize_t ret;
-	int err;
-
-	config.index = VFIO_PCI_CONFIG_REGION_INDEX;
-	err = vfio_device_get_region_info(device_fd, &config);
-	if (err < 0) {
-		return -errno;
-	}
-
-	ret = pread(device_fd, &cmd, sizeof(cmd), config.offset + PCI_COMMAND);
-	if (ret != (ssize_t)sizeof(cmd)) {
-		return ret < 0 ? -errno : -EIO;
-	}
-
-	if (!(cmd & PCI_COMMAND_MASTER)) {
-		cmd |= PCI_COMMAND_MASTER;
-		ret = pwrite(device_fd, &cmd, sizeof(cmd), config.offset + PCI_COMMAND);
-		if (ret != (ssize_t)sizeof(cmd)) {
-			return ret < 0 ? -errno : -EIO;
-		}
-	}
-
-	return 0;
-}
-
-/**
  * Allocate SQ and CQ for a queue pair from a dmamem_heap and populate the
  * nvme_qpair fields the submit/reap primitives read.
  *
@@ -225,7 +189,6 @@ nvme_controller_open_dmamem_vfio(struct nvme_controller *ctrlr, struct nvme_dmam
 			    struct iommufd *iommufd, struct dmamem_heap *heap,
 			    const char *vfio_device_path)
 {
-	struct vfio_region_info region = {0};
 	uint64_t sq_iova = 0, cq_iova = 0;
 	uint64_t cap;
 	void *bar0;
@@ -260,41 +223,14 @@ nvme_controller_open_dmamem_vfio(struct nvme_controller *ctrlr, struct nvme_dmam
 	}
 	ctx->attached = 1;
 
-	err = nvme_dmamem_pci_bus_master_enable(ctx->dev.fd);
+	err = nvme_vfio_pci_acquire_bar0(ctx->dev.fd, ctrlr, &ctx->bar0, &ctx->bar0_size);
 	if (err) {
-		UPCIE_DEBUG("FAILED: nvme_dmamem_pci_bus_master_enable(); err(%d)", err);
 		goto fail;
 	}
+	bar0 = ctx->bar0;
 
-	region.index = VFIO_PCI_BAR0_REGION_INDEX;
-	err = vfio_device_get_region_info(ctx->dev.fd, &region);
-	if (err < 0) {
-		err = -errno;
-		UPCIE_DEBUG("FAILED: vfio_device_get_region_info(); errno(%d)", errno);
-		goto fail;
-	}
-
-	bar0 = vfio_map_region(ctx->dev.fd, region.size, region.offset);
-	if (bar0 == MAP_FAILED) {
-		err = -errno;
-		UPCIE_DEBUG("FAILED: vfio_map_region(); errno(%d)", errno);
-		goto fail;
-	}
-	ctx->bar0 = bar0;
-	ctx->bar0_size = region.size;
-
-	ctrlr->func.bars[0].region = bar0;
-	ctrlr->func.bars[0].size = region.size;
-	ctrlr->func.bars[0].id = 0;
-	ctrlr->func.bars[0].fd = ctx->dev.fd;
-
-	cap = nvme_mmio_cap_read(bar0);
-	ctrlr->timeout_ms = nvme_reg_cap_get_to(cap) * 500;
-
-	nvme_mmio_cc_disable(bar0);
-	err = nvme_mmio_csts_wait_until_not_ready(bar0, ctrlr->timeout_ms);
+	err = nvme_controller_reset_via_bar0(ctrlr, bar0, &cap);
 	if (err) {
-		UPCIE_DEBUG("FAILED: nvme_mmio_csts_wait_until_not_ready(); err(%d)", err);
 		goto fail;
 	}
 
@@ -308,24 +244,8 @@ nvme_controller_open_dmamem_vfio(struct nvme_controller *ctrlr, struct nvme_dmam
 
 	nvme_mmio_aq_setup(bar0, sq_iova, cq_iova, ctrlr->aq.depth);
 
-	{
-		uint32_t css = (nvme_reg_cap_get_css(cap) & (1 << 6)) ? 0x6 : 0x0;
-		uint32_t cc = 0;
-
-		cc = nvme_reg_cc_set_css(cc, css);
-		cc = nvme_reg_cc_set_shn(cc, 0x0);
-		cc = nvme_reg_cc_set_mps(cc, 0x0);
-		cc = nvme_reg_cc_set_ams(cc, 0x0);
-		cc = nvme_reg_cc_set_iosqes(cc, 6);
-		cc = nvme_reg_cc_set_iocqes(cc, 4);
-		cc = nvme_reg_cc_set_en(cc, 0x1);
-
-		nvme_mmio_cc_write(bar0, cc);
-	}
-
-	err = nvme_mmio_csts_wait_until_ready(bar0, ctrlr->timeout_ms);
+	err = nvme_controller_enable_via_bar0(ctrlr, bar0, cap);
 	if (err) {
-		UPCIE_DEBUG("FAILED: nvme_mmio_csts_wait_until_ready(); err(%d)", err);
 		goto fail;
 	}
 

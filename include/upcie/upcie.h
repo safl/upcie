@@ -94,6 +94,7 @@ extern "C" {
 #include <upcie/nvme/nvme_qid.h>
 #include <upcie/nvme/nvme_qpair.h>
 #include <upcie/nvme/nvme_controller.h>
+#include <upcie/nvme/nvme_controller_vfio_pci.h>
 #include <upcie/nvme/nvme_controller_vfio.h>
 #include <upcie/nvme/nvme_controller_dmamem_vfio.h>
 #endif
