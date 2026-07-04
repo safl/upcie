@@ -1,0 +1,15 @@
+---
+doc: |
+  Run upcie_nvme_driver on the target NVMe forced to the legacy vfio
+  type1 container path.
+
+  Same prerequisites as tasks/dmamem_driver_run.yaml (NVMe already
+  bound to vfio-pci). Sets UPCIE_VFIO_MODE=type1 so the driver
+  bypasses auto-select and opens the controller through the vfio
+  type1 container + hostmem, even on a target where iommufd would be
+  available. Useful for a regression triage between the two DMA
+  APIs. The target NVMe BDF is read from config.upcie.dut.nvme_bdf.
+
+steps:
+- name: driver
+  run: 'ulimit -l unlimited; UPCIE_VFIO_MODE=type1 /tmp/upcie_source/builddir/example/upcie_nvme_driver {{ config.upcie.dut.nvme_bdf }}'
