@@ -86,6 +86,72 @@ nvme_request_pool_init_prps(struct nvme_request_pool *pool, struct hostmem_heap 
 }
 
 /**
+ * Release the PRP-list scratch region held by a dmamem-backed request pool.
+ *
+ * The counterpart to nvme_request_pool_init_prps_dmamem. The caller
+ * provides the same heap and the prp_offset returned by init; the pool
+ * struct itself is caller-owned.
+ */
+static inline void
+nvme_request_pool_term_prps_dmamem(struct nvme_request_pool *pool, struct dmamem_heap *heap,
+				   size_t prp_offset)
+{
+	if (!pool || !pool->prps) {
+		return;
+	}
+	dmamem_heap_free(heap, prp_offset);
+	pool->prps = NULL;
+}
+
+/**
+ * Populate a request pool with per-request PRP-list scratch from a dmamem_heap.
+ *
+ * Sibling of nvme_request_pool_init_prps: same layout (one 4 KiB page
+ * per request, addressed through pool->reqs[i].prp / .prp_addr). The
+ * scratch region is virtually contiguous, so the per-request VA is a
+ * plain stride, but its IOVA is resolved per page via dmamem_heap_at_iova:
+ * on a LUT dmamem the NVME_REQUEST_POOL_LEN * 4 KiB scratch spans several
+ * hugepages whose physical pages are not contiguous, so translating the
+ * base once and adding a stride would corrupt every entry past the first
+ * hugepage boundary. Arithmetic dmamems resolve to the same linear result.
+ *
+ * @param pool           Caller-owned request pool (already nvme_request_pool_init'd).
+ * @param heap           dmamem_heap the scratch region is carved from.
+ * @param prp_offset_out Heap offset of the scratch region, for later term.
+ *
+ * @return 0 on success, negative errno on allocation failure.
+ */
+static inline int
+nvme_request_pool_init_prps_dmamem(struct nvme_request_pool *pool, struct dmamem_heap *heap,
+				   size_t *prp_offset_out)
+{
+	const size_t pagesize = 4096;
+	size_t prp_offset = 0;
+	uint8_t *prps_va;
+	int err;
+
+	err = dmamem_heap_alloc_aligned(heap, (size_t)NVME_REQUEST_POOL_LEN * pagesize, pagesize,
+					&prp_offset);
+	if (err) {
+		UPCIE_DEBUG("FAILED: dmamem_heap_alloc_aligned(prps); err(%d)", err);
+		return err;
+	}
+
+	prps_va = dmamem_heap_at_va(heap, prp_offset);
+
+	pool->prps = prps_va;
+	for (uint16_t i = 0; i < NVME_REQUEST_POOL_LEN; ++i) {
+		const size_t off = prp_offset + ((size_t)i * pagesize);
+
+		pool->reqs[i].prp = prps_va + ((size_t)i * pagesize);
+		pool->reqs[i].prp_addr = dmamem_heap_at_iova(heap, off);
+	}
+
+	*prp_offset_out = prp_offset;
+	return 0;
+}
+
+/**
  * Allocates a request object from the pool.
  *
  * The returned request has a valid CID and may be used for command submission.
