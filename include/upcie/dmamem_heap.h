@@ -14,7 +14,7 @@
  * available (memfd backing) and always return the IOVA (all backings).
  *
  * @file dmamem_heap.h
- * @version 0.5.1
+ * @version 0.5.2
  */
 
 struct dmamem_heap_block {

@@ -18,7 +18,7 @@
  *
  *
  * @file hipmem_heap.h
- * @version 0.5.1
+ * @version 0.5.2
  */
 
 /**
