@@ -12,7 +12,7 @@
  * dma-buf and return the physical addresses to Userspace
  *
  * @file dmabuf.h
- * @version 0.5.1
+ * @version 0.5.2
  */
 
 #include <linux/dma-buf.h>
