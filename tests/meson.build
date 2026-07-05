@@ -12,6 +12,7 @@ test_sources = files(
   'test_dmamem_nvme_identify.c',
   'test_dmamem_vfio_bar.c',
   'test_dmamem_nvme_vram.c',
+  'test_dmamem_hostmem_lut.c',
 )
 
 incdir = include_directories('../include')
