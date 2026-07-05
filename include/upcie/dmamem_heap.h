@@ -259,10 +259,13 @@ dmamem_heap_at_va(struct dmamem_heap *heap, size_t offset)
 }
 
 /**
- * Return the IOVA of an allocation. base_iova + offset, always.
+ * Return the IOVA of an allocation.
+ *
+ * Delegates to dmamem_offset_to_iova so the LUT translator resolves
+ * correctly. In the arithmetic case this remains base_iova + offset.
  */
 static inline uint64_t
 dmamem_heap_at_iova(struct dmamem_heap *heap, size_t offset)
 {
-	return heap->dmem->base_iova + offset;
+	return dmamem_offset_to_iova(heap->dmem, offset);
 }

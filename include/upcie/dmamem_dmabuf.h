@@ -52,6 +52,8 @@ dmamem_from_dmabuf(struct dmamem *dmem, struct iommufd *iommufd, int dmabuf_fd, 
 	dmem->iommufd = iommufd;
 	dmem->size = size;
 	dmem->backing = DMAMEM_BACKING_DMABUF;
+	dmem->translator = DMAMEM_XLATE_ARITHMETIC;
+	dmem->owned = 1;
 
 	/*
 	 * CPU-mappability is exporter-dependent. Try mmap; leave cpu_va
