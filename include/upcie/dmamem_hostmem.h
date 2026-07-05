@@ -37,24 +37,6 @@
  */
 
 /**
- * Compute log2 of a hugepage size (2 MiB or 1 GiB).
- *
- * Small helper so the LUT constructor can precompute the shift and the
- * fastpath uses a shift + AND instead of a divide + modulo.
- */
-static inline int
-dmamem_hugepgsz_shift(size_t hugepgsz)
-{
-	if (hugepgsz == 2ULL * 1024 * 1024) {
-		return 21;
-	}
-	if (hugepgsz == 1024ULL * 1024 * 1024) {
-		return 30;
-	}
-	return -1;
-}
-
-/**
  * Wrap an existing hostmem_hugepage as a dmamem via iommufd.
  *
  * Installs one IOMMU_IOAS_MAP over the hugepage VA range and records the
@@ -156,7 +138,7 @@ dmamem_from_hostmem_lut(struct dmamem *dmem, struct hostmem_hugepage *hp)
 		return -EINVAL;
 	}
 
-	shift = dmamem_hugepgsz_shift(hp->config->hugepgsz);
+	shift = dmamem_lut_pagesize_shift(hp->config->hugepgsz);
 	if (shift < 0) {
 		UPCIE_DEBUG("FAILED: unsupported hugepgsz(%zu)", hp->config->hugepgsz);
 		return -EINVAL;

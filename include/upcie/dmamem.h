@@ -62,6 +62,8 @@ enum dmamem_backing {
 	DMAMEM_BACKING_MEMFD = 0x1,
 	DMAMEM_BACKING_DMABUF = 0x2,
 	DMAMEM_BACKING_HOSTMEM = 0x3, ///< wrapping an existing hostmem_hugepage
+	DMAMEM_BACKING_CUDAMEM = 0x4, ///< wrapping an existing cudamem_heap
+	DMAMEM_BACKING_HIPMEM = 0x5,  ///< wrapping an existing hipmem_heap
 };
 
 /**
@@ -139,6 +141,24 @@ dmamem_pp(struct dmamem *dmem)
 	wrtn += printf("  owned: %d\n", dmem->owned);
 
 	return wrtn;
+}
+
+/**
+ * Compute log2 of a LUT page size.
+ *
+ * Accepts any power-of-two page granularity of at least 4 KiB: the 4 KiB
+ * base page, the 64 KiB CUDA/HIP device page, and 2 MiB / 1 GiB hugepages.
+ * Returns -1 for sub-page or non-power-of-two sizes. Used by the
+ * LUT-translator importers so the fastpath does a shift + AND instead of a
+ * divide + modulo.
+ */
+static inline int
+dmamem_lut_pagesize_shift(size_t pagesize)
+{
+	if (pagesize < 4096 || (pagesize & (pagesize - 1)) != 0) {
+		return -1;
+	}
+	return (int)upcie_util_shift_from_size(pagesize);
 }
 
 /**
