@@ -52,6 +52,7 @@ install_headers(
     'include/upcie/hipmem_mapping.h',
     'include/upcie/nvme/nvme_command.h',
     'include/upcie/nvme/nvme_controller.h',
+    'include/upcie/nvme/nvme_controller_dmamem_vfio.h',
     'include/upcie/nvme/nvme_controller_vfio.h',
     'include/upcie/nvme/nvme_controller_cuda.h',
     'include/upcie/nvme/nvme_mmio.h',
