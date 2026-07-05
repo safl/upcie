@@ -1,0 +1,18 @@
+---
+doc: |
+  Run the dmamem_from_hostmem_lut smoketest on the target.
+
+  Exercises the LUT translator: no IOMMU mapping is installed, the
+  dmamem borrows the hugepage's phys_lut and each submission VA
+  resolves via table lookup + intra-hugepage offset. Requires
+  CAP_SYS_ADMIN for the pagemap read that populates phys_lut (the
+  cijoe target runs as root).
+
+  Assumes 'tasks/deploy.yaml' has been run against the same config
+  (source built at /tmp/upcie_source/builddir, hugepages reserved).
+
+steps:
+- name: smoketest
+  run: |
+    ulimit -l unlimited || true
+    /tmp/upcie_source/builddir/tests/test_dmamem_hostmem_lut
