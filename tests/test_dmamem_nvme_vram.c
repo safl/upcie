@@ -99,36 +99,6 @@ err_close:
 	return err;
 }
 
-/*
- * Submit a single command, ring the SQ doorbell, reap its completion, and check
- * the CQE status. Returns 0 on success, negative errno on a submit/reap error,
- * or -EIO on a non-zero CQE status.
- *
- * Used instead of nvme_qpair_submit_sync(), which allocates from qp->rpool that
- * the dmamem qpair (nvme_qpair_dmamem_init) does not set up.
- */
-static int
-nvme_submit_sync(struct nvme_qpair *q, struct nvme_command *cmd, uint32_t timeout_ms)
-{
-	struct nvme_completion cpl = {0};
-	int err;
-
-	err = nvme_qpair_enqueue(q, cmd);
-	if (err) {
-		return err;
-	}
-	nvme_qpair_sqdb_update(q);
-
-	err = nvme_qpair_reap_cpl(q, timeout_ms, &cpl);
-	if (err) {
-		return err;
-	}
-	if ((cpl.status >> 1) & 0x7FF) {
-		return -EIO;
-	}
-	return 0;
-}
-
 int
 main(int argc, char *argv[])
 {
@@ -264,7 +234,7 @@ main(int argc, char *argv[])
 	 */
 	{
 		struct nvme_qpair ioq = {0};
-		size_t ioq_sq = 0, ioq_cq = 0;
+		size_t ioq_sq = 0, ioq_cq = 0, ioq_prp = 0;
 		const uint32_t NSID = 1;
 		const uint32_t NBLOCKS_M1 = 7; /* 8 blocks (0-based) = 4 KiB */
 		const size_t WRITE_OFFSET = 0x4000;
@@ -274,7 +244,7 @@ main(int argc, char *argv[])
 		uint8_t *verify_va;
 
 		err = nvme_controller_create_io_qpair_dmamem(&ctrlr, &ioq, 32, &admin_heap,
-							     &ioq_sq, &ioq_cq);
+							     &ioq_sq, &ioq_cq, &ioq_prp);
 		if (err) {
 			fprintf(stderr, "FAIL: nvme_controller_create_io_qpair_dmamem err(%d)\n",
 				err);
@@ -304,7 +274,7 @@ main(int argc, char *argv[])
 		printf("issue: NVMe WRITE LBA 0..%u <- PRP1=0x%" PRIx64
 		       " (VRAM IOVA base 0x%" PRIx64 " + offset 0x%zx)\n",
 		       NBLOCKS_M1 + 1, write_iova, gpu_bar_dmem.base_iova, WRITE_OFFSET);
-		err = nvme_submit_sync(&ioq, &cmd, ctrlr.timeout_ms);
+		err = nvme_qpair_submit_sync(&ioq, &cmd, ctrlr.timeout_ms, &cpl);
 		if (err) {
 			fprintf(stderr, "FAIL: WRITE from VRAM err(%d)\n", err);
 			goto io_done;
@@ -317,7 +287,7 @@ main(int argc, char *argv[])
 		cmd.nsid = NSID;
 		cmd.prp1 = dmamem_heap_at_iova(&admin_heap, verify_off);
 		cmd.cdw12 = NBLOCKS_M1;
-		err = nvme_submit_sync(&ioq, &cmd, ctrlr.timeout_ms);
+		err = nvme_qpair_submit_sync(&ioq, &cmd, ctrlr.timeout_ms, &cpl);
 		if (err) {
 			fprintf(stderr, "FAIL: verify READ LBA 0 err(%d)\n", err);
 		} else if (memcmp(verify_va, vram, 4096) == 0) {
@@ -331,7 +301,7 @@ main(int argc, char *argv[])
 io_done:
 		{
 			int derr = nvme_controller_delete_io_qpair_dmamem(
-				&ctrlr, &ioq, &admin_heap, ioq_sq, ioq_cq);
+				&ctrlr, &ioq, &admin_heap, ioq_sq, ioq_cq, ioq_prp);
 			if (derr && !err) {
 				err = derr;
 			}
