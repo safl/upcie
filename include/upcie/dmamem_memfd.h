@@ -64,6 +64,8 @@ dmamem_from_memfd(struct dmamem *dmem, struct iommufd *iommufd, size_t size, siz
 	dmem->iommufd = iommufd;
 	dmem->size = size;
 	dmem->backing = DMAMEM_BACKING_MEMFD;
+	dmem->translator = DMAMEM_XLATE_ARITHMETIC;
+	dmem->owned = 1;
 
 	dmem->fd = syscall(SYS_memfd_create, "dmamem", memfd_flags);
 	if (dmem->fd < 0) {
