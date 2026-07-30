@@ -1,0 +1,27 @@
+# Build artifacts
+*.o
+*.ko
+*.mod
+*.mod.c
+*.symvers
+*.order
+.tmp_versions/
+udmabuf_import_cpu
+udmabuf_import_gpu
+
+# Debian packaging build output
+debian/.debhelper/
+debian/files
+debian/*.substvars
+debian/udmabuf-import-dkms/
+*.deb
+*.buildinfo
+*.changes
+
+# CIJOE run artifacts
+cijoe-output/
+cijoe-archive/
+
+# Python bytecode
+__pycache__/
+*.pyc

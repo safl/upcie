@@ -1,0 +1,24 @@
+Source: udmabuf-import
+Section: kernel
+Priority: optional
+Maintainer: Simon A. F. Lund <os@safl.dk>
+Build-Depends: debhelper-compat (= 13), dh-dkms | dkms
+Standards-Version: 4.7.0
+Homepage: https://github.com/safl/upcie
+Rules-Requires-Root: no
+
+Package: udmabuf-import-dkms
+Architecture: all
+Depends: ${misc:Depends}, dkms
+Description: out-of-tree dma-buf importer for udmabuf (DKMS)
+ Standalone out-of-tree kernel module providing the udmabuf dma-buf import
+ ioctls (UDMABUF_ATTACH / UDMABUF_DETACH / UDMABUF_GET_MAP) on a dedicated
+ /dev/udmabuf_import misc device. It imports an external dma-buf (a CPU buffer
+ via udmabuf+memfd, or GPU memory via the NVIDIA driver) and shares its DMA
+ addresses with userspace.
+ .
+ The ioctls originated as a patch to the in-tree, built-in udmabuf driver
+ (CONFIG_UDMABUF=y), which forced a full kernel rebuild. They are additive and
+ self-contained, using only exported dma-buf core APIs, so they are shipped
+ here as their own module. Built and installed via DKMS, it rebuilds
+ automatically on kernel updates with no custom kernel required.
