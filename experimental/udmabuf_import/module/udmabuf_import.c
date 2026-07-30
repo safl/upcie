@@ -257,7 +257,9 @@ static long udmabuf_ioctl_get_map(struct file *filp, unsigned long arg)
 
 	umap = uget_map->dma_arr;
 	for_each_sgtable_dma_sg(desc->sgt, sg, i) {
-		if (i > get_map.count)
+		/* Userspace allocated get_map.count entries (0..count-1); stop
+		 * before writing umap[count] to avoid a one-past-the-end write. */
+		if (i >= get_map.count)
 			break;
 
 		map.dma_addr = sg_dma_address(sg);
