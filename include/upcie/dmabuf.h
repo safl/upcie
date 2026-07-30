@@ -8,15 +8,28 @@
  * A dma-buf FD can be obtained either from host memory, memfd->udmabuf, or
  * device memory, e.g., CUDA or ROCm.
  *
- * NOTE: This depends on a patch for UDMABUF adding capabilites to import a
- * dma-buf and return the physical addresses to Userspace
+ * NOTE: The import path uses the out-of-tree udmabuf_import module, which serves
+ * its ioctls on /dev/udmabuf_import. Its UAPI is <linux/udmabuf_import.h>,
+ * installed by the udmabuf-import DKMS package, which ships with the upcie
+ * release as an asset but is versioned independently. That header is optional:
+ * when it is not available, dmabuf_attach()/dmabuf_detach() compile as stubs
+ * returning -ENOTSUP, so upcie builds and runs without the module (the import
+ * calls simply fail). Install the package to enable the path; the module must
+ * also be loaded at runtime.
  *
  * @file dmabuf.h
  * @version 0.5.2
  */
 
 #include <linux/dma-buf.h>
-#include <linux/udmabuf.h>
+
+/* Optional: pull in the udmabuf_import UAPI if the DKMS package installed it.
+ * Guarded with __has_include so upcie builds without it. */
+#if defined(__has_include)
+#  if __has_include(<linux/udmabuf_import.h>)
+#    include <linux/udmabuf_import.h>
+#  endif
+#endif
 
 struct dmabuf_page {
 	uint64_t addr;			///< Address of a page
@@ -93,8 +106,8 @@ dmabuf_get_lut(struct dmabuf *dmabuf, size_t nphys, uint64_t *phys_lut, uint64_t
 #ifdef UDMABUF_ATTACH
 /**
  * Attach to dma-buf with given FD
- * 
- * Populates the given dma-buf structure with information about the dma-buf. 
+ *
+ * Populates the given dma-buf structure with information about the dma-buf.
  */
 static inline int
 dmabuf_attach(int dmabuf_fd, struct dmabuf *dmabuf)
@@ -104,10 +117,10 @@ dmabuf_attach(int dmabuf_fd, struct dmabuf *dmabuf)
 	int udmabuf_fd, err;
 	size_t map_size, pages_size;
 
-	udmabuf_fd = open("/dev/udmabuf", O_RDWR);
+	udmabuf_fd = open(UDMABUF_IMPORT_DEVPATH, O_RDWR);
 	if (udmabuf_fd < 0) {
 		err = -errno;
-		UPCIE_DEBUG("FAILED: open(/dev/udmabuf), errno: %d", err);
+		UPCIE_DEBUG("FAILED: open(%s), errno: %d", UDMABUF_IMPORT_DEVPATH, err);
 		return err;
 	}
 
@@ -161,17 +174,7 @@ exit:
 	close(udmabuf_fd);
 	return err;
 }
-#else
-static inline int
-dmabuf_attach(int UPCIE_UNUSED(dmabuf_fd), struct dmabuf *UPCIE_UNUSED(dmabuf))
-{
-	UPCIE_DEBUG("FAILED: ioctl(UDMABUF_ATTACH) not supported by Linux Kernel");
-	return -ENOTSUP;
-}
-#endif // UDMABUF_ATTACH
 
-
-#ifdef UDMABUF_DETACH
 /**
  * Detach from given dma-buf
  *
@@ -184,10 +187,10 @@ dmabuf_detach(struct dmabuf *dmabuf)
 
 	free(dmabuf->pages);
 
-	udmabuf_fd = open("/dev/udmabuf", O_RDWR);
+	udmabuf_fd = open(UDMABUF_IMPORT_DEVPATH, O_RDWR);
 	if (udmabuf_fd < 0) {
 		err = -errno;
-		UPCIE_DEBUG("FAILED: open(/dev/udmabuf), errno: %d", err);
+		UPCIE_DEBUG("FAILED: open(%s), errno: %d", UDMABUF_IMPORT_DEVPATH, err);
 		return err;
 	}
 
@@ -202,11 +205,22 @@ dmabuf_detach(struct dmabuf *dmabuf)
 	close(udmabuf_fd);
 	return err;
 }
-#else
+#else /* !UDMABUF_ATTACH: udmabuf-import UAPI unavailable, provide stubs */
+/**
+ * Attach stub -- the udmabuf_import UAPI (<linux/udmabuf_import.h>) is not
+ * available. Install the udmabuf-import DKMS package to enable importing.
+ */
+static inline int
+dmabuf_attach(int UPCIE_UNUSED(dmabuf_fd), struct dmabuf *UPCIE_UNUSED(dmabuf))
+{
+	UPCIE_DEBUG("FAILED: udmabuf_import unavailable; install udmabuf-import-dkms");
+	return -ENOTSUP;
+}
+
 static inline int
 dmabuf_detach(struct dmabuf *UPCIE_UNUSED(dmabuf))
 {
-	UPCIE_DEBUG("FAILED: ioctl(UDMABUF_DETACH) not supported by Linux Kernel");
+	UPCIE_DEBUG("FAILED: udmabuf_import unavailable; install udmabuf-import-dkms");
 	return -ENOTSUP;
 }
-#endif // UDMABUF_DETACH
+#endif /* UDMABUF_ATTACH */
