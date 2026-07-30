@@ -1,0 +1,5 @@
+udmabuf-import (0.1.0) unstable; urgency=medium
+
+  * Initial DKMS packaging of the out-of-tree udmabuf dma-buf importer.
+
+ -- Simon A. F. Lund <os@safl.dk>  Wed, 29 Jul 2026 18:47:29 +0200

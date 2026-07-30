@@ -1,0 +1,10 @@
+# PACKAGE_VERSION is substituted by dh_dkms from the packaging version
+# (dh_dkms -V), so it always matches the /usr/src/udmabuf-import-<ver> tree.
+PACKAGE_NAME="udmabuf-import"
+PACKAGE_VERSION="#MODULE_VERSION#"
+AUTOINSTALL="yes"
+
+BUILT_MODULE_NAME[0]="udmabuf_import"
+DEST_MODULE_LOCATION[0]="/updates"
+
+MAKE[0]="make KDIR=${kernel_source_dir}"
