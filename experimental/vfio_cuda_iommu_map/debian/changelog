@@ -1,0 +1,5 @@
+upcie-iommu-map (0.1.0) unstable; urgency=medium
+
+  * Initial DKMS packaging of the experimental iommu-map helper module.
+
+ -- Jaeyoon Choi <j_yoon.choi@samsung.com>  Mon, 03 Aug 2026 12:18:21 +0900

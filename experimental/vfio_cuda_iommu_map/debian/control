@@ -1,0 +1,26 @@
+Source: upcie-iommu-map
+Section: kernel
+Priority: optional
+Maintainer: Jaeyoon Choi <j_yoon.choi@samsung.com>
+Build-Depends: debhelper-compat (= 13), dh-dkms | dkms
+Standards-Version: 4.7.0
+Homepage: https://github.com/safl/upcie
+Rules-Requires-Root: no
+
+Package: upcie-iommu-map-dkms
+Architecture: all
+Depends: ${misc:Depends}, dkms
+Description: experimental IOMMU-map helper for VFIO GPU P2P DMA (DKMS)
+ Standalone out-of-tree kernel module serving the UPCIE_IOMMU_MAP /
+ UPCIE_IOMMU_UNMAP ioctls on a dedicated /dev/upcie-iommu-map misc device.
+ Given a PCI BDF, an array of device-physical addresses (e.g. a
+ CUDA/udmabuf-derived phys_lut), and a userspace-chosen IOVA base, it
+ installs the addresses into the IOMMU domain the device currently uses.
+ For a VFIO-controlled NVMe this makes GPU memory reachable for P2P DMA:
+ userspace builds NVMe PRPs from the IOVA range.
+ .
+ The module is an experimental proof of concept. It borrows a live IOMMU
+ domain it does not own and bypasses VFIO and iommufd IOVA accounting; see
+ the README for the strict mapping and lifetime requirements. Built and
+ installed via DKMS, it rebuilds automatically on kernel updates with no
+ custom kernel required.
