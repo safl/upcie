@@ -1,0 +1,182 @@
+name: upcie-iommu-map-dkms
+
+# Build the experimental upcie_iommu_map DKMS deb and make it available as a
+# prerequisite. On a PR touching the module it builds the deb, installs it, and
+# builds a upcie consumer against it. On a upcie release tag (v*) it also
+# attaches the deb -- at its own version, from experimental/vfio_cuda_iommu_map/
+# debian/ -- to the upcie GitHub Release. The module is not released on its own;
+# it rides the upcie release as an asset.
+#
+# NOTE: PR builds are path-filtered. Pushes -- to main (post-merge) and to v*
+# tags (release) -- carry no paths filter, because a paths filter on push would
+# suppress the tag trigger (paths and tags do not combine cleanly); a push to
+# main therefore runs regardless of what changed.
+
+on:
+  pull_request:
+    paths:
+      - 'experimental/vfio_cuda_iommu_map/**'
+      - '.github/workflows/upcie-iommu-map-dkms.yml'
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# Steps run inside containers, where the runner falls back to /bin/sh when it
+# cannot resolve bash. dash has no `pipefail`, so pin bash for every step.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # First step: build the deb once and upload it.
+  build-deb:
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:24.04
+    steps:
+      - name: Install packaging toolchain
+        run: |
+          apt-get update
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get install -y --no-install-recommends \
+            build-essential debhelper fakeroot dpkg-dev git ca-certificates
+          apt-get install -y dh-dkms || apt-get install -y dkms
+
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+
+      - name: Build the DKMS .deb
+        working-directory: experimental/vfio_cuda_iommu_map
+        run: dpkg-buildpackage -us -uc -b
+
+      - name: Upload the deb
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: upcie-iommu-map-dkms
+          path: experimental/upcie-iommu-map-dkms_*_all.deb
+          if-no-files-found: error
+
+  # Prerequisite made available: download the deb and install it on each
+  # supported release, then build a consumer against the installed
+  # <upcie/upcie_iommu_map.h> to prove the helper wrappers build from it.
+  install:
+    needs: build-deb
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ["24.04", "26.04"]
+    container:
+      image: ubuntu:${{ matrix.release }}
+    steps:
+      - name: Prerequisites
+        run: |
+          apt-get update
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get install -y --no-install-recommends \
+            build-essential kmod dkms linux-headers-generic
+
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+
+      - name: Download the deb
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: upcie-iommu-map-dkms
+          path: dl
+
+      - name: Install the deb (prerequisite)
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          deb=$(ls dl/upcie-iommu-map-dkms_*_all.deb)
+          apt-get install -y "./$deb"
+          test -f /usr/include/upcie/upcie_iommu_map.h
+
+          # `uname -r` in a container is the host kernel, so DKMS skips it and
+          # targets the kernel whose headers this image ships. That leaves the
+          # module at "built" or "installed" depending on how far autoinstall
+          # got, and either state proves the source package compiles.
+          ver=$(dpkg-query -W -f='${Version}' upcie-iommu-map-dkms)
+          kver=$(basename /usr/src/linux-headers-*-generic | sed 's/^linux-headers-//')
+          dkms build -m upcie-iommu-map -v "$ver" -k "$kver"
+          dkms status -m upcie-iommu-map -v "$ver" -k "$kver" | grep -qE ': (built|installed)'
+
+      - name: Build a consumer against the prerequisite
+        run: |
+          # The helper header is staged outside the checkout so its in-tree
+          # fallback include cannot resolve; only the header installed by the
+          # deb can satisfy the UAPI include.
+          install -D -m0644 \
+            experimental/vfio_cuda_iommu_map/include/upcie/iommu_map.h \
+            staged/upcie/iommu_map.h
+          cat > consumer.c <<'EOF'
+          #include <stdint.h>
+          #include <upcie/iommu_map.h>
+          int main(void)
+          {
+                  struct upcie_iommu_map_req req = {0};
+                  (void)req;
+                  (void)UPCIE_IOMMU_MAP_DEVICE;
+                  return 0;
+          }
+          EOF
+          gcc -Wall -Istaged -o consumer consumer.c
+          echo "helper wrappers build against the installed prerequisite"
+
+  # Independent out-of-tree link check (modpost); needs no deb.
+  module:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ["24.04", "26.04"]
+    container:
+      image: ubuntu:${{ matrix.release }}
+    steps:
+      - name: Install kernel headers and toolchain
+        run: |
+          apt-get update
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get install -y --no-install-recommends \
+            build-essential kmod linux-headers-generic
+
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+
+      - name: Build the module (out-of-tree link check)
+        working-directory: experimental/vfio_cuda_iommu_map
+        run: |
+          hdr=$(ls -d /usr/src/linux-headers-*-generic | head -1)
+          make -C module KDIR="$hdr"
+          test -f module/upcie_iommu_map.ko
+          modinfo module/upcie_iommu_map.ko | grep -E 'name|vermagic|depends'
+
+  # On a upcie release tag (v*), attach the built deb to the upcie Release as an
+  # asset. The deb keeps its own version; it does not get its own release.
+  release:
+    needs: build-deb
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download the deb
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: upcie-iommu-map-dkms
+          path: dl
+
+      - name: Attach the deb to the upcie release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          deb=$(ls dl/upcie-iommu-map-dkms_*_all.deb)
+          # The upcie Release is normally created by the upcie release process;
+          # create it if it does not exist yet, then attach the deb.
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$tag" --generate-notes
+          gh release upload "$tag" "$deb" --repo "$GITHUB_REPOSITORY" --clobber
