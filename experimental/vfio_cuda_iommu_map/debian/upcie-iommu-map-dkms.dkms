@@ -1,0 +1,10 @@
+# PACKAGE_VERSION is substituted by dh_dkms from the packaging version
+# (dh_dkms -V), so it always matches the /usr/src/upcie-iommu-map-<ver> tree.
+PACKAGE_NAME="upcie-iommu-map"
+PACKAGE_VERSION="#MODULE_VERSION#"
+AUTOINSTALL="yes"
+
+BUILT_MODULE_NAME[0]="upcie_iommu_map"
+DEST_MODULE_LOCATION[0]="/updates"
+
+MAKE[0]="make KDIR=${kernel_source_dir}"

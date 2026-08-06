@@ -1,0 +1,13 @@
+# Debian packaging build output
+debian/.debhelper/
+debian/files
+debian/*.substvars
+debian/upcie-iommu-map-dkms/
+debian/debhelper-build-stamp
+# Note: *.debhelper covers the generated *.dkms.debhelper, but not the
+# hand-written debian/upcie-iommu-map-dkms.dkms that dh_dkms reads.
+debian/*.debhelper
+debian/*.debhelper.log
+*.deb
+*.buildinfo
+*.changes

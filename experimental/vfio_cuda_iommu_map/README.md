@@ -33,9 +33,22 @@ module because VFIO and iommufd do not participate in that lock. The intended
 long-term direction is an owner-integrated dma-buf mapping API such as
 `IOMMU_IOAS_MAP_FILE` with CUDA dma-buf support.
 
-## Install the module
+## Install the module (DKMS)
 
-Build the module out-of-tree and load it:
+The kernel module ships as a DKMS source package, so it rebuilds
+automatically on kernel updates. Build the deb and install it:
+
+```sh
+cd experimental/vfio_cuda_iommu_map
+dpkg-buildpackage -us -uc -b
+sudo apt install ../upcie-iommu-map-dkms_*_all.deb
+sudo modprobe upcie_iommu_map
+```
+
+The package registers the module sources with DKMS and installs the ioctl
+ABI system-wide as `<upcie/upcie_iommu_map.h>`.
+
+For quick hacking the plain out-of-tree build still works:
 
 ```sh
 make -C experimental/vfio_cuda_iommu_map/module
@@ -65,3 +78,4 @@ sudo ./builddir/experimental/vfio_cuda_iommu_map/test_cudamem_iommu_map_nvme_rea
 ```
 
 Unload the module only after the test has exited and removed all mappings.
+To remove the DKMS package, `sudo apt remove upcie-iommu-map-dkms`.
