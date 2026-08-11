@@ -37,7 +37,7 @@
 #include <linux/uaccess.h>
 #include <linux/version.h>
 
-#include "upcie_iommu_map.h"
+#include "iommu_map_pa.h"
 
 /* One installed mapping; everything needed to tear it back down exactly. */
 struct upcie_iommu_mapping {
