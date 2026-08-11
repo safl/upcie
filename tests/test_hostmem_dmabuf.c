@@ -1,5 +1,5 @@
 /* UDMABUF_CREATE is served by the stock /dev/udmabuf; its UAPI is the in-tree
- * header. The import ioctls come from <linux/udmabuf_import.h> via dmabuf.h. */
+ * header. The import ioctls come from <linux/dmabuf_import.h> via dmabuf.h. */
 #include <linux/udmabuf.h>
 
 #include <upcie/upcie.h>

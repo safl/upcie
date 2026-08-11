@@ -2,14 +2,14 @@
 // Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
 
 /**
- * hipmem producer check (no udmabuf-import needed)
- * ================================================
+ * hipmem producer check (no dmabuf-import needed)
+ * ===============================================
  *
  * Exercises the AMD/HIP half of the hipmem backend without the dma-buf import
  * path: query the device config (HIP + BAR1) and allocate GPU memory, then
  * export it as a P2P dma-buf via HSA. This is the producer that hipmem_heap
  * feeds into dmabuf_attach()/dmabuf_get_lut(); the full heap additionally needs
- * the udmabuf-import kernel module, which this check deliberately avoids so it
+ * the dmabuf-import kernel module, which this check deliberately avoids so it
  * runs on a stock ROCm install.
  */
 #include <upcie/upcie_hip.h>

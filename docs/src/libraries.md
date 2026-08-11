@@ -59,9 +59,9 @@ The descriptions below follow the bottom-up layering.
   originate from host memory (memfd via udmabuf) or device memory such as CUDA.
 
   Resolving physical pages (`dmabuf_attach`/`dmabuf_detach`) imports the dma-buf
-  through the out-of-tree `udmabuf_import` module, shipped as the
-  `udmabuf-import` DKMS package (see `experimental/udmabuf_import`). When its
-  UAPI header `<linux/udmabuf_import.h>` is absent these helpers compile as stubs
+  through the out-of-tree `dmabuf_import` module, shipped as the
+  `dmabuf-import` DKMS package (see `experimental/dmabuf_import`). When its
+  UAPI header `<linux/dmabuf_import.h>` is absent these helpers compile as stubs
   returning `ENOTSUP`, so uPCIe still builds without it; the module must also be
   loaded at runtime for the import to succeed.
 
