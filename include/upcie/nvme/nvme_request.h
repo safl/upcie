@@ -392,20 +392,19 @@ nvme_request_prep_command_prps_iov(struct nvme_request *request, struct hostmem_
  *
  * @param request      NVMe request context; the PRP list is written
  *                     into request->prp with iova request->prp_addr.
- * @param heap         dmamem_heap that dbuf was carved from.
+ * @param dmem         dmamem describing the range dbuf lies in.
  * @param dbuf         Virtually contiguous data buffer.
  * @param dbuf_nbytes  Size of dbuf in bytes.
  * @param cmd          Command to populate prp1 (and prp2 / PRP list)
  *                     on.
  */
 static inline void
-nvme_request_prep_command_prps_contig_dmamem(struct nvme_request *request,
-					     struct dmamem_heap *heap, void *dbuf,
-					     size_t dbuf_nbytes, struct nvme_command *cmd)
+nvme_request_prep_command_prps_contig_dmamem(struct nvme_request *request, struct dmamem *dmem,
+					     void *dbuf, size_t dbuf_nbytes,
+					     struct nvme_command *cmd)
 {
 	const uint64_t pagesize = 4096;
 	const int page_shift = 12;
-	struct dmamem *dmem = heap->dmem;
 	const uint64_t page_off = (uintptr_t)dbuf & (pagesize - 1);
 	const uint64_t npages = (page_off + dbuf_nbytes + pagesize - 1) >> page_shift;
 
@@ -482,18 +481,17 @@ nvme_request_prep_command_prps_contig_dmamem(struct nvme_request *request,
  *   constructed.
  *
  * @param request   NVMe request context.
- * @param heap      dmamem_heap the iovec buffers were carved from.
+ * @param dmem      dmamem describing the range the iovec buffers lie in.
  * @param dvec      Array of iovec structures.
  * @param dvec_cnt  Element count of dvec.
  * @param cmd       Command to populate prp1 (and prp2 / PRP list) on.
  */
 static inline void
-nvme_request_prep_command_prps_iov_dmamem(struct nvme_request *request,
-					  struct dmamem_heap *heap, struct iovec *dvec,
-					  size_t dvec_cnt, struct nvme_command *cmd)
+nvme_request_prep_command_prps_iov_dmamem(struct nvme_request *request, struct dmamem *dmem,
+					  struct iovec *dvec, size_t dvec_cnt,
+					  struct nvme_command *cmd)
 {
 	const uint64_t pagesize = 4096;
-	struct dmamem *dmem = heap->dmem;
 	uint64_t *prp_list = request->prp;
 	size_t prp_idx = 0;
 
