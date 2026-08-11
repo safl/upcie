@@ -51,6 +51,8 @@ steps:
     modprobe iommufd || true
     modprobe vfio-pci || true
     modprobe udmabuf || true
+    # Non-fatal: only the GPU-direct tasks need it, and they load it themselves.
+    modprobe dmabuf_import || true
 
 - name: hugepages
   run: |
