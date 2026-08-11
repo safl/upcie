@@ -110,22 +110,106 @@ dmamem_heap_term(struct dmamem_heap *heap)
 }
 
 /**
- * Allocate a sub-range of the heap with an explicit alignment.
- *
- * On success, *offset_out is the offset of the allocation within the
- * dmamem, aligned up to `alignment` bytes.
- *
- * @return 0 on success; -ENOMEM if the heap is full or fragmented past
- * the requested size; negative errno on input error.
+ * The span within which the heap can promise contiguous DMA addresses, or 0
+ * when the whole dmamem is one contiguous range.
+ */
+static inline size_t
+dmamem_heap_granule(struct dmamem_heap *heap)
+{
+	if (!heap || !heap->dmem || DMAMEM_XLATE_LUT != heap->dmem->translator) {
+		return 0;
+	}
+
+	return heap->dmem->hugepgsz;
+}
+
+/**
+ * Whether any single element would cross a granule boundary.
  */
 static inline int
-dmamem_heap_alloc_aligned(struct dmamem_heap *heap, size_t size, size_t alignment,
-			  size_t *offset_out)
+dmamem_heap_layout_tears(size_t start, size_t elem_count, size_t elem_size, size_t granule)
 {
-	struct dmamem_heap_block *b, *tail;
+	size_t i;
 
-	if (!heap || !size || !alignment || !offset_out) {
+	if (!granule) {
+		return 0;
+	}
+
+	/* Fits in one granule, or sits on a grid the granule divides evenly. */
+	if ((start & (granule - 1)) + (elem_count * elem_size) <= granule) {
+		return 0;
+	}
+	if (!(granule % elem_size) && !(start % elem_size)) {
+		return 0;
+	}
+
+	for (i = 0; i < elem_count; ++i) {
+		const size_t off = (start + (i * elem_size)) & (granule - 1);
+
+		if (off + elem_size > granule) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Allocate elem_count elements of elem_size such that no single element
+ * crosses a granule boundary. The array itself may span granules.
+ *
+ * Ask for one element to get a region contiguous in device addresses.
+ *
+ * @return 0 on success; -ENOMEM if the heap is full or fragmented past the
+ * requested size; -EINVAL on input error, or when the promise is impossible,
+ * which is an element larger than a granule, or an array spanning granules
+ * whose element size does not divide one.
+ */
+static inline int
+dmamem_heap_alloc_array_aligned(struct dmamem_heap *heap, size_t elem_count, size_t elem_size,
+				size_t alignment, size_t *offset_out)
+{
+	const size_t granule = dmamem_heap_granule(heap);
+	struct dmamem_heap_block *b, *tail;
+	size_t size;
+
+	if (!heap || !elem_count || !elem_size || !alignment || !offset_out) {
 		return -EINVAL;
+	}
+	if (elem_count > SIZE_MAX / elem_size) {
+		return -EINVAL;
+	}
+
+	size = elem_count * elem_size;
+
+	/* Raising the alignment is what enforces the promise: on a grid the
+	 * granule divides evenly no element can straddle, and failing that the
+	 * whole array has to land inside one granule. */
+	if (granule) {
+		size_t required = alignment;
+
+		if (elem_size > granule) {
+			UPCIE_DEBUG("FAILED: elem_size(%zu) exceeds granule(%zu); no contiguity "
+				    "beyond a granule can be promised",
+				    elem_size, granule);
+			return -EINVAL;
+		} else if (!(granule % elem_size)) {
+			required = elem_size;
+		} else if (size <= granule) {
+			required = 1;
+			while (required < size) {
+				required <<= 1;
+			}
+		} else {
+			UPCIE_DEBUG("FAILED: elem_size(%zu) does not divide granule(%zu); an "
+				    "array spanning granules would tear",
+				    elem_size, granule);
+			return -EINVAL;
+		}
+
+		if (required > alignment) {
+			alignment = required;
+		}
 	}
 
 	for (b = heap->freelist; b; b = b->next) {
@@ -184,6 +268,9 @@ dmamem_heap_alloc_aligned(struct dmamem_heap *heap, size_t size, size_t alignmen
 
 		b->free = 0;
 		*offset_out = b->offset;
+
+		assert(!dmamem_heap_layout_tears(*offset_out, elem_count, elem_size, granule));
+
 		return 0;
 	}
 
@@ -191,11 +278,48 @@ dmamem_heap_alloc_aligned(struct dmamem_heap *heap, size_t size, size_t alignmen
 }
 
 /**
- * Allocate a sub-range of the heap using the heap's default alignment.
+ * Allocate an array using the heap's default alignment.
+ */
+static inline int
+dmamem_heap_alloc_array(struct dmamem_heap *heap, size_t elem_count, size_t elem_size,
+			size_t *offset_out)
+{
+	return dmamem_heap_alloc_array_aligned(heap, elem_count, elem_size, heap->alignment,
+					       offset_out);
+}
+
+/**
+ * Allocate a sub-range of the heap with an explicit alignment.
  *
- * Thin wrapper over dmamem_heap_alloc_aligned; use that directly for a
- * stricter constraint. On success, *offset_out is the offset of the
- * allocation within the dmamem.
+ * On success, *offset_out is the offset of the allocation within the
+ * dmamem, aligned up to `alignment` bytes.
+ *
+ * NOTE: The range is taken as an array of heap-alignment sized elements, so it
+ * may cross granule boundaries and is not necessarily contiguous in device
+ * addresses. Memory a device walks from a single base must come from
+ * dmamem_heap_alloc_array_aligned() instead.
+ *
+ * @return 0 on success; -ENOMEM if the heap is full or fragmented past
+ * the requested size; negative errno on input error.
+ */
+static inline int
+dmamem_heap_alloc_aligned(struct dmamem_heap *heap, size_t size, size_t alignment,
+			  size_t *offset_out)
+{
+	size_t elem_size, elem_count;
+
+	if (!heap || !size || !heap->alignment) {
+		return -EINVAL;
+	}
+
+	elem_size = heap->alignment;
+	elem_count = (size + elem_size - 1) / elem_size;
+
+	return dmamem_heap_alloc_array_aligned(heap, elem_count, elem_size, alignment, offset_out);
+}
+
+/**
+ * Allocate a sub-range of the heap using the heap's default alignment.
  *
  * @return 0 on success; -ENOMEM if the heap is full or fragmented past
  * the requested size; negative errno on input error.
