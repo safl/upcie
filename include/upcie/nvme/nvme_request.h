@@ -441,7 +441,7 @@ nvme_request_prep_command_prps_contig_dmamem(struct nvme_request *request,
 	 * of a contiguous buffer. */
 	uint8_t *vbase = (uint8_t *)dbuf - page_off;
 	const uint64_t hp_off =
-		(uint64_t)(vbase - (uint8_t *)dmem->cpu_va) & (dmem->hugepgsz - 1);
+		(uint64_t)(vbase - (uint8_t *)dmem->base_va) & (dmem->hugepgsz - 1);
 	uint64_t strides_left = ((dmem->hugepgsz - hp_off) >> page_shift) - 1;
 	uint64_t page_phys = cmd->prp1 - page_off;
 

@@ -247,15 +247,18 @@ dmamem_heap_free(struct dmamem_heap *heap, size_t offset)
 }
 
 /**
- * Return the CPU VA of an allocation, or NULL for non-CPU-mappable backings.
+ * Return the address of an allocation in the space the dmamem describes.
+ *
+ * A CPU pointer for host-backed dmamems, a device pointer for GPU-backed
+ * ones; dereference only when dmem->cpu_va is set.
  */
 static inline void *
 dmamem_heap_at_va(struct dmamem_heap *heap, size_t offset)
 {
-	if (!heap || !heap->dmem || !heap->dmem->cpu_va) {
+	if (!heap || !heap->dmem || !heap->dmem->base_va) {
 		return NULL;
 	}
-	return (char *)heap->dmem->cpu_va + offset;
+	return (char *)heap->dmem->base_va + offset;
 }
 
 /**

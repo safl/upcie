@@ -55,6 +55,7 @@ dmamem_from_hostmem_iommufd(struct dmamem *dmem, struct iommufd *iommufd,
 	memset(dmem, 0, sizeof(*dmem));
 	dmem->fd = -1;
 	dmem->cpu_va = hp->virt;
+	dmem->base_va = dmem->cpu_va;
 	dmem->size = hp->size;
 	dmem->iommufd = iommufd;
 	dmem->backing = DMAMEM_BACKING_HOSTMEM;
@@ -95,6 +96,7 @@ dmamem_from_hostmem_type1(struct dmamem *dmem, struct vfio_container *container,
 	memset(dmem, 0, sizeof(*dmem));
 	dmem->fd = -1;
 	dmem->cpu_va = hp->virt;
+	dmem->base_va = dmem->cpu_va;
 	dmem->size = hp->size;
 	dmem->base_iova = base_iova;
 	dmem->vfio_container = container;
@@ -147,6 +149,7 @@ dmamem_from_hostmem_lut(struct dmamem *dmem, struct hostmem_hugepage *hp)
 	memset(dmem, 0, sizeof(*dmem));
 	dmem->fd = -1;
 	dmem->cpu_va = hp->virt;
+	dmem->base_va = dmem->cpu_va;
 	dmem->size = hp->size;
 	dmem->backing = DMAMEM_BACKING_HOSTMEM;
 	dmem->translator = DMAMEM_XLATE_LUT;

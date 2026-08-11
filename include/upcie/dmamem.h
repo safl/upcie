@@ -92,6 +92,7 @@ struct vfio_container;
  */
 struct dmamem {
 	int fd;                     ///< memfd or dma-buf when owned=1; -1 when wrapping
+	void *base_va;              ///< Base of the address space offsets are measured from
 	void *cpu_va;               ///< CPU virtual address, NULL when not mappable
 	size_t size;                ///< Size in bytes
 	uint64_t base_iova;         ///< Base IOVA (ARITHMETIC translator only)
@@ -122,6 +123,7 @@ dmamem_pp(struct dmamem *dmem)
 
 	wrtn += printf("\n");
 	wrtn += printf("  fd: %d\n", dmem->fd);
+	wrtn += printf("  base_va: %p\n", dmem->base_va);
 	wrtn += printf("  cpu_va: %p\n", dmem->cpu_va);
 	wrtn += printf("  size: %zu\n", dmem->size);
 	wrtn += printf("  base_iova: 0x%" PRIx64 "\n", dmem->base_iova);
@@ -183,13 +185,16 @@ dmamem_offset_to_iova(struct dmamem *dmem, size_t offset)
  * Convert a CPU VA inside the dmamem to an IOVA.
  *
  * Only usable when the backing exposes a CPU VA. Callers must assert
- * dmem->cpu_va != NULL before invoking; the fast path does not check.
+ * dmem->base_va != NULL before invoking; the fast path does not check.
+ *
+ * 'vaddr' lies in whatever space the dmamem describes: a CPU mapping for
+ * host memory, a device pointer for GPU memory.
  */
 static inline uint64_t
 dmamem_va_to_iova(struct dmamem *dmem, void *vaddr)
 {
-	assert(dmem->cpu_va);
-	return dmamem_offset_to_iova(dmem, (size_t)((char *)vaddr - (char *)dmem->cpu_va));
+	assert(dmem->base_va);
+	return dmamem_offset_to_iova(dmem, (size_t)((char *)vaddr - (char *)dmem->base_va));
 }
 
 /**
