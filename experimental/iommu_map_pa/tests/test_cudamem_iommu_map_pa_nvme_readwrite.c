@@ -7,7 +7,7 @@
  * Unlike test_cudamem_nvme_readwrite.c (which fed the importer's per-page LUT
  * straight into PRPs and failed with Data Transfer Error under vfio-pci), this
  * test asks the helper module to insert the already-known GPU device-physical
- * addresses (cuda_heap.phys_lut, obtained via the udmabuf path) directly into
+ * addresses (cuda_heap.phys_lut, resolved through dmabuf_import) directly into
  * the IOMMU domain that the VFIO-controlled NVMe device uses.
  *
  * The module maps:  IOVA_BASE + i*device_pagesize  ->  phys_lut[i]
@@ -29,8 +29,9 @@
  *    nvme_controller_vfio.h); this box has 64 GiB RAM so stay above that.
  *  - below the IOMMU domain address width: Intel VT-d returns -EFAULT when
  *    iova+size exceeds it, and a 3-level (39-bit) domain caps IOVA at 512 GiB.
- * 256 GiB satisfies both. Check the importer's "aperture=[..]" dmesg line and
- * raise this if your platform exposes a wider aperture and needs more room.
+ * 256 GiB satisfies both. iommu_map_pa pr_debug()s the domain's "aperture=[..]",
+ * so with dynamic debug on for that module you can raise this if your platform
+ * exposes a wider aperture and needs more room.
  */
 #define UPCIE_TEST_GPU_IOVA_BASE (256ULL << 30)
 
@@ -91,8 +92,10 @@ iommu_map_cuda_heap(struct nvme *nvme, const char *bdf, struct cudamem_heap *hea
 		nvme->iova_lut[i] = UPCIE_TEST_GPU_IOVA_BASE + (uint64_t)i * page_size;
 	}
 
-	/* Map the true GPU device-physical addresses into NVMe's VFIO domain. */
+	/* Map the true GPU device-physical addresses into NVMe's VFIO domain,
+	 * pinning the device fd so the domain stays attached while mapped. */
 	err = upcie_iommu_map_pa_add(nvme->importer_fd, bdf, heap->dmabuf.fd,
+					      nvme->vfio.device_fd,
 					      UPCIE_TEST_GPU_IOVA_BASE, page_size,
 					      heap->nphys, heap->phys_lut,
 					      IOMMU_MAP_PA_PROT_READ | IOMMU_MAP_PA_PROT_WRITE,
@@ -126,7 +129,8 @@ iommu_unmap_cuda_heap(struct nvme *nvme, struct cudamem_heap *heap)
 		nvme->phys_lut_orig = NULL;
 	}
 
-	/* Unmap from the VFIO domain BEFORE the container is torn down. */
+	/* Unmap first anyway: the pinned device fd means a late unmap is handled
+	 * rather than fatal, but tearing down in order keeps the log clean. */
 	if (nvme->iommu_handle) {
 		int err = upcie_iommu_map_pa_del(nvme->importer_fd,
 							     nvme->iommu_handle);
@@ -153,8 +157,8 @@ nvme_cleanup(struct nvme *nvme, struct rte *rte)
 		memset(&nvme->ioq, 0, sizeof(nvme->ioq));
 	}
 
-	/* Stop the controller before removing the GPU IOVA mappings, but unmap
-	 * while the VFIO container still keeps the IOMMU domain alive. */
+	/* Stop the controller before removing the GPU IOVA mappings, and unmap
+	 * while the pinned device fd still keeps the domain attached. */
 	nvme_controller_disable_vfio(&nvme->ctrlr, &nvme->vfio);
 	iommu_unmap_cuda_heap(nvme, &rte->cuda_heap);
 	nvme_controller_close_vfio(&nvme->ctrlr, &nvme->vfio);

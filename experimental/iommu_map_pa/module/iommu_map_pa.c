@@ -24,6 +24,7 @@
  */
 
 #include <linux/dma-buf.h>
+#include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/iommu.h>
 #include <linux/kernel.h>
@@ -40,6 +41,9 @@
 
 #include "iommu_map_pa.h"
 
+/* Forward decl so the map ioctl can recognise, and refuse, our own file. */
+static const struct file_operations iommu_map_pa_fops;
+
 /* One installed mapping; everything needed to tear it back down exactly. */
 struct iommu_map_pa_mapping {
 	u64 handle;			/* opaque id handed to userspace */
@@ -49,6 +53,7 @@ struct iommu_map_pa_mapping {
 	size_t mapped_size;		/* bytes actually mapped (unmap length) */
 	phys_addr_t first_phys;		/* what iova_base translated to at map */
 	struct dma_buf *held_dmabuf;	/* optional: keeps GPU memory alive */
+	struct file *held_device;	/* the caller's VFIO device fd, pinned */
 	struct list_head node;
 };
 
@@ -69,18 +74,25 @@ iommu_map_pa_mapping_destroy(struct iommu_map_pa_mapping *map)
 
 	if (map->domain && map->mapped_size) {
 		/*
-		 * Only unmap if the device still uses the same domain. If
-		 * userspace tore down VFIO first, that domain (and its page
-		 * tables) is already gone, so touching it would be a
-		 * use-after-free. Userspace is expected to UNMAP before closing
-		 * its VFIO container.
+		 * Only unmap if the device still uses the domain we mapped into.
+		 * held_device keeps the ordinary teardown paths from reaching
+		 * here: while that fd is open the group cannot be detached from
+		 * its container, and under iommufd the attached device keeps the
+		 * hwpt referenced. So the common case, userspace closing up shop
+		 * with a mapping still installed, no longer frees the domain
+		 * first.
 		 *
-		 * The pointer compare alone is not enough: a freed domain can be
-		 * reallocated at the same address, and unmapping then punches a
-		 * hole in an unrelated live domain. So also require that the
-		 * range still translates to what we installed. A recycled domain
-		 * that happens to map our IOVA to our exact GPU physical is not
-		 * something userspace can arrange without already owning both.
+		 * That is a narrowing, not a guarantee. An explicit detach ioctl
+		 * on the same fd still detaches, and then the domain can be
+		 * freed while we hold a pointer to it, which is why the pointer
+		 * is treated as suspect: compare it against the device's current
+		 * domain, and confirm the range still translates to what we
+		 * installed. Neither check is conclusive alone, since a freed
+		 * domain can be reallocated at the same address, but a recycled
+		 * domain that also maps our IOVA to our exact physical is not
+		 * something userspace hits by accident. Unmapping before tearing
+		 * the VFIO setup down remains the only ordering that is simply
+		 * correct.
 		 */
 		struct iommu_domain *cur = map->pdev ?
 			iommu_get_domain_for_dev(&map->pdev->dev) : NULL;
@@ -96,6 +108,10 @@ iommu_map_pa_mapping_destroy(struct iommu_map_pa_mapping *map)
 	}
 	if (map->held_dmabuf)
 		dma_buf_put(map->held_dmabuf);
+	/* After the unmap above, never before: this reference is what held the
+	 * device attached while the mapping was installed. */
+	if (map->held_device)
+		fput(map->held_device);
 	if (map->pdev)
 		pci_dev_put(map->pdev);
 	kfree(map);
@@ -175,6 +191,7 @@ iommu_map_pa_ioctl_map(struct file *file, unsigned long arg)
 	struct iommu_domain *domain = NULL;
 	struct pci_dev *pdev = NULL;
 	struct dma_buf *held = NULL;
+	struct file *device = NULL;
 	u64 *phys = NULL;
 	size_t mapped = 0;
 	char bdf[IOMMU_MAP_PA_BDF_LEN];
@@ -194,8 +211,16 @@ iommu_map_pa_ioctl_map(struct file *file, unsigned long arg)
 		(int)sizeof(req.bdf), req.bdf, req.page_size, req.nphys,
 		req.iova_base, req.user_phys_ptr, req.dmabuf_fd);
 
-	if (req.reserved[0] || req.reserved[1])
+	if (req.reserved)
 		return -EINVAL;
+	/* Required: pinning the caller's VFIO device fd is what stops the
+	 * ordinary teardown paths from detaching the device, and with it the
+	 * domain, while a mapping is installed. Rejected at <= 0 so a
+	 * '{0}'-initialised request fails closed instead of naming descriptor 0. */
+	if (req.device_fd <= 0) {
+		pr_err("iommu_map_pa: device_fd is required; pass the open VFIO device fd for this BDF\n");
+		return -EINVAL;
+	}
 	/* Reject undefined prot bits for the same reason as 'reserved': silently
 	 * ignoring them would make the remaining bits unusable for future flags,
 	 * since a new kernel could not tell an old caller's garbage from intent. */
@@ -227,9 +252,48 @@ iommu_map_pa_ioctl_map(struct file *file, unsigned long arg)
 		return err;
 
 	/*
+	 * Pin the caller's VFIO device fd. An open device fd holds the group
+	 * file and makes VFIO_GROUP_UNSET_CONTAINER fail, and under iommufd it
+	 * keeps the hwpt referenced against IOMMU_DESTROY, so the domain we are
+	 * about to map into cannot be freed by the paths userspace takes when it
+	 * simply closes up shop. It is not absolute, an explicit detach ioctl
+	 * still works, which is why the unmap-time checks stay.
+	 *
+	 * Note the domain lifetime follows device attachment, not the container
+	 * file: pinning the container instead would look reassuring and prevent
+	 * nothing, since vfio_iommu_type1_detach_group() frees the domain when
+	 * the last group leaves, long before the container file is released.
+	 */
+	/* fget(), not fget_raw(): it refuses O_PATH descriptors, which pin nothing
+	 * and would otherwise slip past the self-check below, an O_PATH open of
+	 * our own node carrying empty_fops rather than ours. */
+	device = fget(req.device_fd);
+	if (!device) {
+		pr_err("iommu_map_pa: fget(device_fd=%d) failed; pass the open VFIO device fd for this BDF\n",
+		       req.device_fd);
+		err = -EBADF;
+		goto err_unwind;
+	}
+	/*
+	 * Refuse our own file. It is not a VFIO device, so it protects nothing,
+	 * and it would be self-referential: the mapping holds the file whose
+	 * release() is what would tear the mapping down, so neither ever runs
+	 * and the context, its mappings and the module reference leak for good.
+	 */
+	if (device->f_op == &iommu_map_pa_fops) {
+		pr_err("iommu_map_pa: device_fd names this device; pass the VFIO device fd instead\n");
+		err = -EINVAL;
+		goto err_unwind;
+	}
+
+	/*
 	 * The device must already be attached to an IOMMU domain. For a
 	 * VFIO-controlled NVMe this returns the VFIO/iommufd-owned domain, i.e.
 	 * the exact translation context the device uses for userspace I/O.
+	 *
+	 * Looked up after the pin above, deliberately: the other order would
+	 * capture a domain pointer that a racing teardown could free before the
+	 * mapping loop below ever touches it.
 	 */
 	domain = iommu_get_domain_for_dev(&pdev->dev);
 	if (!domain) {
@@ -376,6 +440,7 @@ iommu_map_pa_ioctl_map(struct file *file, unsigned long arg)
 	 * teardown check compares against the installed translation. */
 	map->first_phys = iommu_iova_to_phys(domain, (unsigned long)req.iova_base);
 	map->held_dmabuf = held;
+	map->held_device = device;
 	mutex_lock(&ctx->lock);
 	list_add_tail(&map->node, &ctx->maps);
 	mutex_unlock(&ctx->lock);
@@ -388,6 +453,8 @@ err_unwind:
 		iommu_unmap(domain, (unsigned long)req.iova_base, mapped);
 	if (held)
 		dma_buf_put(held);
+	if (device)
+		fput(device);
 	if (pdev)
 		pci_dev_put(pdev);
 	kvfree(phys);
@@ -472,7 +539,22 @@ static struct miscdevice iommu_map_pa_misc = {
 static int __init
 iommu_map_pa_module_init(void)
 {
-	return misc_register(&iommu_map_pa_misc);
+	int ret;
+
+	ret = misc_register(&iommu_map_pa_misc);
+	if (ret)
+		return ret;
+
+	/*
+	 * Say out loud what this is. The module maps caller-supplied physical
+	 * addresses into a live IOMMU domain, so anyone who can open the node
+	 * can drive a device at arbitrary physical memory. A line in dmesg is
+	 * the one place an operator is certain to see that, having typed
+	 * modprobe rather than read the README.
+	 */
+	pr_warn("iommu_map_pa: EXPERIMENTAL. /dev/iommu_map_pa maps arbitrary physical addresses into a device's IOMMU domain; access to the node is root-equivalent\n");
+
+	return 0;
 }
 
 static void __exit

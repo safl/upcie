@@ -34,15 +34,35 @@ included test builds NVMe PRPs from the resulting IOVA range.
   rejected rather than writing into the kernel's own DMA domain, where the
   IOVAs would collide with addresses the kernel later hands out.
 - The module calls `iommu_map()` on a live domain borrowed from
-  `iommu_get_domain_for_dev()`. It does not own or pin that domain.
+  `iommu_get_domain_for_dev()`, and it does not own that domain. Every request
+  must therefore name the open VFIO device fd for the target, as `device_fd`,
+  which the module pins for the lifetime of the mapping. While a device fd is
+  open the group cannot be detached from its container, and under iommufd the
+  attached device keeps the hwpt referenced, so the paths userspace takes when
+  it simply closes up shop cannot free the domain, and neither can unbinding
+  the driver or unplugging the device: both block until the mapping is gone.
+  Under iommufd an explicit detach, or a re-attach to a different hwpt, still
+  frees an auto-allocated domain, and the fd is not validated to be a VFIO
+  device at all, so an unrelated file satisfies the check while protecting
+  nothing.
+- Note what does *not* work, in case it looks equivalent: pinning the VFIO
+  container fd. Domain lifetime follows device attachment, not the container
+  file, so a container pin prevents nothing while looking reassuring.
+- The pin has a cost worth knowing: while a mapping is installed, `unbind` and
+  hot-unplug of the target block until it is removed, even if the process that
+  set VFIO up has already exited. And the self-reference guard only refuses the
+  helper's own fd directly; an fd cycle built deliberately through, say,
+  SCM_RIGHTS or an io_uring fixed-file table still leaks the mapping until
+  reboot. Both need root and intent, which this node already requires.
 - The mappings bypass VFIO and iommufd IOVA accounting, locking, dirty
   tracking, and domain lifecycle management.
 - The supplied `phys_lut` is assumed to contain addresses that are valid as
   `phys_addr_t` inputs to `iommu_map()` on the tested platform.
 - The caller-selected IOVA range must not overlap mappings managed by VFIO or
   iommufd.
-- Every experimental mapping must be removed before the VFIO container, HWPT,
-  or device attachment is destroyed or changed.
+- Every experimental mapping must still be removed before the VFIO container,
+  HWPT, or device attachment is destroyed or changed. The pinned `device_fd`
+  closes the accidental version of that mistake, not the deliberate one.
 - Do not rebind the target device or alter its IOMMU domain while the helper
   file descriptor is open.
 

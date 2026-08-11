@@ -88,9 +88,15 @@ upcie_iommu_map_pa_del(int fd, __u64 map_handle)
  * target device currently uses. On success the IOMMU translates
  * 'iova_base + i * page_size' to 'phys[i]', so PRPs should be built from
  * iova_base, not from phys[].
+ *
+ * 'device_fd' is the open VFIO device fd for 'bdf', and is required: the module
+ * pins it for the lifetime of the mapping, which keeps the device attached and
+ * so keeps the domain from being torn down by the ordinary teardown paths. It
+ * is not a guarantee, an explicit detach still works, so unmap before tearing
+ * the VFIO setup down.
  */
 static inline int
-upcie_iommu_map_pa_add(int fd, const char *bdf, int dmabuf_fd,
+upcie_iommu_map_pa_add(int fd, const char *bdf, int dmabuf_fd, int device_fd,
 				uint64_t iova_base, __u32 page_size, __u32 nphys,
 				const uint64_t *phys, __u32 prot,
 				uint64_t *map_handle_out)
@@ -99,11 +105,16 @@ upcie_iommu_map_pa_add(int fd, const char *bdf, int dmabuf_fd,
 
 	if (fd < 0 || !bdf || !phys || !nphys)
 		return -EINVAL;
+	/* Required by the module: it pins this fd so the ordinary VFIO teardown
+	 * paths cannot detach the device while the mapping is installed. */
+	if (device_fd <= 0)
+		return -EINVAL;
 
 	strncpy(req.bdf, bdf, sizeof(req.bdf) - 1);
 	/* Normalise "no dma-buf": fd 0 is a valid descriptor, so a plain
 	 * negative value is the only safe way to say "nothing to pin". */
 	req.dmabuf_fd = dmabuf_fd < 0 ? IOMMU_MAP_PA_NO_DMABUF : dmabuf_fd;
+	req.device_fd = device_fd;
 	req.page_size = page_size;
 	req.nphys = nphys;
 	req.prot = prot;

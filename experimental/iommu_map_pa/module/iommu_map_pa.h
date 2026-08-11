@@ -65,9 +65,31 @@ struct iommu_map_pa_req {
 	__u32 page_size;
 	__u32 nphys;			/* <= IOMMU_MAP_PA_MAX_NPHYS */
 	__u32 prot;			/* IOMMU_MAP_PA_PROT_*; 0 => READ|WRITE */
+	/*
+	 * Required: the open VFIO device fd for 'bdf', i.e. what
+	 * VFIO_GROUP_GET_DEVICE_FD returned, or the /dev/vfio/devices/vfioN fd
+	 * under iommufd. Must be > 0, so a '{0}'-initialised request fails
+	 * closed rather than naming fd 0.
+	 *
+	 * The module holds a reference to that file for as long as the mapping
+	 * lives. What that buys: while a device fd is open, the group cannot be
+	 * detached from its container (VFIO_GROUP_UNSET_CONTAINER fails, and the
+	 * device fd holds the group file), and under iommufd the attached device
+	 * keeps the hwpt referenced, so IOMMU_DESTROY fails. The ordinary
+	 * teardown paths therefore cannot free the domain out from under an
+	 * installed mapping.
+	 *
+	 * What it does not buy: under iommufd the caller can still detach or
+	 * re-attach explicitly on that same fd, with VFIO_DEVICE_DETACH_IOMMUFD_PT
+	 * or an ATTACH_IOMMUFD_PT to a different hwpt, either of which frees an
+	 * auto-allocated domain. The fd is also not validated to be a VFIO device
+	 * at all, so an unrelated file satisfies the check while protecting
+	 * nothing. The unmap-time checks remain the safety net.
+	 */
+	__s32 device_fd;
 	/* Fills the padding before the 8-byte aligned members and reserves it
 	 * for future use; must be zero, the module rejects anything else. */
-	__u32 reserved[2];
+	__u32 reserved;
 	__aligned_u64 iova_base;	/* userspace-chosen base IOVA */
 	__aligned_u64 user_phys_ptr;	/* array of 'nphys' __u64 phys addrs */
 	__aligned_u64 map_handle;	/* out */
