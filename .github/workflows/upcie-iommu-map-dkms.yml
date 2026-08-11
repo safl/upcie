@@ -76,7 +76,7 @@ jobs:
           apt-get update
           export DEBIAN_FRONTEND=noninteractive
           apt-get install -y --no-install-recommends \
-            build-essential kmod dkms linux-headers-generic
+            build-essential kmod dkms linux-headers-generic git ca-certificates
 
       - name: Checkout
         uses: actions/checkout@v7.0.0
@@ -94,24 +94,25 @@ jobs:
           deb=$(ls dl/upcie-iommu-map-dkms_*_all.deb)
           apt-get install -y "./$deb"
           test -f /usr/include/upcie/upcie_iommu_map.h
+          test -f /usr/include/upcie/iommu_map.h
 
           # `uname -r` in a container is the host kernel, so DKMS skips it and
           # targets the kernel whose headers this image ships. That leaves the
           # module at "built" or "installed" depending on how far autoinstall
           # got, and either state proves the source package compiles.
           ver=$(dpkg-query -W -f='${Version}' upcie-iommu-map-dkms)
-          kver=$(basename /usr/src/linux-headers-*-generic | sed 's/^linux-headers-//')
+          # head -1: with more than one match the glob would feed basename a
+          # second argument, which it takes as a suffix to strip, not a path.
+          kver=$(basename "$(ls -d /usr/src/linux-headers-*-generic | head -1)" \
+                 | sed 's/^linux-headers-//')
           dkms build -m upcie-iommu-map -v "$ver" -k "$kver"
           dkms status -m upcie-iommu-map -v "$ver" -k "$kver" | grep -qE ': (built|installed)'
 
       - name: Build a consumer against the prerequisite
         run: |
-          # The helper header is staged outside the checkout so its in-tree
-          # fallback include cannot resolve; only the header installed by the
-          # deb can satisfy the UAPI include.
-          install -D -m0644 \
-            experimental/vfio_cuda_iommu_map/include/upcie/iommu_map.h \
-            staged/upcie/iommu_map.h
+          # Built outside the checkout and with no -I: everything must come from
+          # what the deb installed, so a gap in the shipped surface fails here.
+          cd /tmp
           cat > consumer.c <<'EOF'
           #include <stdint.h>
           #include <upcie/iommu_map.h>
@@ -120,10 +121,10 @@ jobs:
                   struct upcie_iommu_map_req req = {0};
                   (void)req;
                   (void)UPCIE_IOMMU_MAP_DEVICE;
-                  return 0;
+                  return upcie_iommu_map_del(-1, 0) == -EINVAL ? 0 : 1;
           }
           EOF
-          gcc -Wall -Istaged -o consumer consumer.c
+          gcc -Wall -Wextra -o consumer consumer.c
           echo "helper wrappers build against the installed prerequisite"
 
   # Independent out-of-tree link check (modpost); needs no deb.

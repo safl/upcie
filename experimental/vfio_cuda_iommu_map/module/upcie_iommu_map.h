@@ -32,6 +32,17 @@
 #define UPCIE_IOMMU_MAP_PROT_READ (1U << 0)
 #define UPCIE_IOMMU_MAP_PROT_WRITE (1U << 1)
 
+/*
+ * Value for 'dmabuf_fd' when no dma-buf should be pinned. Any negative value
+ * works; 0 does not, since it is a valid descriptor. Always set this field
+ * explicitly: a '{0}'-initialised request otherwise names fd 0 (stdin).
+ */
+#define UPCIE_IOMMU_MAP_NO_DMABUF (-1)
+
+/* Upper bound on 'nphys', to keep a bogus request from asking for a
+ * multi-gigabyte kernel allocation. 4 MiB of entries, 2 GiB at 4K pages. */
+#define UPCIE_IOMMU_MAP_MAX_NPHYS (1U << 19)
+
 struct upcie_iommu_unmap_req {
 	__aligned_u64 map_handle;
 };
@@ -45,11 +56,14 @@ struct upcie_iommu_unmap_req {
  */
 struct upcie_iommu_map_req {
 	char bdf[UPCIE_IOMMU_MAP_BDF_LEN];
-	__s32 dmabuf_fd;		/* optional lifetime ref; <0 to skip */
+	__s32 dmabuf_fd;		/* optional lifetime ref;
+					 * UPCIE_IOMMU_MAP_NO_DMABUF to skip */
 	__u32 page_size;
-	__u32 nphys;
+	__u32 nphys;			/* <= UPCIE_IOMMU_MAP_MAX_NPHYS */
 	__u32 prot;			/* UPCIE_IOMMU_MAP_PROT_*; 0 => READ|WRITE */
-	__u32 reserved;
+	/* Fills the padding before the 8-byte aligned members and reserves it
+	 * for future use; must be zero, the module rejects anything else. */
+	__u32 reserved[2];
 	__aligned_u64 iova_base;	/* userspace-chosen base IOVA */
 	__aligned_u64 user_phys_ptr;	/* array of 'nphys' __u64 phys addrs */
 	__aligned_u64 map_handle;	/* out */

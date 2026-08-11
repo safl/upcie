@@ -46,6 +46,7 @@ struct upcie_iommu_mapping {
 	struct iommu_domain *domain;	/* domain we mapped into (for unmap) */
 	unsigned long iova_base;	/* start IOVA of the mapping */
 	size_t mapped_size;		/* bytes actually mapped (unmap length) */
+	phys_addr_t first_phys;		/* what iova_base translated to at map */
 	struct dma_buf *held_dmabuf;	/* optional: keeps GPU memory alive */
 	struct list_head node;
 };
@@ -72,15 +73,25 @@ upcie_iommu_mapping_destroy(struct upcie_iommu_mapping *map)
 		 * tables) is already gone, so touching it would be a
 		 * use-after-free. Userspace is expected to UNMAP before closing
 		 * its VFIO container.
+		 *
+		 * The pointer compare alone is not enough: a freed domain can be
+		 * reallocated at the same address, and unmapping then punches a
+		 * hole in an unrelated live domain. So also require that the
+		 * range still translates to what we installed. A recycled domain
+		 * that happens to map our IOVA to our exact GPU physical is not
+		 * something userspace can arrange without already owning both.
 		 */
 		struct iommu_domain *cur = map->pdev ?
 			iommu_get_domain_for_dev(&map->pdev->dev) : NULL;
 
-		if (cur == map->domain)
-			iommu_unmap(map->domain, map->iova_base, map->mapped_size);
-		else
+		if (cur != map->domain)
 			pr_warn("upcie-iommu: domain changed before unmap, skipping iommu_unmap (handle=%llu)\n",
 				map->handle);
+		else if (iommu_iova_to_phys(cur, map->iova_base) != map->first_phys)
+			pr_warn("upcie-iommu: iova 0x%lx no longer translates to 0x%llx, skipping iommu_unmap (handle=%llu)\n",
+				map->iova_base, (u64)map->first_phys, map->handle);
+		else
+			iommu_unmap(map->domain, map->iova_base, map->mapped_size);
 	}
 	if (map->held_dmabuf)
 		dma_buf_put(map->held_dmabuf);
@@ -182,10 +193,16 @@ upcie_iommu_map_ioctl_map(struct file *file, unsigned long arg)
 		(int)sizeof(req.bdf), req.bdf, req.page_size, req.nphys,
 		req.iova_base, req.user_phys_ptr, req.dmabuf_fd);
 
+	if (req.reserved[0] || req.reserved[1])
+		return -EINVAL;
 	if (!req.page_size || !is_power_of_2(req.page_size) ||
 	    req.page_size < PAGE_SIZE)
 		return -EINVAL;
 	if (!req.nphys || !req.user_phys_ptr)
+		return -EINVAL;
+	/* Bound the kernel-side array: nphys is a u32, so without a cap a bogus
+	 * request asks kvmalloc_array() for tens of gigabytes. */
+	if (req.nphys > UPCIE_IOMMU_MAP_MAX_NPHYS)
 		return -EINVAL;
 	if (!IS_ALIGNED(req.iova_base, req.page_size))
 		return -EINVAL;
@@ -218,6 +235,22 @@ upcie_iommu_map_ioctl_map(struct file *file, unsigned long arg)
 	pr_debug("upcie-iommu: domain=%p type=%u aperture=[0x%llx..0x%llx] pgsize_bitmap=0x%lx for %s\n",
 		domain, domain->type, domain->geometry.aperture_start,
 		domain->geometry.aperture_end, domain->pgsize_bitmap, bdf);
+
+	/*
+	 * Only an unmanaged domain is ours to write into: that is what VFIO and
+	 * iommufd allocate for a userspace-owned device. A kernel driver's
+	 * DMA domain has its IOVA space owned by the kernel iova allocator, so
+	 * installing entries there would collide with addresses the kernel later
+	 * hands out and silently redirect its DMA. An identity or passthrough
+	 * domain has no translation to install into at all. Refuse both, so
+	 * naming the wrong BDF is an error and not memory corruption.
+	 */
+	if (domain->type != IOMMU_DOMAIN_UNMANAGED) {
+		pr_err("upcie-iommu: %s is not in a userspace-owned IOMMU domain (type=%u); bind it to vfio-pci first\n",
+		       bdf, domain->type);
+		err = -EINVAL;
+		goto err_unwind;
+	}
 
 	/* Intel VT-d returns -EFAULT when iova+size exceeds the domain address
 	 * width; pre-check against the aperture so misuse is obvious. */
@@ -333,6 +366,9 @@ upcie_iommu_map_ioctl_map(struct file *file, unsigned long arg)
 	map->domain = domain;
 	map->iova_base = (unsigned long)req.iova_base;
 	map->mapped_size = mapped;
+	/* What the page table itself reports, not what we asked for, so the
+	 * teardown check compares against the installed translation. */
+	map->first_phys = iommu_iova_to_phys(domain, (unsigned long)req.iova_base);
 	map->held_dmabuf = held;
 	mutex_lock(&ctx->lock);
 	list_add_tail(&map->node, &ctx->maps);
@@ -355,6 +391,15 @@ err_unwind:
 static long
 upcie_iommu_map_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
+	/*
+	 * No capability check here, deliberately. MAP programs a DMA-capable
+	 * device to reach caller-supplied physical addresses, i.e. whoever can
+	 * open this node is root-equivalent; access is therefore governed by the
+	 * node itself, which is registered 0600 root-only. An operator who wants
+	 * to run the experiments unprivileged hands the node to a group with a
+	 * udev rule, which is an explicit local decision rather than something
+	 * the module grants.
+	 */
 	switch (cmd) {
 	case UPCIE_IOMMU_UNMAP:
 		return upcie_iommu_map_ioctl_unmap(file, arg);
@@ -403,9 +448,9 @@ static const struct file_operations upcie_iommu_map_fops = {
 	.open = upcie_iommu_map_chrdev_open,
 	.release = upcie_iommu_map_chrdev_release,
 	.unlocked_ioctl = upcie_iommu_map_ioctl,
-#ifdef CONFIG_COMPAT
-	.compat_ioctl = upcie_iommu_map_ioctl,
-#endif
+	/* Not the native handler: 'arg' from a 32-bit caller needs compat_ptr()
+	 * before it can be used as a userspace pointer. */
+	.compat_ioctl = compat_ptr_ioctl,
 };
 
 static struct miscdevice upcie_iommu_map_misc = {

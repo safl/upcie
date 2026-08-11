@@ -15,6 +15,12 @@ NVMe PRPs from the resulting IOVA range.
 
 ## Safety limitations
 
+- Whoever can open the device node can program a DMA-capable device to read or
+  write **any** physical address they name, so the node is registered `0600`
+  root-only and handing it to a group is handing out root-equivalence.
+- The target must already sit in a userspace-owned (unmanaged) IOMMU domain,
+  i.e. be bound to `vfio-pci` or iommufd. Naming a driver-bound device is
+  rejected rather than writing into the kernel's own DMA domain.
 - The module calls `iommu_map()` on a live domain borrowed from
   `iommu_get_domain_for_dev()`. It does not own or pin that domain.
 - The mappings bypass VFIO and iommufd IOVA accounting, locking, dirty

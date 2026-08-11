@@ -38,6 +38,9 @@ override_dh_install:
 	# Not /usr/include/linux/: that path is owned by linux-libc-dev, and a
 	# collision there would make this package fail to install.
 	install -D -m0644 module/upcie_iommu_map.h debian/$(PACKAGE)-dkms/usr/include/upcie/upcie_iommu_map.h
+	# The wrapper is the surface consumers actually call (upcie_iommu_map_open/
+	# add/del); shipping only the ioctl ABI left them vendoring it by hand.
+	install -D -m0644 include/upcie/iommu_map.h debian/$(PACKAGE)-dkms/usr/include/upcie/iommu_map.h
 
 override_dh_dkms:
 	dh_dkms -V $(VERSION)

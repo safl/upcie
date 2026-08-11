@@ -87,7 +87,9 @@ upcie_iommu_map_add(int fd, const char *bdf, int dmabuf_fd,
 		return -EINVAL;
 
 	strncpy(req.bdf, bdf, sizeof(req.bdf) - 1);
-	req.dmabuf_fd = dmabuf_fd;
+	/* Normalise "no dma-buf": fd 0 is a valid descriptor, so a plain
+	 * negative value is the only safe way to say "nothing to pin". */
+	req.dmabuf_fd = dmabuf_fd < 0 ? UPCIE_IOMMU_MAP_NO_DMABUF : dmabuf_fd;
 	req.page_size = page_size;
 	req.nphys = nphys;
 	req.prot = prot;

@@ -239,6 +239,7 @@ nvme_io(struct nvme *nvme, uint8_t opc, uint64_t iova)
 	err = nvme_qpair_enqueue(&nvme->ioq, &cmd);
 	if (err) {
 		printf("FAILED: nvme_qpair_enqueue(); err(%d)\n", err);
+		nvme_request_free(nvme->ioq.rpool, req->cid);
 		return err;
 	}
 
@@ -246,7 +247,11 @@ nvme_io(struct nvme *nvme, uint8_t opc, uint64_t iova)
 
 	err = nvme_qpair_reap_cpl(&nvme->ioq, nvme->ctrlr.timeout_ms, &cpl);
 	if (err) {
+		/* Without this the cid leaks from the 32-entry pool, and repeated
+		 * timeouts later surface as nvme_request_alloc() failures instead
+		 * of the actual error. */
 		printf("FAILED: nvme_qpair_reap_cpl(); err(%d)\n", err);
+		nvme_request_free(nvme->ioq.rpool, req->cid);
 		return err;
 	}
 
