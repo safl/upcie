@@ -6,14 +6,15 @@
 *.symvers
 *.order
 .tmp_versions/
-udmabuf_import_cpu
-udmabuf_import_gpu
+dmabuf_import_cpu
+dmabuf_import_gpu
+test/dmabuf_import_bounds
 
 # Debian packaging build output
 debian/.debhelper/
 debian/files
 debian/*.substvars
-debian/udmabuf-import-dkms/
+debian/dmabuf-import-dkms/
 *.deb
 *.buildinfo
 *.changes
