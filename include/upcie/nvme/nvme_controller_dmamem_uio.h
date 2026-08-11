@@ -18,7 +18,7 @@
  * nvme_controller_enable_via_bar0.
  *
  * @file nvme_controller_dmamem_uio.h
- * @version 0.5.2
+ * @version 0.6.0
  */
 
 /**
