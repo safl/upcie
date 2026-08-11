@@ -25,7 +25,7 @@
 #include <linux/err.h>
 #include <linux/uaccess.h>
 #include <linux/rbtree.h>
-#include <linux/spinlock.h>
+#include <linux/mutex.h>
 #include <linux/scatterlist.h>
 #include <linux/dma-buf.h>
 #include <linux/dma-mapping.h>
@@ -35,10 +35,26 @@
 /* Forward decl so the ioctl handlers can reach the device for dma_buf_attach. */
 static struct miscdevice udmabuf_import_misc;
 
-/* ---- imported dma-buf tracking (verbatim from the original patch) ------- */
+/* ---- imported dma-buf tracking ------------------------------------------ */
 
-static struct rb_root udmabuf_dma_tree = RB_ROOT;
-static DEFINE_RWLOCK(udmabuf_dma_treelock);
+/*
+ * Per-open-file state. The original patch kept one global rbtree keyed by the
+ * raw dma-buf fd number, which is wrong once more than one process uses the
+ * device: fd numbers are per-process, so two processes that each hold an
+ * unrelated dma-buf at, say, fd 7 collide on the same key. The loser of the
+ * insert silently reads the other process's DMA addresses, and either one can
+ * tear down the other's attachment with UDMABUF_DETACH. Scoping the tree to the
+ * open file makes the key unambiguous, and it also bounds the lifetime of the
+ * attachments: whatever is left at close() is torn down instead of leaked until
+ * module unload.
+ *
+ * The lock is a mutex, not the original rwlock, because everything it now
+ * covers may sleep (dma_buf_attach() and friends take dma_resv_lock).
+ */
+struct udmabuf_import_ctx {
+	struct mutex lock;
+	struct rb_root tree;
+};
 
 struct udmabuf_dma_buf_desc {
 	int				dma_buf_fd;
@@ -91,25 +107,38 @@ static int udmabuf_dma_tree_insert(struct rb_root *root, struct udmabuf_dma_buf_
 	return 0;
 }
 
-static struct udmabuf_dma_buf_desc *udmabuf_get_dma_buf_desc(int dma_buf_fd)
+/*
+ * Look up an attachment by fd, and confirm the fd still names the dma-buf it
+ * named at UDMABUF_ATTACH time. Without that check a closed-and-reused fd
+ * number resolves to the stale descriptor and hands back the DMA addresses of
+ * a completely different buffer. Caller must hold ctx->lock.
+ */
+static struct udmabuf_dma_buf_desc *udmabuf_get_dma_buf_desc(struct udmabuf_import_ctx *ctx,
+							     int dma_buf_fd)
 {
 	struct udmabuf_dma_buf_desc *desc;
+	struct dma_buf *dmabuf;
 
-	read_lock(&udmabuf_dma_treelock);
-	desc = udmabuf_dma_tree_find(&udmabuf_dma_tree, dma_buf_fd);
-	read_unlock(&udmabuf_dma_treelock);
+	desc = udmabuf_dma_tree_find(&ctx->tree, dma_buf_fd);
 	if (!desc)
 		return ERR_PTR(-EINVAL);
+
+	dmabuf = dma_buf_get(dma_buf_fd);
+	if (IS_ERR(dmabuf))
+		return ERR_CAST(dmabuf);
+
+	if (dmabuf != desc->dma_buf) {
+		dma_buf_put(dmabuf);
+		return ERR_PTR(-EINVAL);
+	}
+	dma_buf_put(dmabuf);
 
 	return desc;
 }
 
 /*
- * Tear down a desc's dma-buf attachment and free it. The dma-buf teardown
- * sleeps (dma_buf_unmap_attachment_unlocked() and dma_buf_detach() take
- * dma_resv_lock), so this must NOT be called under udmabuf_dma_treelock; the
- * caller removes the node from the tree under the lock, then calls this after
- * dropping it. The desc must already be out of (or never in) the tree.
+ * Tear down a desc's dma-buf attachment and free it. The desc must already be
+ * out of (or never in) the tree.
  */
 static void udmabuf_detach(struct udmabuf_dma_buf_desc *desc)
 {
@@ -126,7 +155,9 @@ static void udmabuf_detach(struct udmabuf_dma_buf_desc *desc)
 	kfree(desc);
 }
 
-static int udmabuf_attach(struct udmabuf_dma_buf_desc **desc, int dma_buf_fd,
+/* Caller must hold ctx->lock. */
+static int udmabuf_attach(struct udmabuf_import_ctx *ctx,
+			  struct udmabuf_dma_buf_desc **desc, int dma_buf_fd,
 			  struct device *dev, enum dma_data_direction dir)
 {
 	struct udmabuf_dma_buf_desc *tmp;
@@ -135,13 +166,18 @@ static int udmabuf_attach(struct udmabuf_dma_buf_desc **desc, int dma_buf_fd,
 	if (WARN_ON_ONCE(!dev))
 		return -EFAULT;
 
-	read_lock(&udmabuf_dma_treelock);
-	tmp = udmabuf_dma_tree_find(&udmabuf_dma_tree, dma_buf_fd);
-	read_unlock(&udmabuf_dma_treelock);
-	if (tmp) {
+	tmp = udmabuf_get_dma_buf_desc(ctx, dma_buf_fd);
+	if (!IS_ERR(tmp)) {
 		/* Don't fail if dma-buf is already attached. */
 		*desc = tmp;
 		return 0;
+	}
+	/* A stale entry (fd number reused for a different dma-buf) is replaced
+	 * rather than reported, so re-attaching on a recycled fd works. */
+	tmp = udmabuf_dma_tree_find(&ctx->tree, dma_buf_fd);
+	if (tmp) {
+		rb_erase(&tmp->node, &ctx->tree);
+		udmabuf_detach(tmp);
 	}
 
 	tmp = kzalloc(sizeof(*tmp), GFP_KERNEL);
@@ -173,9 +209,7 @@ static int udmabuf_attach(struct udmabuf_dma_buf_desc **desc, int dma_buf_fd,
 	tmp->dir = dir;
 	tmp->dma_buf_fd = dma_buf_fd;
 
-	write_lock(&udmabuf_dma_treelock);
-	ret = udmabuf_dma_tree_insert(&udmabuf_dma_tree, tmp);
-	write_unlock(&udmabuf_dma_treelock);
+	ret = udmabuf_dma_tree_insert(&ctx->tree, tmp);
 	if (ret)
 		goto err;
 
@@ -190,6 +224,7 @@ err:
 
 static long udmabuf_ioctl_attach(struct file *filp, unsigned long arg)
 {
+	struct udmabuf_import_ctx *ctx = filp->private_data;
 	struct device *dev = udmabuf_import_misc.this_device;
 	struct udmabuf_attach __user *uattach;
 	struct udmabuf_attach attach;
@@ -201,11 +236,13 @@ static long udmabuf_ioctl_attach(struct file *filp, unsigned long arg)
 	if (copy_from_user(&attach, uattach, sizeof(attach)))
 		return -EFAULT;
 
-	ret = udmabuf_attach(&desc, attach.fd, dev, DMA_BIDIRECTIONAL);
+	mutex_lock(&ctx->lock);
+	ret = udmabuf_attach(ctx, &desc, attach.fd, dev, DMA_BIDIRECTIONAL);
+	if (!ret)
+		attach.count = desc->sgt->nents;
+	mutex_unlock(&ctx->lock);
 	if (ret)
 		return ret;
-
-	attach.count = desc->sgt->nents;
 
 	if (copy_to_user(uattach, &attach, sizeof(attach)))
 		return -EFAULT;
@@ -215,19 +252,18 @@ static long udmabuf_ioctl_attach(struct file *filp, unsigned long arg)
 
 static long udmabuf_ioctl_detach(struct file *filp, unsigned long arg)
 {
+	struct udmabuf_import_ctx *ctx = filp->private_data;
 	struct udmabuf_dma_buf_desc *desc;
 	int fd;
 
 	if (copy_from_user(&fd, (void __user *)arg, sizeof(fd)))
 		return -EFAULT;
 
-	/* Remove the node from the tree under the lock (pointer work only), then
-	 * do the sleeping dma-buf teardown after dropping it. */
-	write_lock(&udmabuf_dma_treelock);
-	desc = udmabuf_dma_tree_find(&udmabuf_dma_tree, fd);
+	mutex_lock(&ctx->lock);
+	desc = udmabuf_dma_tree_find(&ctx->tree, fd);
 	if (desc)
-		rb_erase(&desc->node, &udmabuf_dma_tree);
-	write_unlock(&udmabuf_dma_treelock);
+		rb_erase(&desc->node, &ctx->tree);
+	mutex_unlock(&ctx->lock);
 
 	if (!desc)
 		return -EINVAL;
@@ -238,12 +274,14 @@ static long udmabuf_ioctl_detach(struct file *filp, unsigned long arg)
 
 static long udmabuf_ioctl_get_map(struct file *filp, unsigned long arg)
 {
+	struct udmabuf_import_ctx *ctx = filp->private_data;
 	struct udmabuf_dma_buf_desc *desc;
 	struct udmabuf_get_map __user *uget_map;
 	struct udmabuf_get_map get_map;
 	struct udmabuf_dma_map map;
 	struct udmabuf_dma_map __user *umap;
 	struct scatterlist *sg;
+	int ret = 0;
 	int i;
 
 	uget_map = (void __user *)arg;
@@ -251,9 +289,17 @@ static long udmabuf_ioctl_get_map(struct file *filp, unsigned long arg)
 	if (copy_from_user(&get_map, uget_map, sizeof(get_map)))
 		return -EFAULT;
 
-	desc = udmabuf_get_dma_buf_desc(get_map.fd);
-	if (IS_ERR(desc))
+	/*
+	 * Hold the lock across the copy_to_user loop: the descriptor and its
+	 * sg_table belong to the tree, and a concurrent UDMABUF_DETACH on
+	 * another thread of the same process would otherwise free them under us.
+	 */
+	mutex_lock(&ctx->lock);
+	desc = udmabuf_get_dma_buf_desc(ctx, get_map.fd);
+	if (IS_ERR(desc)) {
+		mutex_unlock(&ctx->lock);
 		return PTR_ERR(desc);
+	}
 
 	umap = uget_map->dma_arr;
 	for_each_sgtable_dma_sg(desc->sgt, sg, i) {
@@ -264,9 +310,45 @@ static long udmabuf_ioctl_get_map(struct file *filp, unsigned long arg)
 
 		map.dma_addr = sg_dma_address(sg);
 		map.dma_len = sg_dma_len(sg);
-		if (copy_to_user(umap + i, &map, sizeof(map)))
-			return -EFAULT;
+		if (copy_to_user(umap + i, &map, sizeof(map))) {
+			ret = -EFAULT;
+			break;
+		}
 	}
+	mutex_unlock(&ctx->lock);
+
+	return ret;
+}
+
+static int udmabuf_import_open(struct inode *inode, struct file *filp)
+{
+	struct udmabuf_import_ctx *ctx;
+
+	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	if (!ctx)
+		return -ENOMEM;
+
+	mutex_init(&ctx->lock);
+	ctx->tree = RB_ROOT;
+	filp->private_data = ctx;
+
+	return 0;
+}
+
+static int udmabuf_import_release(struct inode *inode, struct file *filp)
+{
+	struct udmabuf_import_ctx *ctx = filp->private_data;
+	struct udmabuf_dma_buf_desc *desc, *tmp;
+
+	if (!ctx)
+		return 0;
+
+	/* Last reference to the file: no other user of this ctx remains. */
+	rbtree_postorder_for_each_entry_safe(desc, tmp, &ctx->tree, node)
+		udmabuf_detach(desc);
+
+	mutex_destroy(&ctx->lock);
+	kfree(ctx);
 
 	return 0;
 }
@@ -287,6 +369,8 @@ static long udmabuf_import_ioctl(struct file *filp, unsigned int cmd, unsigned l
 
 static const struct file_operations udmabuf_import_fops = {
 	.owner		= THIS_MODULE,
+	.open		= udmabuf_import_open,
+	.release	= udmabuf_import_release,
 	.unlocked_ioctl	= udmabuf_import_ioctl,
 	.compat_ioctl	= compat_ptr_ioctl,
 	.llseek		= noop_llseek,
@@ -296,6 +380,9 @@ static struct miscdevice udmabuf_import_misc = {
 	.minor	= MISC_DYNAMIC_MINOR,
 	.name	= "udmabuf_import",
 	.fops	= &udmabuf_import_fops,
+	/* Handing out device DMA addresses is a privileged operation; keep the
+	 * node root-only rather than relying on the distro default. */
+	.mode	= 0600,
 };
 
 static int __init udmabuf_import_init(void)
@@ -321,9 +408,10 @@ static int __init udmabuf_import_init(void)
 
 static void __exit udmabuf_import_exit(void)
 {
+	/* Attachments are owned by open files and released with them, and the
+	 * module cannot be unloaded while any of those are open, so there is
+	 * nothing left to drain here. */
 	misc_deregister(&udmabuf_import_misc);
-	/* NB: descriptors still in the tree at unload are leaked; add a
-	 * drain here if the module is meant to be unloaded while in use. */
 }
 
 module_init(udmabuf_import_init);

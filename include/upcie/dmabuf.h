@@ -38,6 +38,7 @@ struct dmabuf_page {
 
 struct dmabuf {
 	int fd;				///< dma-buf file descriptor
+	int import_fd;			///< /dev/udmabuf_import fd owning the attachment
 	size_t npages;			///< Number of pages in the dma-buf
 	struct dmabuf_page *pages;	///< Array of pages in the dma-buf
 };
@@ -108,6 +109,10 @@ dmabuf_get_lut(struct dmabuf *dmabuf, size_t nphys, uint64_t *phys_lut, uint64_t
  * Attach to dma-buf with given FD
  *
  * Populates the given dma-buf structure with information about the dma-buf.
+ *
+ * NOTE: The attachment, and thus the validity of the addresses returned here,
+ * is owned by the /dev/udmabuf_import descriptor. It is kept open in
+ * dmabuf->import_fd until dmabuf_detach(); closing it drops the DMA mapping.
  */
 static inline int
 dmabuf_attach(int dmabuf_fd, struct dmabuf *dmabuf)
@@ -157,6 +162,7 @@ dmabuf_attach(int dmabuf_fd, struct dmabuf *dmabuf)
 
 	memset(dmabuf, 0, sizeof(*dmabuf));
 	dmabuf->fd = dmabuf_fd;
+	dmabuf->import_fd = -1;
 	dmabuf->npages = map->count;
 	pages_size = sizeof(struct dmabuf_page) * dmabuf->npages;
 	dmabuf->pages = malloc(pages_size);
@@ -168,6 +174,13 @@ dmabuf_attach(int dmabuf_fd, struct dmabuf *dmabuf)
 	}
 
 	memcpy(dmabuf->pages, map->dma_arr, pages_size);
+
+	/* Hand ownership of the importer fd to the caller; the kernel-side
+	 * attachment lives exactly as long as this descriptor. */
+	dmabuf->import_fd = udmabuf_fd;
+	free(map);
+
+	return 0;
 
 exit:
 	free(map);
@@ -183,26 +196,31 @@ exit:
 static inline int
 dmabuf_detach(struct dmabuf *dmabuf)
 {
-	int udmabuf_fd, err;
+	int err = 0;
 
 	free(dmabuf->pages);
+	dmabuf->pages = NULL;
 
-	udmabuf_fd = open(UDMABUF_IMPORT_DEVPATH, O_RDWR);
-	if (udmabuf_fd < 0) {
-		err = -errno;
-		UPCIE_DEBUG("FAILED: open(%s), errno: %d", UDMABUF_IMPORT_DEVPATH, err);
-		return err;
+	/* The attachment is scoped to the importer fd that created it, so it
+	 * must be torn down through that same fd; closing it would suffice, the
+	 * explicit DETACH just makes the teardown ordering visible. */
+	/* > 0, not >= 0: a '{0}'-initialised struct that never went through
+	 * dmabuf_attach() must not make this close descriptor 0. */
+	if (dmabuf->import_fd > 0) {
+		if (ioctl(dmabuf->import_fd, UDMABUF_DETACH, &dmabuf->fd)) {
+			err = -errno;
+			UPCIE_DEBUG("FAILED: ioctl(UDMABUF_DETACH), errno: %d\n", err);
+			// fall-through
+		}
+		close(dmabuf->import_fd);
+		dmabuf->import_fd = -1;
 	}
 
-	err = ioctl(udmabuf_fd, UDMABUF_DETACH, &dmabuf->fd);
-	if (err) {
-		err = -errno;
-		UPCIE_DEBUG("FAILED: ioctl(UDMABUF_DETACH), errno: %d\n", err);
-		// fall-through
+	if (dmabuf->fd > 0) {
+		close(dmabuf->fd);
+		dmabuf->fd = -1;
 	}
 
-	close(dmabuf->fd);
-	close(udmabuf_fd);
 	return err;
 }
 #else /* !UDMABUF_ATTACH: udmabuf-import UAPI unavailable, provide stubs */

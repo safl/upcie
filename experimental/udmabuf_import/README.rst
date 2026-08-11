@@ -48,6 +48,13 @@ import ioctls without vendoring::
 It provides the attach/detach/get-map structs and ioctls plus an overridable
 ``UDMABUF_IMPORT_DEVPATH`` (the device to open for the import ioctls).
 
+Attachments are scoped to the ``/dev/udmabuf_import`` descriptor that created
+them: ``UDMABUF_GET_MAP`` and ``UDMABUF_DETACH`` must use the same descriptor as
+the ``UDMABUF_ATTACH``, and closing it tears the attachment down. So keep that
+descriptor open for as long as the DMA addresses are in use. The alternative, a
+process-global registry keyed by the *dma-buf* fd number, made two processes
+holding unrelated *dma-bufs* at the same fd number collide.
+
 Build and run the examples
 --------------------------
 
