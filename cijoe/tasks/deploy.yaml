@@ -51,6 +51,9 @@ steps:
     modprobe iommufd || true
     modprobe vfio-pci || true
     modprobe udmabuf || true
+    # Out-of-tree, from the dmabuf-import DKMS package; non-fatal here because
+    # only the GPU-direct tasks need it, and they load it themselves.
+    modprobe dmabuf_import || true
 
 - name: hugepages
   run: |

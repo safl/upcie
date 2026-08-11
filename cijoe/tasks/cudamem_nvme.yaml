@@ -12,7 +12,13 @@ steps:
 - name: drivers
   run: |
     modprobe uio_pci_generic || true
+    # Stock udmabuf exports memfd-backed dma-bufs; it is usually built in, so a
+    # failure here is not fatal.
     modprobe udmabuf || true
+    # The importer is a separate out-of-tree module now, and this task cannot
+    # work without it: without /dev/dmabuf_import the run fails later with a
+    # confusing ENOENT from dmabuf_import_attach(). Fail here instead.
+    modprobe dmabuf_import
 
 - name: bind_uio
   run: |
