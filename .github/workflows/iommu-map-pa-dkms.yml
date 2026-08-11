@@ -3,12 +3,12 @@ name: iommu-map-pa-dkms
 # Build the experimental iommu_map_pa DKMS deb and make it available as a
 # prerequisite. On a PR touching the module it builds the deb, installs it, and
 # builds a upcie consumer against it. On a upcie release tag (v*) it also
-# attaches the deb -- at its own version, from experimental/iommu_map_pa/
-# debian/ -- to the upcie GitHub Release. The module is not released on its own;
+# attaches the deb, at its own version, from experimental/iommu_map_pa/
+# debian/, to the upcie GitHub Release. The module is not released on its own;
 # it rides the upcie release as an asset.
 #
-# NOTE: PR builds are path-filtered. Pushes -- to main (post-merge) and to v*
-# tags (release) -- carry no paths filter, because a paths filter on push would
+# NOTE: PR builds are path-filtered. Pushes, to main (post-merge) and to v*
+# tags (release), carry no paths filter, because a paths filter on push would
 # suppress the tag trigger (paths and tags do not combine cleanly); a push to
 # main therefore runs regardless of what changed.
 
@@ -126,6 +126,8 @@ jobs:
           }
           EOF
           gcc -Wall -Wextra -o consumer consumer.c
+          # Run it: the -EINVAL check above is only worth writing if it executes.
+          ./consumer
           echo "helper wrappers build against the installed prerequisite"
 
   # Independent out-of-tree link check (modpost); needs no deb.
