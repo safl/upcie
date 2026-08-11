@@ -128,15 +128,16 @@ nvme_qpair_dmamem_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, uint
 	qp->sqdb = bar0 + 0x1000 + ((2 * qid) << (2 + dstrd));
 	qp->cqdb = bar0 + 0x1000 + ((2 * qid + 1) << (2 + dstrd));
 
-	err = dmamem_heap_alloc_aligned(heap, queue_bytes, 4096, &sq_offset);
+	/* One element: the controller walks the queue from a single base. */
+	err = dmamem_heap_alloc_array_aligned(heap, 1, queue_bytes, 4096, &sq_offset);
 	if (err) {
-		UPCIE_DEBUG("FAILED: dmamem_heap_alloc_aligned(sq); err(%d)", err);
+		UPCIE_DEBUG("FAILED: dmamem_heap_alloc_array_aligned(sq); err(%d)", err);
 		return err;
 	}
 
-	err = dmamem_heap_alloc_aligned(heap, queue_bytes, 4096, &cq_offset);
+	err = dmamem_heap_alloc_array_aligned(heap, 1, queue_bytes, 4096, &cq_offset);
 	if (err) {
-		UPCIE_DEBUG("FAILED: dmamem_heap_alloc_aligned(cq); err(%d)", err);
+		UPCIE_DEBUG("FAILED: dmamem_heap_alloc_array_aligned(cq); err(%d)", err);
 		dmamem_heap_free(heap, sq_offset);
 		return err;
 	}

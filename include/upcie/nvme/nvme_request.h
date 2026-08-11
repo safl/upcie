@@ -130,10 +130,10 @@ nvme_request_pool_init_prps_dmamem(struct nvme_request_pool *pool, struct dmamem
 	uint8_t *prps_va;
 	int err;
 
-	err = dmamem_heap_alloc_aligned(heap, (size_t)NVME_REQUEST_POOL_LEN * pagesize, pagesize,
-					&prp_offset);
+	err = dmamem_heap_alloc_array_aligned(heap, NVME_REQUEST_POOL_LEN, pagesize, pagesize,
+					      &prp_offset);
 	if (err) {
-		UPCIE_DEBUG("FAILED: dmamem_heap_alloc_aligned(prps); err(%d)", err);
+		UPCIE_DEBUG("FAILED: dmamem_heap_alloc_array_aligned(prps); err(%d)", err);
 		return err;
 	}
 
