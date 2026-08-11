@@ -18,11 +18,3 @@ debian/dmabuf-import-dkms/
 *.deb
 *.buildinfo
 *.changes
-
-# CIJOE run artifacts
-cijoe-output/
-cijoe-archive/
-
-# Python bytecode
-__pycache__/
-*.pyc
