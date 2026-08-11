@@ -62,6 +62,7 @@ dmamem_from_dmabuf(struct dmamem *dmem, struct iommufd *iommufd, int dmabuf_fd, 
 	cpu_va = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, dmabuf_fd, 0);
 	if (cpu_va != MAP_FAILED) {
 		dmem->cpu_va = cpu_va;
+		dmem->base_va = cpu_va;
 	}
 
 	err = iommufd_ioas_map_file(iommufd, dmabuf_fd, 0, size,

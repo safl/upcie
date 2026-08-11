@@ -113,6 +113,7 @@ dmamem_from_memfd(struct dmamem *dmem, struct iommufd *iommufd, size_t size, siz
 		UPCIE_DEBUG("FAILED: iommufd_ioas_map_file(); err(%d)", err);
 		goto err_munmap;
 	}
+	dmem->base_va = dmem->cpu_va;
 
 	return 0;
 

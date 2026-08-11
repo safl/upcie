@@ -54,7 +54,8 @@ dmamem_from_cuda_lut(struct dmamem *dmem, struct cudamem_heap *heap)
 
 	memset(dmem, 0, sizeof(*dmem));
 	dmem->fd = -1;
-	dmem->cpu_va = NULL; /* Device VA; not CPU-mappable. Callers use offsets. */
+	dmem->base_va = (void *)(uintptr_t)heap->vaddr;
+	dmem->cpu_va = NULL;
 	dmem->size = heap->size;
 	dmem->backing = DMAMEM_BACKING_CUDAMEM;
 	dmem->translator = DMAMEM_XLATE_LUT;
