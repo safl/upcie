@@ -2,20 +2,10 @@
 /*
  * dmabuf_import - standalone (out-of-tree) dma-buf importer
  *
- * Extraction of the udmabuf "import a dma-buf + share its DMA addresses
- * with userspace" ioctls, originally delivered as a patch to the in-tree
- * udmabuf driver. Because Ubuntu ships CONFIG_UDMABUF=y (built into
- * vmlinuz), changing udmabuf's code required rebuilding the kernel. The
- * importer functionality, however, is purely additive and self-contained:
- * it never calls a udmabuf-internal function -- it only uses EXPORTED
- * dma-buf core APIs (dma_buf_get/attach/map_attachment_unlocked/... ) plus
- * rbtree. So it is lifted here into its own module that registers its own
- * misc device (/dev/dmabuf_import) and COEXISTS with the stock built-in
- * udmabuf. That makes it buildable + shippable out-of-tree (DKMS) against a
- * stock kernel -- no kernel rebuild, no custom kernel.
- *
- * Userspace keeps using the stock /dev/udmabuf for UDMABUF_CREATE and uses
- * /dev/dmabuf_import for DMABUF_IMPORT_ATTACH / DMABUF_IMPORT_GET_MAP / DMABUF_IMPORT_DETACH.
+ * Imports an external dma-buf and shares its DMA addresses with userspace.
+ * Any dma-buf will do, whoever exported it: a memfd wrapped by udmabuf, or
+ * device memory from a GPU driver. Only exported dma-buf core APIs are used,
+ * so it builds out-of-tree against a stock kernel.
  */
 #include <linux/module.h>
 #include <linux/version.h>
@@ -32,7 +22,7 @@
 
 #include "dmabuf_import.h"
 
-/* Forward decl so the ioctl handlers can reach the device for dma_buf_attach. */
+/* Forward decl: the ioctl handlers need the device for dma_buf_attach. */
 static struct miscdevice dmabuf_import_misc;
 
 /* ---- imported dma-buf tracking (verbatim from the original patch) ------- */
@@ -306,14 +296,7 @@ static int __init dmabuf_import_init(void)
 	if (ret)
 		return ret;
 
-	/*
-	 * The importing device needs a DMA mask for dma_buf_map_attachment to
-	 * hand back DMA addresses; a bare misc device has none. The original
-	 * in-tree patch reused udmabuf's own miscdevice (also mask-less) and
-	 * was reported working, so this may be redundant -- kept explicit for
-	 * robustness. If it changes observed addresses, drop it to match the
-	 * in-tree behaviour exactly.
-	 */
+	/* dma_buf_map_attachment needs a DMA mask; a misc device has none. */
 	dma_coerce_mask_and_coherent(dmabuf_import_misc.this_device, DMA_BIT_MASK(64));
 
 	return 0;

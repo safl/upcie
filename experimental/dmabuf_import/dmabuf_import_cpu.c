@@ -12,8 +12,8 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-/* <linux/udmabuf.h> above supplies UDMABUF_CREATE, used to turn a memfd into a
- * dma-buf; the import ioctls come from the module's own header below. */
+/* <linux/udmabuf.h> supplies UDMABUF_CREATE; the import ioctls come from the
+ * module's own header below. */
 #include "module/dmabuf_import.h"
 
 struct buf_udmabuf {
