@@ -9,6 +9,12 @@
  * already allocated (via hipMalloc or hipMemCreate/hipMemMap) and builds a
  * physical address LUT for them via the same dma-buf interface.
  *
+ * EXPERIMENTAL dependency: resolving the physical addresses behind the dma-buf
+ * goes through the out-of-tree dmabuf-import DKMS module, see
+ * <upcie/experimental/dmabuf_import.h>. Without its UAPI header at build time
+ * the calls below are stubs returning -ENOTSUP; with the header but no module
+ * loaded they fail with -ENOENT, from opening /dev/dmabuf_import.
+ *
  * Chunk-cached design
  * -------------------
  *
@@ -21,7 +27,7 @@
  *
  * `_add` walks chunks intersecting the floored user range, ref-bumps existing
  * entries, and populates new entries via hipMemGetHandleForAddressRange +
- * dmabuf_attach + dmabuf_get_lut. `_remove` decrements rc and frees the dma-buf
+ * dmabuf_import_attach + dmabuf_get_lut. `_remove` decrements rc and frees the dma-buf
  * when rc reaches zero. Repeated overlapping registrations in the same chunk
  * amortize to one dma-buf cost, and resolve to identical phys for any VA they
  * share.
@@ -229,7 +235,7 @@ hipmem_mapping_chunk_deref(struct hipmem_mapping_registry *registry, size_t chun
 		}
 		cm->rc--;
 		if (cm->rc == 0) {
-			dmabuf_detach(&cm->attach);
+			dmabuf_import_detach(&cm->attach);
 			memset(&cm->attach, 0, sizeof(cm->attach));
 			registry->lut_phys[idx] = 0;
 		}
@@ -330,9 +336,10 @@ hipmem_mapping_chunk_populate(uint64_t *phys_base_out, struct dmabuf *attach_out
 		goto err_free;
 	}
 
-	err = dmabuf_attach(dmabuf_fd, &attach);
+	/* NOTE: EXPERIMENTAL dependency, see <upcie/experimental/dmabuf_import.h> */
+	err = dmabuf_import_attach(dmabuf_fd, &attach);
 	if (err) {
-		UPCIE_DEBUG("FAILED: dmabuf_attach(), err: %d", err);
+		UPCIE_DEBUG("FAILED: dmabuf_import_attach(), err: %d", err);
 		close(dmabuf_fd);
 		goto err_free;
 	}
@@ -359,7 +366,7 @@ hipmem_mapping_chunk_populate(uint64_t *phys_base_out, struct dmabuf *attach_out
 	return 0;
 
 err_detach:
-	dmabuf_detach(&attach);
+	dmabuf_import_detach(&attach);
 err_free:
 	free(tmp);
 	return err;

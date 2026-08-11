@@ -78,6 +78,17 @@ install_headers(
   subdir: 'upcie'
 )
 
+# Separate call: install_headers() flattens its file list into one subdir, so a
+# header that must land in upcie/experimental/ cannot ride along with the list
+# above. upcie.h includes this one, so leaving it out breaks every installed
+# consumer.
+install_headers(
+  [
+    'include/upcie/experimental/dmabuf_import.h',
+  ],
+  subdir: 'upcie/experimental'
+)
+
 # Optional dependency for other Meson projects
 upcie_dep = declare_dependency(
   include_directories: include_directories('include')

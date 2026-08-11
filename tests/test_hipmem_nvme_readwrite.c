@@ -9,7 +9,7 @@
  * controller (host-memory queues, CPU rings the doorbell), but the data buffers
  * are GPU VRAM allocated via hipmem, so the SSD DMAs straight to/from the GPU
  * over PCIe. Write a pattern host -> GPU -> SSD, read it back SSD -> GPU -> host,
- * and compare. Needs the udmabuf-import kernel (for dmabuf_attach's physical
+ * and compare. Needs the dmabuf-import module (for dmabuf_import_attach's physical
  * LUT) and an IOMMU in passthrough (iommu=pt) so the NVMe DMAs to the GPU's
  * physical/P2P addresses directly.
  */

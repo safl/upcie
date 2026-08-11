@@ -6,6 +6,13 @@
  *
  * This heap implementation uses the CUDA driver to pre-allocate memory and
  * the dma-buf interface to get the physical addresses.
+ *
+ * EXPERIMENTAL dependency: resolving the physical addresses behind the dma-buf
+ * goes through the out-of-tree dmabuf-import DKMS module, see
+ * <upcie/experimental/dmabuf_import.h>. Without its UAPI header at build time
+ * the calls below are stubs returning -ENOTSUP; with the header but no module
+ * loaded they fail with -ENOENT, from opening /dev/dmabuf_import.
+ *
  * While the heap memory is allocated on the GPU, the freelist is maintained in
  * host memory. This avoids segfaults at the cost of slower alloc/free.
  *
@@ -106,7 +113,7 @@ cudamem_heap_term(struct cudamem_heap *heap)
 		return;
 	}
 
-	dmabuf_detach(&heap->dmabuf);
+	dmabuf_import_detach(&heap->dmabuf);
 	cudamem_heap_empty_freelist(heap->freelist);
 	free(heap->phys_lut);
 	cuMemFree((CUdeviceptr)heap->vaddr);
@@ -166,9 +173,10 @@ cudamem_heap_init(struct cudamem_heap *heap, size_t size, struct cudamem_config 
 	heap->freelist->free = 1;
 	heap->freelist->next = NULL;
 
-	err = dmabuf_attach(dmabuf_fd, &heap->dmabuf);
+	/* NOTE: EXPERIMENTAL dependency, see <upcie/experimental/dmabuf_import.h> */
+	err = dmabuf_import_attach(dmabuf_fd, &heap->dmabuf);
 	if (err) {
-		UPCIE_DEBUG("FAILED: dmabuf_attach(), err: %d", err);
+		UPCIE_DEBUG("FAILED: dmabuf_import_attach(), err: %d", err);
 		goto error;
 	}
 
@@ -190,7 +198,7 @@ cudamem_heap_init(struct cudamem_heap *heap, size_t size, struct cudamem_config 
 	return 0;
 
 error_after_attach:
-	dmabuf_detach(&heap->dmabuf);
+	dmabuf_import_detach(&heap->dmabuf);
 	free(heap->freelist);
 	free(heap->phys_lut);
 	cuMemFree(vaddr);

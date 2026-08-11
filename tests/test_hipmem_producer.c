@@ -8,7 +8,7 @@
  * Exercises the AMD/HIP half of the hipmem backend without the dma-buf import
  * path: query the device config (HIP + BAR1) and allocate GPU memory, then
  * export it as a P2P dma-buf via HSA. This is the producer that hipmem_heap
- * feeds into dmabuf_attach()/dmabuf_get_lut(); the full heap additionally needs
+ * feeds into dmabuf_import_attach()/dmabuf_get_lut(); the full heap additionally needs
  * the udmabuf-import kernel module, which this check deliberately avoids so it
  * runs on a stock ROCm install.
  */

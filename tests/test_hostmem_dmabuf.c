@@ -80,9 +80,9 @@ int main(void)
 		return err;
 	}
 
-	err = dmabuf_attach(dmabuf_fd, &dmabuf);
+	err = dmabuf_import_attach(dmabuf_fd, &dmabuf);
 	if (err) {
-		printf("# FAILED: dmabuf_attach(); err(%d)\n", err);
+		printf("# FAILED: dmabuf_import_attach(); err(%d)\n", err);
 		free(phys_lut);
 		return err;
 	}
@@ -103,7 +103,7 @@ int main(void)
 		printf("  - 0x%" PRIx64 "\n", phys_lut[i]);
 	}
 
-	dmabuf_detach(&dmabuf);
+	dmabuf_import_detach(&dmabuf);
 	free(phys_lut);
 	return 0;
 }

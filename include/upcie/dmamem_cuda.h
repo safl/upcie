@@ -9,7 +9,7 @@
  * borrowing an already-populated cudamem_heap. The heap has already
  * done the heavy lifting: cuMemAlloc for the device VA range,
  * cuMemGetHandleForAddressRange to export the range as a dma-buf,
- * dmabuf_attach + dmabuf_get_lut to enumerate per-device-page PAs into
+ * dmabuf_import_attach + dmabuf_get_lut to enumerate per-device-page PAs into
  * heap->phys_lut. This constructor just points the LUT-translator
  * fields on struct dmamem at the already-populated table and marks the
  * dmamem as wrapping (owned=0) so destroy does not touch the heap's

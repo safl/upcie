@@ -54,16 +54,33 @@ The descriptions below follow the bottom-up layering.
 ## dma-buf
 
 `dmabuf.h`
-: Helpers for working with dma-bufs. Resolves the physical pages behind a dma-buf
-  for raw-physical DMA and pretty-prints a dma-buf's layout. The dma-buf may
+: Represents a dma-buf and the physical pages behind it, segments those pages
+  into a LUT for raw-physical DMA, and pretty-prints the layout. The dma-buf may
   originate from host memory (memfd via udmabuf) or device memory such as CUDA.
+  This header needs nothing beyond libc.
 
-  Resolving physical pages (`dmabuf_attach`/`dmabuf_detach`) imports the dma-buf
-  through the out-of-tree `udmabuf_import` module, shipped as the
-  `udmabuf-import` DKMS package (see `experimental/udmabuf_import`). When its
-  UAPI header `<linux/udmabuf_import.h>` is absent these helpers compile as stubs
-  returning `ENOTSUP`, so uPCIe still builds without it; the module must also be
-  loaded at runtime for the import to succeed.
+`experimental/dmabuf_import.h`
+: **Experimental.** Resolves the DMA addresses behind a dma-buf
+  (`dmabuf_import_attach`/`dmabuf_import_detach`), which is what populates the
+  structure above. It imports the dma-buf through the out-of-tree
+  `dmabuf_import` module, shipped as the `dmabuf-import` DKMS package (see
+  `experimental/dmabuf_import`). When its UAPI header
+  `<linux/dmabuf_import.h>` is absent these helpers compile as stubs returning
+  `ENOTSUP` and `UPCIE_HAVE_DMABUF_IMPORT` is 0, so uPCIe still builds without
+  it; the module must also be loaded at runtime for the import to succeed.
+
+  The GPU memory helpers (`cudamem_heap.h`, `cudamem_mapping.h`,
+  `hipmem_heap.h`, `hipmem_mapping.h`) all reach their physical addresses
+  through this path, so they carry the same dependency.
+
+`experimental/iommu_map_pa.h`
+: **Experimental.** Maps an array of physical addresses into the IOMMU domain a
+  VFIO-controlled device already uses (`upcie_iommu_map_pa_add`/`_del`),
+  returning an IOVA base to address that memory through, e.g. from NVMe PRPs.
+  Needs the out-of-tree `iommu-map-pa` DKMS package (see
+  `experimental/iommu_map_pa`). Unlike the importer above it has no stub path:
+  without the package the include itself fails, rather than compiling to
+  `ENOTSUP`.
 
 ## Umbrella
 

@@ -71,6 +71,9 @@ extern "C" {
 #include <upcie/barriers.h>
 #include <upcie/bitfield.h>
 #include <upcie/dmabuf.h>
+/* EXPERIMENTAL: needs the out-of-tree dmabuf-import DKMS module, and compiles
+ * to -ENOTSUP stubs without it. Must follow <upcie/dmabuf.h>. */
+#include <upcie/experimental/dmabuf_import.h>
 #include <upcie/hostmem.h>
 #include <upcie/hostmem_config.h>
 #include <upcie/hostmem_hugepage.h>
