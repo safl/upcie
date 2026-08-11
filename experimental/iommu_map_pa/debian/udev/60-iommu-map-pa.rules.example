@@ -1,0 +1,19 @@
+# EXAMPLE - not active. Copy to /etc/udev/rules.d/ to enable.
+#
+# The iommu_map_pa misc device is created 0600 root:root. This rule hands it to
+# a group instead, for running the experiments as an unprivileged user.
+#
+# READ THIS FIRST: anyone who can open this node can install arbitrary physical
+# addresses into a device's IOMMU domain, which lets them program a DMA-capable
+# device to read or write any physical memory. Group access is therefore
+# root-equivalence. Grant it only to trusted operators, and prefer a dedicated
+# group over "vfio" if that group is broad on this machine.
+#
+# Enable with:
+#   sudo cp 60-iommu-map-pa.rules.example /etc/udev/rules.d/60-iommu-map-pa.rules
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger --subsystem-match=misc --action=add
+# The trigger matters: the rule is applied on a device 'add' event, so an
+# already-loaded module keeps its old ownership until you trigger or reload it.
+# Group membership needs a fresh login session to take effect.
+KERNEL=="iommu_map_pa", SUBSYSTEM=="misc", GROUP="vfio", MODE="0660"

@@ -1,7 +1,7 @@
-# Out-of-tree build for the experimental upcie_iommu_map module.
+# Out-of-tree build for the experimental iommu_map_pa module.
 # See ../README.md before loading it.
 #
-#   make            # build upcie_iommu_map.ko against the running kernel
+#   make            # build iommu_map_pa.ko against the running kernel
 #   make KDIR=/path/to/kernel/build   # or a specific kernel tree
 #   make clean
 #

@@ -1,5 +1,5 @@
 #!/usr/bin/make -f
-# DKMS source package for the experimental upcie iommu-map helper module.
+# DKMS source package for the experimental iommu-map-pa helper module.
 #
 # The module is not compiled at package-build time; DKMS builds it on the
 # target against the running kernel. dh_dkms installs debian/*.dkms as the
@@ -12,13 +12,13 @@
 #
 # Version is a single source of truth: the (native) upstream version from the
 # changelog drives the module source path and the DKMS module version, so the
-# deb version, /usr/src/upcie-iommu-map-<ver> tree, and dkms.conf
+# deb version, /usr/src/iommu-map-pa-<ver> tree, and dkms.conf
 # PACKAGE_VERSION never drift.
 
 export DH_VERBOSE = 1
 
 VERSION := $(shell dpkg-parsechangelog -SVersion)
-PACKAGE := upcie-iommu-map
+PACKAGE := iommu-map-pa
 DKMS_TREE := debian/$(PACKAGE)-dkms/usr/src/$(PACKAGE)-$(VERSION)
 
 %:
@@ -32,15 +32,21 @@ override_dh_auto_clean:
 
 override_dh_install:
 	install -d $(DKMS_TREE)
-	install -m0644 module/upcie_iommu_map.c module/upcie_iommu_map.h module/Makefile $(DKMS_TREE)/
+	install -m0644 module/iommu_map_pa.c module/iommu_map_pa.h module/Makefile $(DKMS_TREE)/
 	# Install the UAPI header system-wide so consumers can build against the
-	# map ioctls without vendoring: #include <upcie/upcie_iommu_map.h>
-	# Not /usr/include/linux/: that path is owned by linux-libc-dev, and a
-	# collision there would make this package fail to install.
-	install -D -m0644 module/upcie_iommu_map.h debian/$(PACKAGE)-dkms/usr/include/upcie/upcie_iommu_map.h
-	# The wrapper is the surface consumers actually call (upcie_iommu_map_open/
-	# add/del); shipping only the ioctl ABI left them vendoring it by hand.
-	install -D -m0644 include/upcie/iommu_map.h debian/$(PACKAGE)-dkms/usr/include/upcie/iommu_map.h
+	# map ioctls without vendoring: #include <linux/iommu_map_pa.h>
+	#
+	# /usr/include/linux/ is owned by linux-libc-dev, so this is a deliberate
+	# bet: should a future linux-libc-dev ever ship a file of this name, the
+	# two would collide and this package would fail to install. The name is
+	# specific enough to make that unlikely, and it is the path consumers
+	# expect a kernel UAPI to live at now that the module is not
+	# project-specific. The wrapper below is upcie's own API, so it stays
+	# under /usr/include/upcie/, in experimental/ to make the out-of-tree
+	# dependency visible at the include line.
+	install -D -m0644 module/iommu_map_pa.h debian/$(PACKAGE)-dkms/usr/include/linux/iommu_map_pa.h
+	install -D -m0644 include/upcie/experimental/iommu_map_pa.h \
+		debian/$(PACKAGE)-dkms/usr/include/upcie/experimental/iommu_map_pa.h
 
 override_dh_dkms:
 	dh_dkms -V $(VERSION)
