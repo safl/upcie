@@ -12,7 +12,11 @@ steps:
 - name: drivers
   run: |
     modprobe uio_pci_generic || true
+    # Stock udmabuf is usually built in, so a failure here is not fatal.
     modprobe udmabuf || true
+    # Required: without /dev/dmabuf_import the run fails later with a
+    # confusing ENOENT from dmabuf_import_attach().
+    modprobe dmabuf_import
 
 - name: bind_uio
   run: |
