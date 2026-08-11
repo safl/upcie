@@ -12,15 +12,15 @@
  * Mappings persist until userspace issues an explicit UNMAP or closes the file
  * descriptor.
  *
- * The ioctl ABI comes from <upcie/upcie_iommu_map.h>, installed system-wide by
- * the upcie-iommu-map DKMS package. Builds from this checkout fall back to the
- * in-tree module header so the package is not required for development.
+ * The ioctl ABI comes from <linux/iommu_map_pa.h>, installed system-wide by
+ * the iommu-map-pa DKMS package. Builds from this checkout fall back to the
+ * module header next to it, so the package is not required for development.
  *
- * @file iommu_map.h
+ * @file iommu_map_pa.h
  * @version 0.5.1
  */
-#ifndef UPCIE_EXPERIMENTAL_IOMMU_MAP_H
-#define UPCIE_EXPERIMENTAL_IOMMU_MAP_H
+#ifndef UPCIE_EXPERIMENTAL_IOMMU_MAP_PA_H
+#define UPCIE_EXPERIMENTAL_IOMMU_MAP_PA_H
 
 #include <errno.h>
 #include <fcntl.h>
@@ -30,25 +30,25 @@
 #include <unistd.h>
 
 #if defined(__has_include)
-#if __has_include(<upcie/upcie_iommu_map.h>)
-#include <upcie/upcie_iommu_map.h>
-#define UPCIE_IOMMU_MAP_UAPI_SYSTEM 1
+#if __has_include(<linux/iommu_map_pa.h>)
+#include <linux/iommu_map_pa.h>
+#define IOMMU_MAP_PA_UAPI_SYSTEM 1
 #endif
 #endif
-#ifndef UPCIE_IOMMU_MAP_UAPI_SYSTEM
+#ifndef IOMMU_MAP_PA_UAPI_SYSTEM
 #include "../../../module/iommu_map_pa.h"
 #endif
 
 static inline int
-upcie_iommu_map_open(void)
+upcie_iommu_map_pa_open(void)
 {
-	int fd = open(UPCIE_IOMMU_MAP_DEVICE, O_RDWR);
+	int fd = open(IOMMU_MAP_PA_DEVPATH, O_RDWR);
 
 	return fd < 0 ? -errno : fd;
 }
 
 static inline int
-upcie_iommu_map_close(int fd)
+upcie_iommu_map_pa_close(int fd)
 {
 	if (fd < 0)
 		return -EINVAL;
@@ -56,17 +56,17 @@ upcie_iommu_map_close(int fd)
 	return close(fd) ? -errno : 0;
 }
 
-/* Unmap a handle returned by upcie_iommu_map_add(). */
+/* Unmap a handle returned by upcie_iommu_map_pa_add(). */
 static inline int
-upcie_iommu_map_del(int fd, __u64 map_handle)
+upcie_iommu_map_pa_del(int fd, __u64 map_handle)
 {
-	struct upcie_iommu_unmap_req req = {0};
+	struct iommu_unmap_pa_req req = {0};
 
 	if (fd < 0 || !map_handle)
 		return -EINVAL;
 
 	req.map_handle = map_handle;
-	return ioctl(fd, UPCIE_IOMMU_UNMAP, &req) < 0 ? -errno : 0;
+	return ioctl(fd, IOMMU_UNMAP_PA, &req) < 0 ? -errno : 0;
 }
 
 /*
@@ -76,12 +76,12 @@ upcie_iommu_map_del(int fd, __u64 map_handle)
  * from iova_base, not from phys[].
  */
 static inline int
-upcie_iommu_map_add(int fd, const char *bdf, int dmabuf_fd,
+upcie_iommu_map_pa_add(int fd, const char *bdf, int dmabuf_fd,
 				uint64_t iova_base, __u32 page_size, __u32 nphys,
 				const uint64_t *phys, __u32 prot,
 				uint64_t *map_handle_out)
 {
-	struct upcie_iommu_map_req req = {0};
+	struct iommu_map_pa_req req = {0};
 
 	if (fd < 0 || !bdf || !phys || !nphys)
 		return -EINVAL;
@@ -94,7 +94,7 @@ upcie_iommu_map_add(int fd, const char *bdf, int dmabuf_fd,
 	req.iova_base = iova_base;
 	req.user_phys_ptr = (__u64)(uintptr_t)phys;
 
-	if (ioctl(fd, UPCIE_IOMMU_MAP, &req) < 0)
+	if (ioctl(fd, IOMMU_MAP_PA, &req) < 0)
 		return -errno;
 
 	if (map_handle_out)

@@ -16,9 +16,9 @@
  * iommu_map(iova_base + i*ps -> phys[i]) entries into it. Userspace then writes
  * the IOVA into NVMe PRPs; the IOMMU translates it back to the GPU physical.
  *
- * ioctls (see upcie_iommu_map.h):
- *   UPCIE_IOMMU_MAP    install a phys_lut -> IOVA mapping, return a handle
- *   UPCIE_IOMMU_UNMAP  tear a mapping down by handle
+ * ioctls (see iommu_map_pa.h):
+ *   IOMMU_MAP_PA    install a phys_lut -> IOVA mapping, return a handle
+ *   IOMMU_UNMAP_PA  tear a mapping down by handle
  * Mappings are tracked per open fd and torn down on UNMAP or close().
  */
 
@@ -40,7 +40,7 @@
 #include "iommu_map_pa.h"
 
 /* One installed mapping; everything needed to tear it back down exactly. */
-struct upcie_iommu_mapping {
+struct iommu_map_pa_mapping {
 	u64 handle;			/* opaque id handed to userspace */
 	struct pci_dev *pdev;		/* target device (ref held) */
 	struct iommu_domain *domain;	/* domain we mapped into (for unmap) */
@@ -51,7 +51,7 @@ struct upcie_iommu_mapping {
 };
 
 /* Per-open-fd state: the set of mappings created through this fd. */
-struct upcie_iommu_map_ctx {
+struct iommu_map_pa_ctx {
 	struct mutex lock;
 	struct list_head maps;
 	u64 next_handle;
@@ -60,7 +60,7 @@ struct upcie_iommu_map_ctx {
 /* Tear down one mapping: iommu_unmap (if the domain still exists), drop the
  * dma_buf/pci refs, and free it. */
 static void
-upcie_iommu_mapping_destroy(struct upcie_iommu_mapping *map)
+iommu_map_pa_mapping_destroy(struct iommu_map_pa_mapping *map)
 {
 	if (!map)
 		return;
@@ -79,7 +79,7 @@ upcie_iommu_mapping_destroy(struct upcie_iommu_mapping *map)
 		if (cur == map->domain)
 			iommu_unmap(map->domain, map->iova_base, map->mapped_size);
 		else
-			pr_warn("upcie-iommu: domain changed before unmap, skipping iommu_unmap (handle=%llu)\n",
+			pr_warn("iommu_map_pa: domain changed before unmap, skipping iommu_unmap (handle=%llu)\n",
 				map->handle);
 	}
 	if (map->held_dmabuf)
@@ -91,7 +91,7 @@ upcie_iommu_mapping_destroy(struct upcie_iommu_mapping *map)
 
 /* "DDDD:BB:SS.F" string -> struct pci_dev* (takes a ref via pci_get_...). */
 static int
-upcie_iommu_map_parse_bdf(const char *bdf, struct pci_dev **pdev_out)
+iommu_map_pa_parse_bdf(const char *bdf, struct pci_dev **pdev_out)
 {
 	unsigned int domain, bus, slot, func;
 	struct pci_dev *pdev;
@@ -110,10 +110,10 @@ upcie_iommu_map_parse_bdf(const char *bdf, struct pci_dev **pdev_out)
 }
 
 /* Look up a mapping by handle; caller must hold ctx->lock. */
-static struct upcie_iommu_mapping *
-upcie_iommu_map_find_map_locked(struct upcie_iommu_map_ctx *ctx, u64 handle)
+static struct iommu_map_pa_mapping *
+iommu_map_pa_find_locked(struct iommu_map_pa_ctx *ctx, u64 handle)
 {
-	struct upcie_iommu_mapping *map;
+	struct iommu_map_pa_mapping *map;
 
 	list_for_each_entry(map, &ctx->maps, node)
 		if (map->handle == handle)
@@ -124,17 +124,17 @@ upcie_iommu_map_find_map_locked(struct upcie_iommu_map_ctx *ctx, u64 handle)
 
 /* Remove a mapping by handle: unlink it from this fd's list and tear it down. */
 static long
-upcie_iommu_map_ioctl_unmap(struct file *file, unsigned long arg)
+iommu_map_pa_ioctl_unmap(struct file *file, unsigned long arg)
 {
-	struct upcie_iommu_map_ctx *ctx = file->private_data;
-	struct upcie_iommu_unmap_req req;
-	struct upcie_iommu_mapping *map;
+	struct iommu_map_pa_ctx *ctx = file->private_data;
+	struct iommu_unmap_pa_req req;
+	struct iommu_map_pa_mapping *map;
 
 	if (copy_from_user(&req, (void __user *)arg, sizeof(req)))
 		return -EFAULT;
 
 	mutex_lock(&ctx->lock);
-	map = upcie_iommu_map_find_map_locked(ctx, req.map_handle);
+	map = iommu_map_pa_find_locked(ctx, req.map_handle);
 	if (!map) {
 		mutex_unlock(&ctx->lock);
 		return -ENOENT;
@@ -143,7 +143,7 @@ upcie_iommu_map_ioctl_unmap(struct file *file, unsigned long arg)
 	list_del(&map->node);
 	mutex_unlock(&ctx->lock);
 
-	upcie_iommu_mapping_destroy(map);
+	iommu_map_pa_mapping_destroy(map);
 	return 0;
 }
 
@@ -155,17 +155,17 @@ upcie_iommu_map_ioctl_unmap(struct file *file, unsigned long arg)
  * the returned IOVA can be written directly into NVMe PRPs.
  */
 static long
-upcie_iommu_map_ioctl_map(struct file *file, unsigned long arg)
+iommu_map_pa_ioctl_map(struct file *file, unsigned long arg)
 {
-	struct upcie_iommu_map_ctx *ctx = file->private_data;
-	struct upcie_iommu_map_req req;
-	struct upcie_iommu_mapping *map = NULL;
+	struct iommu_map_pa_ctx *ctx = file->private_data;
+	struct iommu_map_pa_req req;
+	struct iommu_map_pa_mapping *map = NULL;
 	struct iommu_domain *domain = NULL;
 	struct pci_dev *pdev = NULL;
 	struct dma_buf *held = NULL;
 	u64 *phys = NULL;
 	size_t mapped = 0;
-	char bdf[UPCIE_IOMMU_MAP_BDF_LEN];
+	char bdf[IOMMU_MAP_PA_BDF_LEN];
 	u64 map_size;
 	u64 last_iova;
 	u64 handle;
@@ -174,11 +174,11 @@ upcie_iommu_map_ioctl_map(struct file *file, unsigned long arg)
 	int err;
 
 	if (copy_from_user(&req, (void __user *)arg, sizeof(req))) {
-		pr_err("upcie-iommu: iommu_map copy_from_user(req) failed\n");
+		pr_err("iommu_map_pa: iommu_map copy_from_user(req) failed\n");
 		return -EFAULT;
 	}
 
-	pr_debug("upcie-iommu: iommu_map req bdf=%.*s page_size=%u nphys=%u iova_base=0x%llx phys_ptr=0x%llx dmabuf_fd=%d\n",
+	pr_debug("iommu_map_pa: iommu_map req bdf=%.*s page_size=%u nphys=%u iova_base=0x%llx phys_ptr=0x%llx dmabuf_fd=%d\n",
 		(int)sizeof(req.bdf), req.bdf, req.page_size, req.nphys,
 		req.iova_base, req.user_phys_ptr, req.dmabuf_fd);
 
@@ -199,7 +199,7 @@ upcie_iommu_map_ioctl_map(struct file *file, unsigned long arg)
 	memcpy(bdf, req.bdf, sizeof(bdf));
 	bdf[sizeof(bdf) - 1] = '\0';
 
-	err = upcie_iommu_map_parse_bdf(bdf, &pdev);
+	err = iommu_map_pa_parse_bdf(bdf, &pdev);
 	if (err)
 		return err;
 
@@ -210,12 +210,12 @@ upcie_iommu_map_ioctl_map(struct file *file, unsigned long arg)
 	 */
 	domain = iommu_get_domain_for_dev(&pdev->dev);
 	if (!domain) {
-		pr_err("upcie-iommu: no IOMMU domain for %s (device not behind IOMMU / not VFIO-bound?)\n",
+		pr_err("iommu_map_pa: no IOMMU domain for %s (device not behind IOMMU / not VFIO-bound?)\n",
 		       bdf);
 		err = -ENODEV;
 		goto err_unwind;
 	}
-	pr_debug("upcie-iommu: domain=%p type=%u aperture=[0x%llx..0x%llx] pgsize_bitmap=0x%lx for %s\n",
+	pr_debug("iommu_map_pa: domain=%p type=%u aperture=[0x%llx..0x%llx] pgsize_bitmap=0x%lx for %s\n",
 		domain, domain->type, domain->geometry.aperture_start,
 		domain->geometry.aperture_end, domain->pgsize_bitmap, bdf);
 
@@ -223,7 +223,7 @@ upcie_iommu_map_ioctl_map(struct file *file, unsigned long arg)
 	 * width; pre-check against the aperture so misuse is obvious. */
 	if (domain->geometry.aperture_end &&
 	    last_iova > domain->geometry.aperture_end) {
-		pr_err("upcie-iommu: iova range [0x%llx..0x%llx] exceeds domain aperture_end=0x%llx\n",
+		pr_err("iommu_map_pa: iova range [0x%llx..0x%llx] exceeds domain aperture_end=0x%llx\n",
 		       req.iova_base, last_iova, domain->geometry.aperture_end);
 		err = -ERANGE;
 		goto err_unwind;
@@ -233,9 +233,9 @@ upcie_iommu_map_ioctl_map(struct file *file, unsigned long arg)
 		prot = IOMMU_READ | IOMMU_WRITE;
 	} else {
 		prot = 0;
-		if (req.prot & UPCIE_IOMMU_MAP_PROT_READ)
+		if (req.prot & IOMMU_MAP_PA_PROT_READ)
 			prot |= IOMMU_READ;
-		if (req.prot & UPCIE_IOMMU_MAP_PROT_WRITE)
+		if (req.prot & IOMMU_MAP_PA_PROT_WRITE)
 			prot |= IOMMU_WRITE;
 	}
 	/* This path always maps peer device MMIO (GPU BAR), so request the MMIO
@@ -249,7 +249,7 @@ upcie_iommu_map_ioctl_map(struct file *file, unsigned long arg)
 	}
 	if (copy_from_user(phys, (void __user *)(uintptr_t)req.user_phys_ptr,
 			   (size_t)req.nphys * sizeof(*phys))) {
-		pr_err("upcie-iommu: iommu_map copy_from_user(phys[%u]) from 0x%llx failed\n",
+		pr_err("iommu_map_pa: iommu_map copy_from_user(phys[%u]) from 0x%llx failed\n",
 		       req.nphys, req.user_phys_ptr);
 		err = -EFAULT;
 		goto err_unwind;
@@ -259,7 +259,7 @@ upcie_iommu_map_ioctl_map(struct file *file, unsigned long arg)
 		held = dma_buf_get(req.dmabuf_fd);
 		if (IS_ERR(held)) {
 			err = PTR_ERR(held);
-			pr_err("upcie-iommu: dma_buf_get(fd=%d) failed err=%d\n",
+			pr_err("iommu_map_pa: dma_buf_get(fd=%d) failed err=%d\n",
 			       req.dmabuf_fd, err);
 			held = NULL;
 			goto err_unwind;
@@ -278,14 +278,14 @@ upcie_iommu_map_ioctl_map(struct file *file, unsigned long arg)
 		err = iommu_map(domain, iova, (phys_addr_t)phys[i],
 				req.page_size, prot, GFP_KERNEL);
 		if (err) {
-			pr_err("upcie-iommu: iommu_map(iova=0x%lx phys=0x%llx size=%u prot=%d) failed err=%d at idx=%u\n",
+			pr_err("iommu_map_pa: iommu_map(iova=0x%lx phys=0x%llx size=%u prot=%d) failed err=%d at idx=%u\n",
 			       iova, phys[i], req.page_size, prot, err, i);
 			goto err_unwind;
 		}
 
 		mapped += req.page_size;
 	}
-	pr_debug("upcie-iommu: iommu_map ok: %u pages, iova 0x%llx..0x%llx -> gpu\n",
+	pr_debug("iommu_map_pa: iommu_map ok: %u pages, iova 0x%llx..0x%llx -> gpu\n",
 		req.nphys, req.iova_base,
 		req.iova_base + (u64)req.nphys * req.page_size);
 
@@ -299,11 +299,11 @@ upcie_iommu_map_ioctl_map(struct file *file, unsigned long arg)
 		phys_addr_t pn = iommu_iova_to_phys(domain,
 						    (unsigned long)last_page_iova);
 
-		pr_debug("upcie-iommu: verify iova_to_phys: 0x%llx->0x%llx (exp 0x%llx), 0x%llx->0x%llx (exp 0x%llx)\n",
+		pr_debug("iommu_map_pa: verify iova_to_phys: 0x%llx->0x%llx (exp 0x%llx), 0x%llx->0x%llx (exp 0x%llx)\n",
 			req.iova_base, (u64)p0, phys[0],
 			last_page_iova, (u64)pn, phys[req.nphys - 1]);
 		if (p0 != (phys_addr_t)phys[0])
-			pr_warn("upcie-iommu: MAPPING MISMATCH at base — page table not as expected!\n");
+			pr_warn("iommu_map_pa: MAPPING MISMATCH at base — page table not as expected!\n");
 	}
 
 	map = kzalloc(sizeof(*map), GFP_KERNEL);
@@ -322,7 +322,7 @@ upcie_iommu_map_ioctl_map(struct file *file, unsigned long arg)
 	 * is on ctx->maps a concurrent UNMAP may free it. */
 	req.map_handle = handle;
 	if (copy_to_user((void __user *)arg, &req, sizeof(req))) {
-		pr_err("upcie-iommu: iommu_map copy_to_user(req) failed\n");
+		pr_err("iommu_map_pa: iommu_map copy_to_user(req) failed\n");
 		kfree(map);
 		err = -EFAULT;
 		goto err_unwind;
@@ -353,22 +353,22 @@ err_unwind:
 }
 
 static long
-upcie_iommu_map_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+iommu_map_pa_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	switch (cmd) {
-	case UPCIE_IOMMU_UNMAP:
-		return upcie_iommu_map_ioctl_unmap(file, arg);
-	case UPCIE_IOMMU_MAP:
-		return upcie_iommu_map_ioctl_map(file, arg);
+	case IOMMU_UNMAP_PA:
+		return iommu_map_pa_ioctl_unmap(file, arg);
+	case IOMMU_MAP_PA:
+		return iommu_map_pa_ioctl_map(file, arg);
 	default:
 		return -ENOTTY;
 	}
 }
 
 static int
-upcie_iommu_map_chrdev_open(struct inode *inode, struct file *file)
+iommu_map_pa_chrdev_open(struct inode *inode, struct file *file)
 {
-	struct upcie_iommu_map_ctx *ctx;
+	struct iommu_map_pa_ctx *ctx;
 
 	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
 	if (!ctx)
@@ -381,58 +381,59 @@ upcie_iommu_map_chrdev_open(struct inode *inode, struct file *file)
 }
 
 static int
-upcie_iommu_map_chrdev_release(struct inode *inode, struct file *file)
+iommu_map_pa_chrdev_release(struct inode *inode, struct file *file)
 {
-	struct upcie_iommu_map_ctx *ctx = file->private_data;
-	struct upcie_iommu_mapping *map, *tmp;
+	struct iommu_map_pa_ctx *ctx = file->private_data;
+	struct iommu_map_pa_mapping *map, *tmp;
 
 	if (!ctx)
 		return 0;
 
 	list_for_each_entry_safe(map, tmp, &ctx->maps, node) {
 		list_del(&map->node);
-		upcie_iommu_mapping_destroy(map);
+		iommu_map_pa_mapping_destroy(map);
 	}
 
 	kfree(ctx);
 	return 0;
 }
 
-static const struct file_operations upcie_iommu_map_fops = {
+static const struct file_operations iommu_map_pa_fops = {
 	.owner = THIS_MODULE,
-	.open = upcie_iommu_map_chrdev_open,
-	.release = upcie_iommu_map_chrdev_release,
-	.unlocked_ioctl = upcie_iommu_map_ioctl,
+	.open = iommu_map_pa_chrdev_open,
+	.release = iommu_map_pa_chrdev_release,
+	.unlocked_ioctl = iommu_map_pa_ioctl,
 #ifdef CONFIG_COMPAT
-	.compat_ioctl = upcie_iommu_map_ioctl,
+	.compat_ioctl = iommu_map_pa_ioctl,
 #endif
 };
 
-static struct miscdevice upcie_iommu_map_misc = {
+static struct miscdevice iommu_map_pa_misc = {
 	.minor = MISC_DYNAMIC_MINOR,
-	.name = "upcie-iommu-map",
-	.fops = &upcie_iommu_map_fops,
+	.name = "iommu_map_pa",
+	.fops = &iommu_map_pa_fops,
 	.mode = 0600,
 };
 
 static int __init
-upcie_iommu_map_init(void)
+iommu_map_pa_module_init(void)
 {
-	return misc_register(&upcie_iommu_map_misc);
+	return misc_register(&iommu_map_pa_misc);
 }
 
 static void __exit
-upcie_iommu_map_exit(void)
+iommu_map_pa_module_exit(void)
 {
-	misc_deregister(&upcie_iommu_map_misc);
+	misc_deregister(&iommu_map_pa_misc);
 }
 
-module_init(upcie_iommu_map_init);
-module_exit(upcie_iommu_map_exit);
+module_init(iommu_map_pa_module_init);
+module_exit(iommu_map_pa_module_exit);
 
 MODULE_AUTHOR("Jaeyoon Choi <j_yoon.choi@samsung.com>");
-MODULE_DESCRIPTION("Experimental uPCIe helper for direct VFIO IOMMU mappings");
+MODULE_DESCRIPTION("Out-of-tree physical-address IOMMU mapper");
 MODULE_LICENSE("GPL");
+MODULE_VERSION("0.2.0");
 
 /*
  * MODULE_IMPORT_NS() stringifies its argument before Linux 6.13, but expects
