@@ -21,7 +21,7 @@
 
 #define _UPCIE_WITH_NVME
 #include <upcie/upcie_cuda.h>
-#include <upcie/iommu_map.h>
+#include <upcie/experimental/iommu_map_pa.h>
 
 /*
  * IOVA window reserved for GPU pages. Constraints:

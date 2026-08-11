@@ -36,7 +36,7 @@
 #endif
 #endif
 #ifndef UPCIE_IOMMU_MAP_UAPI_SYSTEM
-#include "../../module/upcie_iommu_map.h"
+#include "../../../module/iommu_map_pa.h"
 #endif
 
 static inline int

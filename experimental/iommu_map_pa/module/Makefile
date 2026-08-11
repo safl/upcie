@@ -11,7 +11,7 @@
 KDIR ?= /lib/modules/$(shell uname -r)/build
 PWD := $(CURDIR)
 
-obj-m += upcie_iommu_map.o
+obj-m += iommu_map_pa.o
 
 .PHONY: all clean
 
