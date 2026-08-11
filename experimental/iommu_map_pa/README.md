@@ -39,20 +39,20 @@ The kernel module ships as a DKMS source package, so it rebuilds
 automatically on kernel updates. Build the deb and install it:
 
 ```sh
-cd experimental/vfio_cuda_iommu_map
+cd experimental/iommu_map_pa
 dpkg-buildpackage -us -uc -b
-sudo apt install ../upcie-iommu-map-dkms_*_all.deb
-sudo modprobe upcie_iommu_map
+sudo apt install ../iommu-map-pa-dkms_*_all.deb
+sudo modprobe iommu_map_pa
 ```
 
 The package registers the module sources with DKMS and installs the ioctl
-ABI system-wide as `<upcie/upcie_iommu_map.h>`.
+ABI system-wide as `<upcie/iommu_map_pa.h>`.
 
 For quick hacking the plain out-of-tree build still works:
 
 ```sh
-make -C experimental/vfio_cuda_iommu_map/module
-sudo insmod experimental/vfio_cuda_iommu_map/module/upcie_iommu_map.ko
+make -C experimental/iommu_map_pa/module
+sudo insmod experimental/iommu_map_pa/module/iommu_map_pa.ko
 ```
 
 ## Build the test
@@ -67,15 +67,15 @@ meson compile -C builddir test_cudamem_iommu_map_nvme_readwrite
 The test binary is created at:
 
 ```text
-builddir/experimental/vfio_cuda_iommu_map/test_cudamem_iommu_map_nvme_readwrite
+builddir/experimental/iommu_map_pa/test_cudamem_iommu_map_nvme_readwrite
 ```
 
 Run it only after binding the target NVMe device to `vfio-pci` and setting up
 the required huge pages:
 
 ```sh
-sudo ./builddir/experimental/vfio_cuda_iommu_map/test_cudamem_iommu_map_nvme_readwrite 0000:02:00.0
+sudo ./builddir/experimental/iommu_map_pa/test_cudamem_iommu_map_nvme_readwrite 0000:02:00.0
 ```
 
 Unload the module only after the test has exited and removed all mappings.
-To remove the DKMS package, `sudo apt remove upcie-iommu-map-dkms`.
+To remove the DKMS package, `sudo apt remove iommu-map-pa-dkms`.

@@ -5,8 +5,8 @@ experimental_cuda_dep = dependency(
 
 if experimental_cuda_dep.found()
   executable(
-    'test_cudamem_iommu_map_nvme_readwrite',
-    'tests/test_cudamem_iommu_map_nvme_readwrite.c',
+    'test_cudamem_iommu_map_pa_nvme_readwrite',
+    'tests/test_cudamem_iommu_map_pa_nvme_readwrite.c',
     include_directories: [
       include_directories('../../include'),
       include_directories('include'),

@@ -12,13 +12,13 @@
 #
 # Version is a single source of truth: the (native) upstream version from the
 # changelog drives the module source path and the DKMS module version, so the
-# deb version, /usr/src/upcie-iommu-map-<ver> tree, and dkms.conf
+# deb version, /usr/src/iommu-map-pa-<ver> tree, and dkms.conf
 # PACKAGE_VERSION never drift.
 
 export DH_VERBOSE = 1
 
 VERSION := $(shell dpkg-parsechangelog -SVersion)
-PACKAGE := upcie-iommu-map
+PACKAGE := iommu-map-pa
 DKMS_TREE := debian/$(PACKAGE)-dkms/usr/src/$(PACKAGE)-$(VERSION)
 
 %:
@@ -32,12 +32,12 @@ override_dh_auto_clean:
 
 override_dh_install:
 	install -d $(DKMS_TREE)
-	install -m0644 module/upcie_iommu_map.c module/upcie_iommu_map.h module/Makefile $(DKMS_TREE)/
-	# Install the UAPI header system-wide so consumers can build against the
-	# map ioctls without vendoring: #include <upcie/upcie_iommu_map.h>
-	# Not /usr/include/linux/: that path is owned by linux-libc-dev, and a
-	# collision there would make this package fail to install.
-	install -D -m0644 module/upcie_iommu_map.h debian/$(PACKAGE)-dkms/usr/include/upcie/upcie_iommu_map.h
+	install -m0644 module/iommu_map_pa.c module/iommu_map_pa.h module/Makefile $(DKMS_TREE)/
+	# /usr/include/linux/ is owned by linux-libc-dev, so this is a deliberate
+	# bet: a future linux-libc-dev shipping this name would collide and stop
+	# the package installing. Specific enough to make that unlikely, and it is
+	# where consumers expect a kernel UAPI.
+	install -D -m0644 module/iommu_map_pa.h debian/$(PACKAGE)-dkms/usr/include/linux/iommu_map_pa.h
 
 override_dh_dkms:
 	dh_dkms -V $(VERSION)
