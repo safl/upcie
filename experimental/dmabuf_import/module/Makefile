@@ -7,7 +7,7 @@
 # DKMS calls this via dkms.conf (MAKE[0]); it passes KDIR as
 # ${kernel_source_dir}.
 
-obj-m += udmabuf_import.o
+obj-m += dmabuf_import.o
 
 KDIR ?= /lib/modules/$(shell uname -r)/build
 PWD  := $(shell pwd)

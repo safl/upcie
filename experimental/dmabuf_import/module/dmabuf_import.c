@@ -30,7 +30,7 @@
 #include <linux/dma-buf.h>
 #include <linux/dma-mapping.h>
 
-#include "udmabuf_import.h"
+#include "dmabuf_import.h"
 
 /* Forward decl so the ioctl handlers can reach the device for dma_buf_attach. */
 static struct miscdevice udmabuf_import_misc;
