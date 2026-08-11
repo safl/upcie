@@ -85,6 +85,10 @@ already-loaded module keeps its old ownership until you trigger or reload it.
 Group membership needs a fresh login session. The rule names the ``vfio`` group;
 edit it before copying if a narrower group suits the machine better.
 
+If the docdir file is missing, the system is one that sets dpkg
+``path-exclude=/usr/share/doc/*``, which minimized installs and container
+images do. The rule is in the source tree under ``debian/udev/``.
+
 Build and run the examples
 --------------------------
 

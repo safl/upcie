@@ -96,6 +96,10 @@ The `trigger` matters: the rule is applied on a device `add` event, so an
 already-loaded module keeps its old ownership until you trigger or reload it.
 Group membership needs a fresh login session.
 
+If the docdir file is missing, the system is one that sets dpkg
+`path-exclude=/usr/share/doc/*`, which minimized installs and container images
+do. The rule is in the source tree under `debian/udev/`.
+
 Read the warning above before doing this. The rule names the `vfio` group as an
 example, which on many machines is broad precisely so that users can drive VFIO
 devices; a dedicated group is the safer choice.

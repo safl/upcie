@@ -95,7 +95,10 @@ jobs:
           apt-get install -y "./$deb"
           test -f /usr/include/linux/iommu_map_pa.h
           test -f /usr/include/upcie/experimental/iommu_map_pa.h
-          test -f /usr/share/doc/iommu-map-pa-dkms/60-iommu-map-pa.rules.example
+          # Checked in the deb, not on disk: the ubuntu container images set
+          # path-exclude=/usr/share/doc/*, so docdir files never get unpacked
+          # here even though they install fine on a real host.
+          dpkg -c "$deb" | grep -q '60-iommu-map-pa.rules.example'
 
           # `uname -r` in a container is the host kernel, so DKMS skips it and
           # targets the kernel whose headers this image ships. That leaves the

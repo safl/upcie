@@ -115,7 +115,10 @@ jobs:
           deb=$(ls dl/dmabuf-import-dkms_*_all.deb)
           apt-get install -y "./$deb"
           test -f /usr/include/linux/dmabuf_import.h
-          test -f /usr/share/doc/dmabuf-import-dkms/60-dmabuf-import.rules.example
+          # Checked in the deb, not on disk: the ubuntu container images set
+          # path-exclude=/usr/share/doc/*, so docdir files never get unpacked
+          # here even though they install fine on a real host.
+          dpkg -c "$deb" | grep -q '60-dmabuf-import.rules.example'
 
           # `uname -r` in a container is the host kernel, so DKMS skips it and
           # targets the kernel whose headers this image ships. Build explicitly
