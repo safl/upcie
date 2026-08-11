@@ -6,34 +6,20 @@
 #include <linux/ioctl.h>
 
 /*
- * UAPI for the out-of-tree dma-buf importer (/dev/dmabuf_import).
+ * UAPI for the out-of-tree dma-buf importer (/dev/dmabuf_import), installed
+ * system-wide by the dmabuf-import-dkms package.
  *
- * These ioctls originally lived as a patch on the in-tree, built-in
- * udmabuf driver (CONFIG_UDMABUF=y), which forced a full kernel rebuild.
- * They are additive + self-contained (import an external dma-buf and hand
- * its DMA addresses to userspace, using only exported dma-buf core APIs),
- * so they are lifted here into a standalone module with its own device.
- * Nothing here is udmabuf-specific: any dma-buf descriptor can be imported,
- * whoever exported it.
+ * The magic ('u') and numbers come from the udmabuf patch these ioctls were
+ * first delivered as, which is the only reason they look the way they do.
+ * They are issued on a separate fd, so they never clash with the stock
+ * /dev/udmabuf ioctls.
  *
- * The ioctl magic ('u') + numbers match that original patch, which is the
- * only reason they look the way they do. Because they are issued on a
- * SEPARATE fd (/dev/dmabuf_import), they never clash with the stock
- * /dev/udmabuf UDMABUF_CREATE / UDMABUF_CREATE_LIST ioctls.
- *
- * Attachments are owned by the /dev/dmabuf_import descriptor that created
- * them: DMABUF_IMPORT_GET_MAP and DMABUF_IMPORT_DETACH must be issued on the
- * same descriptor as the DMABUF_IMPORT_ATTACH, and closing it tears the
- * attachment down. Keep it open for as long as the DMA addresses are in use.
- *
- * Installed system-wide as <linux/dmabuf_import.h> by the dmabuf-import-dkms
- * package.
+ * Attachments are owned by the descriptor that created them: GET_MAP and
+ * DETACH must be issued on the same one as the ATTACH, and closing it tears
+ * the attachment down. Keep it open while the DMA addresses are in use.
  */
 
-/*
- * Device node the importer module registers (miscdevice "dmabuf_import").
- * Open this for the import ioctls; override with -DDMABUF_IMPORT_DEVPATH=...
- */
+/* Override with -DDMABUF_IMPORT_DEVPATH=... */
 #ifndef DMABUF_IMPORT_DEVPATH
 #define DMABUF_IMPORT_DEVPATH "/dev/dmabuf_import"
 #endif

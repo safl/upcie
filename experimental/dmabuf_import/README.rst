@@ -1,17 +1,16 @@
 dma-buf Import
 ==============
 
-A *dma-buf* importer for *udmabuf*: it imports an external *dma-buf* and shares
-its DMA/physical addresses with userspace over three ioctls (``DMABUF_IMPORT_ATTACH``,
-``DMABUF_IMPORT_DETACH``, ``DMABUF_IMPORT_GET_MAP``). Two examples import a *dma-buf* and
+A *dma-buf* importer: it imports an external *dma-buf* and shares its
+DMA/physical addresses with userspace over three ioctls
+(``DMABUF_IMPORT_ATTACH``, ``DMABUF_IMPORT_DETACH``, ``DMABUF_IMPORT_GET_MAP``).
+Any *dma-buf* can be imported, whoever exported it. Two examples import one and
 print its addresses: ``dmabuf_import_cpu`` (a *memfd* via *udmabuf*) and
 ``dmabuf_import_gpu`` (GPU memory via the NVIDIA driver).
 
-Why DKMS rather than the in-tree patch: the patch bakes into ``vmlinuz``, so
-every change means a full kernel rebuild and reboot (or kexec stunts). As a
-standalone out-of-tree module it iterates fast (``rmmod``/``insmod``, or a DKMS
-rebuild, to try a change), and it works in netboot environments where the kernel
-is fixed.
+Why DKMS: as a standalone out-of-tree module it iterates fast
+(``rmmod``/``insmod``, or a DKMS rebuild, to try a change), and it works in
+netboot environments where the kernel is fixed.
 
 Tested with the NVIDIA driver, CUDA runtime, and libraries: the GPU example
 imports a CUDA-exported *dma-buf* through ``/dev/dmabuf_import`` and reads back
