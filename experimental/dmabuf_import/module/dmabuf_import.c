@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * udmabuf_import - standalone (out-of-tree) dma-buf importer
+ * dmabuf_import - standalone (out-of-tree) dma-buf importer
  *
  * Extraction of the udmabuf "import a dma-buf + share its DMA addresses
  * with userspace" ioctls, originally delivered as a patch to the in-tree
@@ -10,12 +10,12 @@
  * it never calls a udmabuf-internal function -- it only uses EXPORTED
  * dma-buf core APIs (dma_buf_get/attach/map_attachment_unlocked/... ) plus
  * rbtree. So it is lifted here into its own module that registers its own
- * misc device (/dev/udmabuf_import) and COEXISTS with the stock built-in
+ * misc device (/dev/dmabuf_import) and COEXISTS with the stock built-in
  * udmabuf. That makes it buildable + shippable out-of-tree (DKMS) against a
  * stock kernel -- no kernel rebuild, no custom kernel.
  *
  * Userspace keeps using the stock /dev/udmabuf for UDMABUF_CREATE and uses
- * /dev/udmabuf_import for UDMABUF_ATTACH / UDMABUF_GET_MAP / UDMABUF_DETACH.
+ * /dev/dmabuf_import for DMABUF_IMPORT_ATTACH / DMABUF_IMPORT_GET_MAP / DMABUF_IMPORT_DETACH.
  */
 #include <linux/module.h>
 #include <linux/version.h>
@@ -33,14 +33,14 @@
 #include "dmabuf_import.h"
 
 /* Forward decl so the ioctl handlers can reach the device for dma_buf_attach. */
-static struct miscdevice udmabuf_import_misc;
+static struct miscdevice dmabuf_import_misc;
 
 /* ---- imported dma-buf tracking (verbatim from the original patch) ------- */
 
-static struct rb_root udmabuf_dma_tree = RB_ROOT;
-static DEFINE_RWLOCK(udmabuf_dma_treelock);
+static struct rb_root dmabuf_import_tree = RB_ROOT;
+static DEFINE_RWLOCK(dmabuf_import_treelock);
 
-struct udmabuf_dma_buf_desc {
+struct dmabuf_import_desc {
 	int				dma_buf_fd;
 	enum dma_data_direction		dir;
 	struct dma_buf_attachment	*attach;
@@ -49,13 +49,13 @@ struct udmabuf_dma_buf_desc {
 	struct rb_node			node;
 };
 
-static struct udmabuf_dma_buf_desc *udmabuf_dma_tree_find(struct rb_root *root, int dma_buf_fd)
+static struct dmabuf_import_desc *dmabuf_import_tree_find(struct rb_root *root, int dma_buf_fd)
 {
-	struct udmabuf_dma_buf_desc *this;
+	struct dmabuf_import_desc *this;
 	struct rb_node *node = root->rb_node;
 
 	while (node) {
-		this = container_of(node, struct udmabuf_dma_buf_desc, node);
+		this = container_of(node, struct dmabuf_import_desc, node);
 
 		if (dma_buf_fd < this->dma_buf_fd)
 			node = node->rb_left;
@@ -67,14 +67,14 @@ static struct udmabuf_dma_buf_desc *udmabuf_dma_tree_find(struct rb_root *root, 
 	return NULL;
 }
 
-static int udmabuf_dma_tree_insert(struct rb_root *root, struct udmabuf_dma_buf_desc *desc)
+static int dmabuf_import_tree_insert(struct rb_root *root, struct dmabuf_import_desc *desc)
 {
-	struct udmabuf_dma_buf_desc *this;
+	struct dmabuf_import_desc *this;
 	struct rb_node **link = &root->rb_node;
 	struct rb_node *parent = NULL;
 
 	while (*link) {
-		this = container_of(*link, struct udmabuf_dma_buf_desc, node);
+		this = container_of(*link, struct dmabuf_import_desc, node);
 		parent = *link;
 
 		if (desc->dma_buf_fd < this->dma_buf_fd)
@@ -91,13 +91,13 @@ static int udmabuf_dma_tree_insert(struct rb_root *root, struct udmabuf_dma_buf_
 	return 0;
 }
 
-static struct udmabuf_dma_buf_desc *udmabuf_get_dma_buf_desc(int dma_buf_fd)
+static struct dmabuf_import_desc *dmabuf_import_desc_lookup(int dma_buf_fd)
 {
-	struct udmabuf_dma_buf_desc *desc;
+	struct dmabuf_import_desc *desc;
 
-	read_lock(&udmabuf_dma_treelock);
-	desc = udmabuf_dma_tree_find(&udmabuf_dma_tree, dma_buf_fd);
-	read_unlock(&udmabuf_dma_treelock);
+	read_lock(&dmabuf_import_treelock);
+	desc = dmabuf_import_tree_find(&dmabuf_import_tree, dma_buf_fd);
+	read_unlock(&dmabuf_import_treelock);
 	if (!desc)
 		return ERR_PTR(-EINVAL);
 
@@ -107,11 +107,11 @@ static struct udmabuf_dma_buf_desc *udmabuf_get_dma_buf_desc(int dma_buf_fd)
 /*
  * Tear down a desc's dma-buf attachment and free it. The dma-buf teardown
  * sleeps (dma_buf_unmap_attachment_unlocked() and dma_buf_detach() take
- * dma_resv_lock), so this must NOT be called under udmabuf_dma_treelock; the
+ * dma_resv_lock), so this must NOT be called under dmabuf_import_treelock; the
  * caller removes the node from the tree under the lock, then calls this after
  * dropping it. The desc must already be out of (or never in) the tree.
  */
-static void udmabuf_detach(struct udmabuf_dma_buf_desc *desc)
+static void dmabuf_import_desc_destroy(struct dmabuf_import_desc *desc)
 {
 	if (!desc)
 		return;
@@ -126,18 +126,18 @@ static void udmabuf_detach(struct udmabuf_dma_buf_desc *desc)
 	kfree(desc);
 }
 
-static int udmabuf_attach(struct udmabuf_dma_buf_desc **desc, int dma_buf_fd,
+static int dmabuf_import_attach_locked(struct dmabuf_import_desc **desc, int dma_buf_fd,
 			  struct device *dev, enum dma_data_direction dir)
 {
-	struct udmabuf_dma_buf_desc *tmp;
+	struct dmabuf_import_desc *tmp;
 	int ret;
 
 	if (WARN_ON_ONCE(!dev))
 		return -EFAULT;
 
-	read_lock(&udmabuf_dma_treelock);
-	tmp = udmabuf_dma_tree_find(&udmabuf_dma_tree, dma_buf_fd);
-	read_unlock(&udmabuf_dma_treelock);
+	read_lock(&dmabuf_import_treelock);
+	tmp = dmabuf_import_tree_find(&dmabuf_import_tree, dma_buf_fd);
+	read_unlock(&dmabuf_import_treelock);
 	if (tmp) {
 		/* Don't fail if dma-buf is already attached. */
 		*desc = tmp;
@@ -173,27 +173,27 @@ static int udmabuf_attach(struct udmabuf_dma_buf_desc **desc, int dma_buf_fd,
 	tmp->dir = dir;
 	tmp->dma_buf_fd = dma_buf_fd;
 
-	write_lock(&udmabuf_dma_treelock);
-	ret = udmabuf_dma_tree_insert(&udmabuf_dma_tree, tmp);
-	write_unlock(&udmabuf_dma_treelock);
+	write_lock(&dmabuf_import_treelock);
+	ret = dmabuf_import_tree_insert(&dmabuf_import_tree, tmp);
+	write_unlock(&dmabuf_import_treelock);
 	if (ret)
 		goto err;
 
 	*desc = tmp;
 	return 0;
 err:
-	udmabuf_detach(tmp);
+	dmabuf_import_desc_destroy(tmp);
 	return ret;
 }
 
 /* ---- ioctls ------------------------------------------------------------- */
 
-static long udmabuf_ioctl_attach(struct file *filp, unsigned long arg)
+static long dmabuf_import_ioctl_attach(struct file *filp, unsigned long arg)
 {
-	struct device *dev = udmabuf_import_misc.this_device;
-	struct udmabuf_attach __user *uattach;
-	struct udmabuf_attach attach;
-	struct udmabuf_dma_buf_desc *desc;
+	struct device *dev = dmabuf_import_misc.this_device;
+	struct dmabuf_import_attach __user *uattach;
+	struct dmabuf_import_attach attach;
+	struct dmabuf_import_desc *desc;
 	int ret;
 
 	uattach = (void __user *)arg;
@@ -201,7 +201,7 @@ static long udmabuf_ioctl_attach(struct file *filp, unsigned long arg)
 	if (copy_from_user(&attach, uattach, sizeof(attach)))
 		return -EFAULT;
 
-	ret = udmabuf_attach(&desc, attach.fd, dev, DMA_BIDIRECTIONAL);
+	ret = dmabuf_import_attach_locked(&desc, attach.fd, dev, DMA_BIDIRECTIONAL);
 	if (ret)
 		return ret;
 
@@ -213,9 +213,9 @@ static long udmabuf_ioctl_attach(struct file *filp, unsigned long arg)
 	return 0;
 }
 
-static long udmabuf_ioctl_detach(struct file *filp, unsigned long arg)
+static long dmabuf_import_ioctl_detach(struct file *filp, unsigned long arg)
 {
-	struct udmabuf_dma_buf_desc *desc;
+	struct dmabuf_import_desc *desc;
 	int fd;
 
 	if (copy_from_user(&fd, (void __user *)arg, sizeof(fd)))
@@ -223,26 +223,26 @@ static long udmabuf_ioctl_detach(struct file *filp, unsigned long arg)
 
 	/* Remove the node from the tree under the lock (pointer work only), then
 	 * do the sleeping dma-buf teardown after dropping it. */
-	write_lock(&udmabuf_dma_treelock);
-	desc = udmabuf_dma_tree_find(&udmabuf_dma_tree, fd);
+	write_lock(&dmabuf_import_treelock);
+	desc = dmabuf_import_tree_find(&dmabuf_import_tree, fd);
 	if (desc)
-		rb_erase(&desc->node, &udmabuf_dma_tree);
-	write_unlock(&udmabuf_dma_treelock);
+		rb_erase(&desc->node, &dmabuf_import_tree);
+	write_unlock(&dmabuf_import_treelock);
 
 	if (!desc)
 		return -EINVAL;
 
-	udmabuf_detach(desc);
+	dmabuf_import_desc_destroy(desc);
 	return 0;
 }
 
-static long udmabuf_ioctl_get_map(struct file *filp, unsigned long arg)
+static long dmabuf_import_ioctl_get_map(struct file *filp, unsigned long arg)
 {
-	struct udmabuf_dma_buf_desc *desc;
-	struct udmabuf_get_map __user *uget_map;
-	struct udmabuf_get_map get_map;
-	struct udmabuf_dma_map map;
-	struct udmabuf_dma_map __user *umap;
+	struct dmabuf_import_desc *desc;
+	struct dmabuf_import_get_map __user *uget_map;
+	struct dmabuf_import_get_map get_map;
+	struct dmabuf_import_dma_map map;
+	struct dmabuf_import_dma_map __user *umap;
 	struct scatterlist *sg;
 	int i;
 
@@ -251,7 +251,7 @@ static long udmabuf_ioctl_get_map(struct file *filp, unsigned long arg)
 	if (copy_from_user(&get_map, uget_map, sizeof(get_map)))
 		return -EFAULT;
 
-	desc = udmabuf_get_dma_buf_desc(get_map.fd);
+	desc = dmabuf_import_desc_lookup(get_map.fd);
 	if (IS_ERR(desc))
 		return PTR_ERR(desc);
 
@@ -271,38 +271,38 @@ static long udmabuf_ioctl_get_map(struct file *filp, unsigned long arg)
 	return 0;
 }
 
-static long udmabuf_import_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+static long dmabuf_import_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	switch (cmd) {
-	case UDMABUF_ATTACH:
-		return udmabuf_ioctl_attach(filp, arg);
-	case UDMABUF_DETACH:
-		return udmabuf_ioctl_detach(filp, arg);
-	case UDMABUF_GET_MAP:
-		return udmabuf_ioctl_get_map(filp, arg);
+	case DMABUF_IMPORT_ATTACH:
+		return dmabuf_import_ioctl_attach(filp, arg);
+	case DMABUF_IMPORT_DETACH:
+		return dmabuf_import_ioctl_detach(filp, arg);
+	case DMABUF_IMPORT_GET_MAP:
+		return dmabuf_import_ioctl_get_map(filp, arg);
 	default:
 		return -ENOTTY;
 	}
 }
 
-static const struct file_operations udmabuf_import_fops = {
+static const struct file_operations dmabuf_import_fops = {
 	.owner		= THIS_MODULE,
-	.unlocked_ioctl	= udmabuf_import_ioctl,
+	.unlocked_ioctl	= dmabuf_import_ioctl,
 	.compat_ioctl	= compat_ptr_ioctl,
 	.llseek		= noop_llseek,
 };
 
-static struct miscdevice udmabuf_import_misc = {
+static struct miscdevice dmabuf_import_misc = {
 	.minor	= MISC_DYNAMIC_MINOR,
-	.name	= "udmabuf_import",
-	.fops	= &udmabuf_import_fops,
+	.name	= "dmabuf_import",
+	.fops	= &dmabuf_import_fops,
 };
 
-static int __init udmabuf_import_init(void)
+static int __init dmabuf_import_init(void)
 {
 	int ret;
 
-	ret = misc_register(&udmabuf_import_misc);
+	ret = misc_register(&dmabuf_import_misc);
 	if (ret)
 		return ret;
 
@@ -314,20 +314,20 @@ static int __init udmabuf_import_init(void)
 	 * robustness. If it changes observed addresses, drop it to match the
 	 * in-tree behaviour exactly.
 	 */
-	dma_coerce_mask_and_coherent(udmabuf_import_misc.this_device, DMA_BIT_MASK(64));
+	dma_coerce_mask_and_coherent(dmabuf_import_misc.this_device, DMA_BIT_MASK(64));
 
 	return 0;
 }
 
-static void __exit udmabuf_import_exit(void)
+static void __exit dmabuf_import_exit(void)
 {
-	misc_deregister(&udmabuf_import_misc);
+	misc_deregister(&dmabuf_import_misc);
 	/* NB: descriptors still in the tree at unload are leaked; add a
 	 * drain here if the module is meant to be unloaded while in use. */
 }
 
-module_init(udmabuf_import_init);
-module_exit(udmabuf_import_exit);
+module_init(dmabuf_import_init);
+module_exit(dmabuf_import_exit);
 
 /* dma_buf_map_attachment_unlocked() & friends are exported in the DMA_BUF
  * symbol namespace. The MODULE_IMPORT_NS spelling changed to a string
@@ -340,5 +340,5 @@ MODULE_IMPORT_NS(DMA_BUF);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Karl Bonde Torp <k.torp@samsung.com>");
-MODULE_DESCRIPTION("Out-of-tree dma-buf importer (udmabuf import ioctls)");
-MODULE_VERSION("0.1.0");
+MODULE_DESCRIPTION("Out-of-tree dma-buf importer");
+MODULE_VERSION("0.2.0");

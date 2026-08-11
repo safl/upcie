@@ -9,7 +9,7 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-#include "module/udmabuf_import.h"
+#include "module/dmabuf_import.h"
 
 #include <cuda.h>
 
@@ -79,20 +79,20 @@ void destroy_nvidia_dmabuf_fd(struct gpu_dmabuf_info *gdi) {
 }
 
 int main(int argc, char *argv[]) {
-  struct udmabuf_attach *attach;
-  struct udmabuf_get_map *map;
+  struct dmabuf_import_attach *attach;
+  struct dmabuf_import_get_map *map;
   struct gpu_dmabuf_info gpu_dmabuf_info;
   int import_fd, dmabuf_fd, err;
   size_t buf_size = 8 * 65536; // 8 GPU pages
   long map_size;
 
   /* The GPU dma-buf comes from CUDA, not UDMABUF_CREATE, so stock /dev/udmabuf
-   * is not used here. The out-of-tree module serves the UDMABUF_ATTACH /
+   * is not used here. The out-of-tree module serves the DMABUF_IMPORT_ATTACH /
    * GET_MAP import ioctls on its own device. */
-  import_fd = open(UDMABUF_IMPORT_DEVPATH, O_RDWR);
+  import_fd = open(DMABUF_IMPORT_DEVPATH, O_RDWR);
   if (import_fd < 0) {
     err = errno;
-    printf("Failed to open udmabuf_import dev, errno: %d\n", err);
+    printf("Failed to open dmabuf_import dev, errno: %d\n", err);
     return err;
   }
 
@@ -105,7 +105,7 @@ int main(int argc, char *argv[]) {
 
   printf("DMABUF FD: %d\n", dmabuf_fd);
 
-  attach = malloc(sizeof(struct udmabuf_attach));
+  attach = malloc(sizeof(struct dmabuf_import_attach));
   if (!attach) {
     err = errno;
     printf("Failed to alloc attach struct, errno: %d\n", err);
@@ -114,18 +114,18 @@ int main(int argc, char *argv[]) {
   memset(attach, 0, sizeof(*attach));
   attach->fd = dmabuf_fd;
 
-  err = ioctl(import_fd, UDMABUF_ATTACH, attach);
+  err = ioctl(import_fd, DMABUF_IMPORT_ATTACH, attach);
   if (err) {
     err = errno;
-    printf("IOCTL UDMABUF_ATTACH failed, errno: %d\n", err);
+    printf("IOCTL DMABUF_IMPORT_ATTACH failed, errno: %d\n", err);
     return err;
   }
 
   printf("dma-buf contains %u addresses\n", attach->count);
 
-  map_size = attach->count * sizeof(struct udmabuf_dma_map);
+  map_size = attach->count * sizeof(struct dmabuf_import_dma_map);
 
-  map = malloc(sizeof(struct udmabuf_get_map) + map_size);
+  map = malloc(sizeof(struct dmabuf_import_get_map) + map_size);
   if (!map) {
     err = errno;
     printf("Failed to alloc map struct, errno: %d\n", err);
@@ -136,10 +136,10 @@ int main(int argc, char *argv[]) {
   map->fd = dmabuf_fd;
   map->count = attach->count;
 
-  err = ioctl(import_fd, UDMABUF_GET_MAP, map);
+  err = ioctl(import_fd, DMABUF_IMPORT_GET_MAP, map);
   if (err) {
     err = errno;
-    printf("IOCTL UDMABUF_GET_MAP failed, %d\n", err);
+    printf("IOCTL DMABUF_IMPORT_GET_MAP failed, %d\n", err);
     return err;
   }
 
@@ -148,10 +148,10 @@ int main(int argc, char *argv[]) {
     printf("len %d: %lld\n", i, map->dma_arr[i].dma_len);
   }
 
-  err = ioctl(import_fd, UDMABUF_GET_MAP, map);
+  err = ioctl(import_fd, DMABUF_IMPORT_GET_MAP, map);
   if (err) {
     err = errno;
-    printf("IOCTL UDMABUF_GET_MAP failed, errno: %d\n", err);
+    printf("IOCTL DMABUF_IMPORT_GET_MAP failed, errno: %d\n", err);
     return err;
   }
 

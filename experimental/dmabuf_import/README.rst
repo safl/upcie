@@ -1,11 +1,11 @@
-UDMABUF Import
+dma-buf Import
 ==============
 
 A *dma-buf* importer for *udmabuf*: it imports an external *dma-buf* and shares
-its DMA/physical addresses with userspace over three ioctls (``UDMABUF_ATTACH``,
-``UDMABUF_DETACH``, ``UDMABUF_GET_MAP``). Two examples import a *dma-buf* and
-print its addresses: ``udmabuf_import_cpu`` (a *memfd* via *udmabuf*) and
-``udmabuf_import_gpu`` (GPU memory via the NVIDIA driver).
+its DMA/physical addresses with userspace over three ioctls (``DMABUF_IMPORT_ATTACH``,
+``DMABUF_IMPORT_DETACH``, ``DMABUF_IMPORT_GET_MAP``). Two examples import a *dma-buf* and
+print its addresses: ``dmabuf_import_cpu`` (a *memfd* via *udmabuf*) and
+``dmabuf_import_gpu`` (GPU memory via the NVIDIA driver).
 
 Why DKMS rather than the in-tree patch: the patch bakes into ``vmlinuz``, so
 every change means a full kernel rebuild and reboot (or kexec stunts). As a
@@ -14,18 +14,18 @@ rebuild, to try a change), and it works in netboot environments where the kernel
 is fixed.
 
 Tested with the NVIDIA driver, CUDA runtime, and libraries: the GPU example
-imports a CUDA-exported *dma-buf* through ``/dev/udmabuf_import`` and reads back
+imports a CUDA-exported *dma-buf* through ``/dev/dmabuf_import`` and reads back
 its DMA addresses.
 
 Install the DKMS module
 -----------------------
 
 Stock ``/dev/udmabuf`` keeps serving ``UDMABUF_CREATE``; the module adds
-``/dev/udmabuf_import`` for ``UDMABUF_ATTACH`` / ``DETACH`` / ``GET_MAP``.
+``/dev/dmabuf_import`` for ``DMABUF_IMPORT_ATTACH`` / ``DETACH`` / ``GET_MAP``.
 
 * Install the ``.deb`` (CI builds it for Ubuntu 24.04 and 26.04)::
 
-	  apt install ./udmabuf-import-dkms_*.deb
+	  apt install ./dmabuf-import-dkms_*.deb
 
 * Or build the ``.deb`` from this repo::
 
@@ -33,26 +33,26 @@ Stock ``/dev/udmabuf`` keeps serving ``UDMABUF_CREATE``; the module adds
 	  dpkg-buildpackage -us -uc -b
 
 DKMS rebuilds the module automatically on kernel updates. Load it now with
-``modprobe udmabuf_import`` (installing the ``.deb`` does not auto-load it). To
+``modprobe dmabuf_import`` (installing the ``.deb`` does not auto-load it). To
 load it on every boot, create a ``.conf`` under ``/etc/modules-load.d/`` that
 names the module, which ``systemd-modules-load`` reads at boot::
 
-	  echo udmabuf_import > /etc/modules-load.d/udmabuf_import.conf
+	  echo dmabuf_import > /etc/modules-load.d/dmabuf_import.conf
 
 The package also installs the UAPI header at
-``/usr/include/linux/udmabuf_import.h``, so userspace can build against the
+``/usr/include/linux/dmabuf_import.h``, so userspace can build against the
 import ioctls without vendoring::
 
-	  #include <linux/udmabuf_import.h>
+	  #include <linux/dmabuf_import.h>
 
 It provides the attach/detach/get-map structs and ioctls plus an overridable
-``UDMABUF_IMPORT_DEVPATH`` (the device to open for the import ioctls).
+``DMABUF_IMPORT_DEVPATH`` (the device to open for the import ioctls).
 
 Build and run the examples
 --------------------------
 
-* ``make cpu`` builds ``udmabuf_import_cpu`` (*udmabuf* + *memfd*)
-* ``make gpu`` builds ``udmabuf_import_gpu`` (needs CUDA; links ``-lcuda``)
+* ``make cpu`` builds ``dmabuf_import_cpu`` (*udmabuf* + *memfd*)
+* ``make gpu`` builds ``dmabuf_import_gpu`` (needs CUDA; links ``-lcuda``)
 
 *dma-buf* is fd-backed, so raise the limit first: ``ulimit -n 1000000``.
 
