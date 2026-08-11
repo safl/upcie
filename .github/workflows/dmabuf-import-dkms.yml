@@ -1,9 +1,9 @@
-name: udmabuf-import-dkms
+name: dmabuf-import-dkms
 
-# Build the experimental udmabuf_import DKMS deb and make it available as a
+# Build the experimental dmabuf_import DKMS deb and make it available as a
 # prerequisite. On a PR touching the module it builds the deb, installs it, and
 # builds a upcie consumer against it. On a upcie release tag (v*) it also
-# attaches the deb -- at its own version, from experimental/udmabuf_import/
+# attaches the deb -- at its own version, from experimental/dmabuf_import/
 # debian/ -- to the upcie GitHub Release. The module is not released on its own;
 # it rides the upcie release as an asset.
 #
@@ -15,8 +15,8 @@ name: udmabuf-import-dkms
 on:
   pull_request:
     paths:
-      - 'experimental/udmabuf_import/**'
-      - '.github/workflows/udmabuf-import-dkms.yml'
+      - 'experimental/dmabuf_import/**'
+      - '.github/workflows/dmabuf-import-dkms.yml'
   push:
     branches: [main]
     tags:
@@ -42,19 +42,19 @@ jobs:
         uses: actions/checkout@v7.0.0
 
       - name: Build the DKMS .deb
-        working-directory: experimental/udmabuf_import
+        working-directory: experimental/dmabuf_import
         run: dpkg-buildpackage -us -uc -b
 
       - name: Upload the deb
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: udmabuf-import-dkms
-          path: experimental/udmabuf-import-dkms_*_all.deb
+          name: dmabuf-import-dkms
+          path: experimental/dmabuf-import-dkms_*_all.deb
           if-no-files-found: error
 
   # Prerequisite made available: download the deb and install it on each
   # supported release, then build a upcie consumer against the installed
-  # <linux/udmabuf_import.h> to prove the dma-buf path builds.
+  # <linux/dmabuf_import.h> to prove the dma-buf path builds.
   install:
     needs: build-deb
     runs-on: ubuntu-latest
@@ -78,17 +78,22 @@ jobs:
       - name: Download the deb
         uses: actions/download-artifact@v8.0.1
         with:
-          name: udmabuf-import-dkms
+          name: dmabuf-import-dkms
           path: dl
 
       - name: Install the deb (prerequisite)
         run: |
           export DEBIAN_FRONTEND=noninteractive
-          deb=$(ls dl/udmabuf-import-dkms_*_all.deb)
+          deb=$(ls dl/dmabuf-import-dkms_*_all.deb)
           apt-get install -y "./$deb"
-          test -f /usr/include/linux/udmabuf_import.h && echo "header installed"
-          dkms status | grep udmabuf-import
+          test -f /usr/include/linux/dmabuf_import.h && echo "header installed"
+          dkms status | grep dmabuf-import
 
+      # Asserting on the UAPI's own macros would only prove the header is
+      # findable, which stays true even if dmabuf.h guards on a name the module
+      # no longer defines and quietly compiles its ENOTSUP stubs instead. So
+      # call dmabuf_attach() and require anything but ENOTSUP: the module is not
+      # loaded here, so the real path gets as far as failing to open the node.
       - name: Build a upcie consumer against the prerequisite
         run: |
           cat > consumer.c <<'EOF'
@@ -104,9 +109,20 @@ jobs:
           #include <inttypes.h>
           #define UPCIE_DEBUG(...) do { } while (0)
           #include <upcie/dmabuf.h>
-          int main(void) { struct dmabuf d; (void)d; (void)UDMABUF_IMPORT_DEVPATH; return 0; }
+          int main(void) {
+                  struct dmabuf d = {0};
+                  int err = dmabuf_attach(-1, &d);
+
+                  (void)DMABUF_IMPORT_DEVPATH;
+                  if (err == -ENOTSUP) {
+                          fprintf(stderr, "dmabuf.h compiled its stubs\n");
+                          return 1;
+                  }
+                  return 0;
+          }
           EOF
           gcc -Wall -Iinclude -o consumer consumer.c
+          ./consumer
           echo "upcie dma-buf consumer builds against the installed prerequisite"
 
   # Independent out-of-tree link check (modpost); needs no deb.
@@ -130,12 +146,12 @@ jobs:
         uses: actions/checkout@v7.0.0
 
       - name: Build the module (out-of-tree link check)
-        working-directory: experimental/udmabuf_import
+        working-directory: experimental/dmabuf_import
         run: |
           hdr=$(ls -d /usr/src/linux-headers-*-generic | head -1)
           make -C module KDIR="$hdr"
-          test -f module/udmabuf_import.ko
-          modinfo module/udmabuf_import.ko | grep -E 'name|vermagic|import_ns|depends'
+          test -f module/dmabuf_import.ko
+          modinfo module/dmabuf_import.ko | grep -E 'name|vermagic|import_ns|depends'
 
   # On a upcie release tag (v*), attach the built deb to the upcie Release as an
   # asset. The deb keeps its own version; it does not get its own release.
@@ -149,7 +165,7 @@ jobs:
       - name: Download the deb
         uses: actions/download-artifact@v8.0.1
         with:
-          name: udmabuf-import-dkms
+          name: dmabuf-import-dkms
           path: dl
 
       - name: Attach the deb to the upcie release
@@ -157,7 +173,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="$GITHUB_REF_NAME"
-          deb=$(ls dl/udmabuf-import-dkms_*_all.deb)
+          deb=$(ls dl/dmabuf-import-dkms_*_all.deb)
           # The upcie Release is normally created by the upcie release process;
           # create it if it does not exist yet, then attach the deb.
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
