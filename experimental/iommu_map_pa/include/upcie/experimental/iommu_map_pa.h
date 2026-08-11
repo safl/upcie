@@ -8,8 +8,9 @@
  * EXPERIMENTAL DEPENDENCY
  * Requires the out-of-tree iommu-map-pa DKMS module and /dev/iommu_map_pa.
  * Unlike <upcie/experimental/dmabuf_import.h> this header has no stub path:
- * without the ABI, from the installed package or the in-tree fallback below,
- * including it is a compile error rather than a runtime -ENOTSUP.
+ * without the ABI, from the installed package or from this repository's own
+ * copy of the module header below, including it is a compile error rather
+ * than a runtime -ENOTSUP.
  * ==========================================================================
  *
  * Userspace wrappers for the helper kernel module that maps an array of
@@ -22,8 +23,9 @@
  * descriptor.
  *
  * The ioctl ABI comes from <linux/iommu_map_pa.h>, installed system-wide by the
- * iommu-map-pa DKMS package. Builds from this checkout fall back to the in-tree
- * module header so the package is not required for development.
+ * iommu-map-pa DKMS package. Builds from this checkout fall back to this
+ * repository's copy of that header, under experimental/iommu_map_pa/module/,
+ * so the package is not required for development.
  *
  * @file iommu_map_pa.h
  * @version 0.5.2

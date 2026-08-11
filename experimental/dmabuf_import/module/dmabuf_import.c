@@ -407,6 +407,12 @@ static int __init dmabuf_import_init(void)
 	 */
 	dma_coerce_mask_and_coherent(dmabuf_import_misc.this_device, DMA_BIT_MASK(64));
 
+	/* Same reasoning as the sibling module: state the experimental status
+	 * where an operator will actually see it. The exposure here is smaller,
+	 * DMA addresses for a dma-buf the caller already holds, so this is a
+	 * notice rather than a warning. */
+	pr_info("dmabuf_import: EXPERIMENTAL out-of-tree dma-buf importer on /dev/dmabuf_import\n");
+
 	return 0;
 }
 
