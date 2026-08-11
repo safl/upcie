@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * udmabuf_import_bounds - regression test for the UDMABUF_GET_MAP bound
- * ====================================================================
+ * dmabuf_import_bounds - regression test for the DMABUF_IMPORT_GET_MAP bound
+ * =========================================================================
  *
- * UDMABUF_GET_MAP must write at most get_map.count entries into the
+ * DMABUF_IMPORT_GET_MAP must write at most get_map.count entries into the
  * userspace dma_arr. The original loop guarded with `i > count`, which still
  * let index `count` be written (one past the end). This test detects that.
  *
@@ -12,8 +12,8 @@
  * extra slot. A correct kernel never touches that slot; the buggy one-past
  * write overwrites the canary.
  *
- * Target-side (needs the patched /dev/udmabuf for UDMABUF_CREATE and the module
- * at /dev/udmabuf_import). Exit 0 on OK, 1 on the out-of-bounds write.
+ * Target-side (needs the stock /dev/udmabuf for UDMABUF_CREATE and the module
+ * at /dev/dmabuf_import). Exit 0 on OK, 1 on the out-of-bounds write.
  */
 #define _GNU_SOURCE
 
@@ -29,9 +29,8 @@
 #include <unistd.h>
 
 /* <linux/udmabuf.h> above provides UDMABUF_CREATE; the import ioctls and the
- * device-path macro come from the module header. Its coexistence guard lets it
- * sit alongside a patched <linux/udmabuf.h> too. */
-#include "../module/udmabuf_import.h"
+ * device-path macro come from the module header. */
+#include "../module/dmabuf_import.h"
 
 #define PAGES 8
 #define BUF_SIZE (PAGES * 4096)
@@ -65,8 +64,8 @@ static int create_udmabuf(int udmabuf_fd, size_t size) {
 }
 
 int main(void) {
-  struct udmabuf_attach attach;
-  struct udmabuf_get_map *gm;
+  struct dmabuf_import_attach attach;
+  struct dmabuf_import_get_map *gm;
   int udmabuf_fd, import_fd, dmabuf_fd, count, overwritten;
 
   udmabuf_fd = open("/dev/udmabuf", O_RDWR);
@@ -74,9 +73,9 @@ int main(void) {
     perror("open /dev/udmabuf");
     return 2;
   }
-  import_fd = open(UDMABUF_IMPORT_DEVPATH, O_RDWR);
+  import_fd = open(DMABUF_IMPORT_DEVPATH, O_RDWR);
   if (import_fd < 0) {
-    perror("open /dev/udmabuf_import");
+    perror("open /dev/dmabuf_import");
     return 2;
   }
 
@@ -86,8 +85,8 @@ int main(void) {
 
   memset(&attach, 0, sizeof(attach));
   attach.fd = dmabuf_fd;
-  if (ioctl(import_fd, UDMABUF_ATTACH, &attach)) {
-    perror("UDMABUF_ATTACH");
+  if (ioctl(import_fd, DMABUF_IMPORT_ATTACH, &attach)) {
+    perror("DMABUF_IMPORT_ATTACH");
     return 2;
   }
   count = attach.count;
@@ -98,7 +97,7 @@ int main(void) {
   }
 
   /* Room for `count` entries; canary the last slot; but ask for count - 1. */
-  gm = calloc(1, sizeof(*gm) + (size_t)count * sizeof(struct udmabuf_dma_map));
+  gm = calloc(1, sizeof(*gm) + (size_t)count * sizeof(struct dmabuf_import_dma_map));
   if (!gm) {
     perror("calloc");
     return 2;
@@ -108,8 +107,8 @@ int main(void) {
   gm->dma_arr[count - 1].dma_addr = CANARY;
   gm->dma_arr[count - 1].dma_len = CANARY;
 
-  if (ioctl(import_fd, UDMABUF_GET_MAP, gm)) {
-    perror("UDMABUF_GET_MAP");
+  if (ioctl(import_fd, DMABUF_IMPORT_GET_MAP, gm)) {
+    perror("DMABUF_IMPORT_GET_MAP");
     free(gm);
     return 2;
   }
@@ -120,8 +119,8 @@ int main(void) {
          count - 1, (unsigned long long)gm->dma_arr[count - 1].dma_addr,
          (unsigned long long)gm->dma_arr[count - 1].dma_len);
 
-  if (ioctl(import_fd, UDMABUF_DETACH, &dmabuf_fd))
-    perror("UDMABUF_DETACH (non-fatal)");
+  if (ioctl(import_fd, DMABUF_IMPORT_DETACH, &dmabuf_fd))
+    perror("DMABUF_IMPORT_DETACH (non-fatal)");
   free(gm);
 
   printf("%s\n", overwritten ? "BOUNDS: FAIL (one-past-the-end write)"

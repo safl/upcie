@@ -1,6 +1,6 @@
-# Out-of-tree build for the udmabuf_import module.
+# Out-of-tree build for the dmabuf_import module.
 #
-#   make            # build udmabuf_import.ko against the running kernel
+#   make            # build dmabuf_import.ko against the running kernel
 #   make KDIR=/path/to/kernel/build   # or a specific kernel tree
 #   make clean
 #

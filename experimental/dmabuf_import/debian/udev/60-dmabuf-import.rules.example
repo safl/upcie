@@ -1,0 +1,19 @@
+# EXAMPLE - not active. Copy to /etc/udev/rules.d/ to enable.
+#
+# The dmabuf_import misc device is created 0600 root:root, so only root can
+# import a dma-buf and read back its DMA addresses. This rule hands the node to
+# a group instead, for running the experiments as an unprivileged user.
+#
+# What this grants: the ability to resolve DMA addresses for a dma-buf the
+# caller already holds a descriptor to. It does not grant access to memory the
+# caller could not already reach, but the addresses themselves are physical
+# addressing information, so keep the group narrow.
+#
+# Enable with:
+#   sudo cp 60-dmabuf-import.rules.example /etc/udev/rules.d/60-dmabuf-import.rules
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger --subsystem-match=misc --action=add
+# The trigger matters: the rule is applied on a device 'add' event, so an
+# already-loaded module keeps its old ownership until you trigger or reload it.
+# Group membership needs a fresh login session to take effect.
+KERNEL=="dmabuf_import", SUBSYSTEM=="misc", GROUP="vfio", MODE="0660"
