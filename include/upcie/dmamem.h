@@ -67,15 +67,22 @@ enum dmamem_backing {
 };
 
 /**
- * How offsets resolve to DMA addresses at submission.
+ * How offsets resolve to the address the device puts on the bus.
+ *
+ * "iova" is used throughout for that address, as DPDK does, but what it
+ * holds depends on the translator: a kernel-assigned IOVA when a mapping
+ * was installed, a physical or bus address when none was.
  *
  * ARITHMETIC = 0 by intent: a memset-to-zero dmamem is arithmetic by
  * default, which is what every current owned constructor produces
  * without extra code.
  */
 enum dmamem_translator {
-	DMAMEM_XLATE_ARITHMETIC = 0x0, ///< iova = base_iova + offset
-	DMAMEM_XLATE_LUT = 0x1,        ///< iova = phys_lut[off >> shift] + (off & mask)
+	/** iova = base_iova + offset; the IOVA of the installed mapping. */
+	DMAMEM_XLATE_ARITHMETIC = 0x0,
+	/** iova = phys_lut[off >> shift] + (off & mask); an address the device
+	 *  uses directly, no translation installed. */
+	DMAMEM_XLATE_LUT = 0x1,
 };
 
 /* Forward-declare so dmamem.h stays independent of vfioctl.h include
@@ -169,6 +176,9 @@ dmamem_lut_pagesize_shift(size_t pagesize)
  * The submission-path function. One compare on dmem->translator,
  * then either a single addition (ARITHMETIC) or a shift + table
  * lookup + addition (LUT).
+ *
+ * The result is a kernel-assigned IOVA under the ARITHMETIC translator and
+ * a physical or bus address under LUT; see enum dmamem_translator.
  */
 static inline uint64_t
 dmamem_offset_to_iova(struct dmamem *dmem, size_t offset)
