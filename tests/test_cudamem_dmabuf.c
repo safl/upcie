@@ -52,9 +52,9 @@ int main(void)
 		goto exit;
 	}
 
-	err = dmabuf_attach(dmabuf_fd, &dmabuf);
+	err = dmabuf_import_attach(dmabuf_fd, &dmabuf);
 	if (err) {
-		printf("# FAILED: dmabuf_attach(); err(%d)\n", err);
+		printf("# FAILED: dmabuf_import_attach(); err(%d)\n", err);
 		goto exit;
 	}
 
@@ -63,7 +63,7 @@ int main(void)
 	err = dmabuf_get_lut(&dmabuf, nphys, phys_lut, pagesize);
 	if (err) {
 		printf("# FAILED: dmabuf_get_lut(); err(%d)\n", err);
-		dmabuf_detach(&dmabuf);
+		dmabuf_import_detach(&dmabuf);
 		goto exit;
 	}
 
@@ -74,7 +74,7 @@ int main(void)
 		printf("  - 0x%" PRIx64 "\n", phys_lut[i]);
 	}
 
-	dmabuf_detach(&dmabuf);
+	dmabuf_import_detach(&dmabuf);
 
 exit:
 	cuMemFree(vaddr);
