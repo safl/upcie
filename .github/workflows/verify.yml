@@ -91,6 +91,16 @@ jobs:
       run: |
         gcc -std=c11 -Wall -Wextra -Iinclude -c tests/test_vfioctl.c -o /tmp/test_vfioctl.o
 
+    # Compiling against the source tree says nothing about what is installed.
+    - name: Build a translation unit through the installed headers
+      run: |
+        meson install -C builddir --destdir /tmp/staged
+        prefix=$(meson introspect --buildoptions builddir \
+          | tr ',' '\n' | grep -A2 '"name": "prefix"' | grep '"value"' \
+          | sed 's/.*"value": "//; s/".*//')
+        gcc -std=c11 -Wall -Wextra -I"/tmp/staged${prefix}/include" \
+          -c tests/test_vfioctl.c -o /tmp/test_vfioctl_installed.o
+
   #
   # Provision a QEMU guest from the nosi image and run the test-suite, once with
   # the IOMMU disabled (uio_pci_generic) and once enabled (vfio-pci + iommufd).

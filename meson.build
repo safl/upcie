@@ -30,6 +30,7 @@ install_headers(
   [
     'include/upcie/barriers.h',
     'include/upcie/bitfield.h',
+    'include/upcie/debug.h',
     'include/upcie/cudamem_config.h',
     'include/upcie/cudamem_dma.h',
     'include/upcie/cudamem_heap.h',
@@ -54,21 +55,6 @@ install_headers(
     'include/upcie/hipmem_dma.h',
     'include/upcie/hipmem_heap.h',
     'include/upcie/hipmem_mapping.h',
-    'include/upcie/nvme/nvme_command.h',
-    'include/upcie/nvme/nvme_controller.h',
-    'include/upcie/nvme/nvme_controller_dmamem_type1.h',
-    'include/upcie/nvme/nvme_controller_dmamem_uio.h',
-    'include/upcie/nvme/nvme_controller_dmamem_vfio.h',
-    'include/upcie/nvme/nvme_controller_vfio.h',
-    'include/upcie/nvme/nvme_controller_vfio_pci.h',
-    'include/upcie/nvme/nvme_controller_cuda.h',
-    'include/upcie/nvme/nvme_mmio.h',
-    'include/upcie/nvme/nvme_qid.h',
-    'include/upcie/nvme/nvme_qpair.h',
-    'include/upcie/nvme/nvme_qpair_cuda.h',
-    'include/upcie/nvme/nvme_request.h',
-    'include/upcie/nvme/nvme_request_cuda.h',
-    'include/upcie/nvme/nvme_request_hip.h',
     'include/upcie/pci.h',
     'include/upcie/upcie.h',
     'include/upcie/upcie_cuda.h',
@@ -87,6 +73,29 @@ install_headers(
     'include/upcie/experimental/dmabuf_import.h',
   ],
   subdir: 'upcie/experimental'
+)
+
+# Same reason as above: install_headers() flattens, so the nvme/ headers need
+# their own call to keep the subdirectory that upcie.h includes them by.
+install_headers(
+  [
+    'include/upcie/nvme/nvme_command.h',
+    'include/upcie/nvme/nvme_controller.h',
+    'include/upcie/nvme/nvme_controller_dmamem_type1.h',
+    'include/upcie/nvme/nvme_controller_dmamem_uio.h',
+    'include/upcie/nvme/nvme_controller_dmamem_vfio.h',
+    'include/upcie/nvme/nvme_controller_vfio.h',
+    'include/upcie/nvme/nvme_controller_vfio_pci.h',
+    'include/upcie/nvme/nvme_controller_cuda.h',
+    'include/upcie/nvme/nvme_mmio.h',
+    'include/upcie/nvme/nvme_qid.h',
+    'include/upcie/nvme/nvme_qpair.h',
+    'include/upcie/nvme/nvme_qpair_cuda.h',
+    'include/upcie/nvme/nvme_request.h',
+    'include/upcie/nvme/nvme_request_cuda.h',
+    'include/upcie/nvme/nvme_request_hip.h',
+  ],
+  subdir: 'upcie/nvme'
 )
 
 # Optional dependency for other Meson projects
