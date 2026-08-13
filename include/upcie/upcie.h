@@ -74,6 +74,9 @@ extern "C" {
 /* EXPERIMENTAL: needs the out-of-tree dmabuf-import DKMS module, and compiles
  * to -ENOTSUP stubs without it. Must follow <upcie/dmabuf.h>. */
 #include <upcie/experimental/dmabuf_import.h>
+/* EXPERIMENTAL: needs the out-of-tree iommu-map-pa DKMS module, and compiles
+ * to -ENOTSUP stubs without it. */
+#include <upcie/experimental/iommu_map_pa.h>
 #include <upcie/hostmem.h>
 #include <upcie/hostmem_config.h>
 #include <upcie/hostmem_hugepage.h>

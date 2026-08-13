@@ -106,18 +106,22 @@ jobs:
 
       - name: Build a consumer against the prerequisite
         run: |
-          # Staged outside the checkout so the wrapper's fallback include
-          # cannot resolve; only the deb's header can satisfy it.
+          # Staged outside the checkout so nothing in the tree can satisfy the
+          # UAPI; only the deb's header can, which is what the assertion below
+          # distinguishes from the stub path.
           install -D -m0644 \
-            experimental/iommu_map_pa/include/upcie/experimental/iommu_map_pa.h \
+            include/upcie/experimental/iommu_map_pa.h \
             staged/upcie/experimental/iommu_map_pa.h
           cat > consumer.c <<'EOF'
           #include <stdint.h>
           #include <upcie/experimental/iommu_map_pa.h>
+          #if !UPCIE_HAVE_IOMMU_MAP_PA
+          #error "the installed prerequisite did not provide the UAPI"
+          #endif
           int main(void)
           {
                   struct iommu_map_pa_req req = {0};
-                  int (*fn)(void) = upcie_iommu_map_pa_open;
+                  int (*fn)(void) = iommu_map_pa_open;
 
                   (void)req;
                   (void)fn;

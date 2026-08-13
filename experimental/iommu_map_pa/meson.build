@@ -9,7 +9,6 @@ if experimental_cuda_dep.found()
     'tests/test_cudamem_iommu_map_pa_nvme_readwrite.c',
     include_directories: [
       include_directories('../../include'),
-      include_directories('include'),
     ],
     dependencies: [experimental_cuda_dep],
     build_by_default: false,

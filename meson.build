@@ -64,13 +64,14 @@ install_headers(
   subdir: 'upcie'
 )
 
-# Separate call: install_headers() flattens its file list into one subdir, so a
-# header that must land in upcie/experimental/ cannot ride along with the list
-# above. upcie.h includes this one, so leaving it out breaks every installed
+# Separate call: install_headers() flattens its file list into one subdir, so
+# headers that must land in upcie/experimental/ cannot ride along with the list
+# above. upcie.h includes these, so leaving them out breaks every installed
 # consumer.
 install_headers(
   [
     'include/upcie/experimental/dmabuf_import.h',
+    'include/upcie/experimental/iommu_map_pa.h',
   ],
   subdir: 'upcie/experimental'
 )
