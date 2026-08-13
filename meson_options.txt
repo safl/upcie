@@ -1,1 +1,3 @@
 option('debug-logging', type: 'feature', value: 'auto')
+option('cuda-arch', type: 'string', value: 'native',
+       description: 'nvcc -arch for the GPU kernels; "native" targets the GPU in this machine')

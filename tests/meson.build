@@ -68,7 +68,7 @@ if cuda_dep.found()
                         '../include/upcie/nvme/nvme_command.h'),
     output: 'nvme_cuda_kernels.o',
     command: [
-      nvcc, '-c', '-arch=sm_75',
+      nvcc, '-c', '-arch=' + get_option('cuda-arch'),
       '-I', meson.project_source_root() / 'include',
       '-include', meson.project_build_root() / 'upcie_config.h',
       '@INPUT@', '-o', '@OUTPUT@',
