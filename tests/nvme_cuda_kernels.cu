@@ -71,6 +71,17 @@ extern "C" cudaError_t
 nvme_io_launch(struct nvme_qpair_cuda **qps, struct nvme_command *cmds, int *results,
 	       uint32_t num_ios, unsigned int grid, unsigned int block)
 {
+	cudaError_t err;
+
 	nvme_io<<<grid, block>>>(qps, cmds, results, num_ios);
+
+	// A kernel that never launched leaves nothing to synchronize on, so
+	// cudaDeviceSynchronize() reports success; the launch itself is only
+	// reported here.
+	err = cudaGetLastError();
+	if (err != cudaSuccess) {
+		return err;
+	}
+
 	return cudaDeviceSynchronize();
 }
