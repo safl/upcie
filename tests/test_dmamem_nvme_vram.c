@@ -148,8 +148,9 @@ main(int argc, char *argv[])
 	       ", cpu bar view=%p size=%zu\n",
 	       gpu_bar_dmem.base_iova, (uint64_t)gpu_bar_dmem.size, gpu_bar_va, gpu_bar_va_size);
 
-	/* Small hugepage-backed dmamem for the NVMe admin queue backing. */
-	err = dmamem_from_memfd(&admin_dmem, &iommufd, 2ULL * 1024 * 1024, 2ULL * 1024 * 1024);
+	/* Hugepage-backed dmamem for the NVMe admin queue backing; the per-request
+	 * PRP scratch alone is NVME_REQUEST_POOL_LEN pages. */
+	err = dmamem_from_memfd(&admin_dmem, &iommufd, 16ULL * 1024 * 1024, 2ULL * 1024 * 1024);
 	if (err) {
 		fprintf(stderr, "FAIL: dmamem_from_memfd(admin) err(%d)\n", err);
 		goto out_gpu;
