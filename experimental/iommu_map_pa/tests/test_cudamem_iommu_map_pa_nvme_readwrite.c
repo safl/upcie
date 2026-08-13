@@ -74,9 +74,9 @@ iommu_map_cuda_heap(struct nvme *nvme, const char *bdf, struct cudamem_heap *hea
 	uint32_t page_size = heap->config->device_pagesize;
 	int err;
 
-	nvme->importer_fd = upcie_iommu_map_pa_open();
+	nvme->importer_fd = iommu_map_pa_open();
 	if (nvme->importer_fd < 0) {
-		printf("FAILED: upcie_iommu_map_pa_open(); err(%d)\n", nvme->importer_fd);
+		printf("FAILED: iommu_map_pa_open(); err(%d)\n", nvme->importer_fd);
 		return nvme->importer_fd;
 	}
 
@@ -92,13 +92,13 @@ iommu_map_cuda_heap(struct nvme *nvme, const char *bdf, struct cudamem_heap *hea
 	}
 
 	/* Map the true GPU device-physical addresses into NVMe's VFIO domain. */
-	err = upcie_iommu_map_pa_add(nvme->importer_fd, bdf, heap->dmabuf.fd,
+	err = iommu_map_pa_add(nvme->importer_fd, bdf, heap->dmabuf.fd,
 					      UPCIE_TEST_GPU_IOVA_BASE, page_size,
 					      heap->nphys, heap->phys_lut,
 					      IOMMU_MAP_PA_PROT_READ | IOMMU_MAP_PA_PROT_WRITE,
 					      &nvme->iommu_handle);
 	if (err) {
-		printf("FAILED: upcie_iommu_map_pa_add(); err(%d)\n", err);
+		printf("FAILED: iommu_map_pa_add(); err(%d)\n", err);
 		goto error;
 	}
 
@@ -112,7 +112,7 @@ error:
 	free(nvme->iova_lut);
 	nvme->iova_lut = NULL;
 	if (nvme->importer_fd >= 0) {
-		upcie_iommu_map_pa_close(nvme->importer_fd);
+		iommu_map_pa_close(nvme->importer_fd);
 		nvme->importer_fd = -1;
 	}
 	return err;
@@ -128,10 +128,10 @@ iommu_unmap_cuda_heap(struct nvme *nvme, struct cudamem_heap *heap)
 
 	/* Unmap from the VFIO domain BEFORE the container is torn down. */
 	if (nvme->iommu_handle) {
-		int err = upcie_iommu_map_pa_del(nvme->importer_fd,
+		int err = iommu_map_pa_del(nvme->importer_fd,
 							     nvme->iommu_handle);
 		if (err) {
-			printf("FAILED: upcie_iommu_map_pa_del(); err(%d)\n", err);
+			printf("FAILED: iommu_map_pa_del(); err(%d)\n", err);
 		}
 		nvme->iommu_handle = 0;
 	}
@@ -140,7 +140,7 @@ iommu_unmap_cuda_heap(struct nvme *nvme, struct cudamem_heap *heap)
 	nvme->iova_lut = NULL;
 
 	if (nvme->importer_fd >= 0) {
-		upcie_iommu_map_pa_close(nvme->importer_fd);
+		iommu_map_pa_close(nvme->importer_fd);
 		nvme->importer_fd = -1;
 	}
 }

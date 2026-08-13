@@ -73,6 +73,18 @@ The descriptions below follow the bottom-up layering.
   `hipmem_heap.h`, `hipmem_mapping.h`) all reach their physical addresses
   through this path, so they carry the same dependency.
 
+## Experimental
+
+`experimental/iommu_map_pa.h`
+: **Experimental.** Maps an array of physical addresses into the IOMMU domain a
+  VFIO-controlled device already uses (`iommu_map_pa_add`/`_del`),
+  returning an IOVA base to address that memory through, e.g. from NVMe PRPs.
+  Needs the out-of-tree `iommu-map-pa` DKMS package (see
+  `experimental/iommu_map_pa`). When its UAPI header
+  `<linux/iommu_map_pa.h>` is absent these helpers compile as stubs returning
+  `ENOTSUP` and `UPCIE_HAVE_IOMMU_MAP_PA` is 0, so uPCIe still builds without
+  it; the module must also be loaded at runtime for the ioctls to succeed.
+
 ## Umbrella
 
 `upcie.h`
