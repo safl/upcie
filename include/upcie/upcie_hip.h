@@ -16,7 +16,7 @@
  * `upcie/upcie_hip_gpuinit.h` to opt into it.
  *
  * @file upcie_hip.h
- * @version 0.5.2
+ * @version 0.6.0
  */
 
 #ifndef HIPUPCIE_H

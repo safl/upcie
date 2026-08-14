@@ -14,7 +14,7 @@
  * lives in <upcie/experimental/dmabuf_import.h>.
  *
  * @file dmabuf.h
- * @version 0.5.2
+ * @version 0.6.0
  */
 
 struct dmabuf_page {
