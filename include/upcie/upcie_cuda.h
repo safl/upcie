@@ -7,7 +7,7 @@
  * This includes the standard uPCIe bundle, as well as the cuda specific headers.
  *
  * @file upcie_cuda.h
- * @version 0.5.2
+ * @version 0.6.0
  */
 
 #ifndef CUPCIE_H

@@ -20,7 +20,7 @@
  * measured from heap->vaddr.
  *
  * @file dmamem_hip.h
- * @version 0.5.2
+ * @version 0.6.0
  */
 
 /**
