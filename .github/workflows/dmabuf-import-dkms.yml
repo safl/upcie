@@ -109,13 +109,17 @@ jobs:
           #include <inttypes.h>
           #define UPCIE_DEBUG(...) do { } while (0)
           #include <upcie/dmabuf.h>
+          #include <upcie/experimental/dmabuf_import.h>
+          #if !UPCIE_HAVE_DMABUF_IMPORT
+          #error "the installed prerequisite did not provide the UAPI"
+          #endif
           int main(void) {
                   struct dmabuf d = {0};
-                  int err = dmabuf_attach(-1, &d);
+                  int err = dmabuf_import_attach(-1, &d);
 
                   (void)DMABUF_IMPORT_DEVPATH;
                   if (err == -ENOTSUP) {
-                          fprintf(stderr, "dmabuf.h compiled its stubs\n");
+                          fprintf(stderr, "the import path compiled its stubs\n");
                           return 1;
                   }
                   return 0;
