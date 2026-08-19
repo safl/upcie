@@ -59,7 +59,7 @@ nvme_request_prep_command_prps_contig_cuda(struct nvme_request *request, struct 
 		return;
 	}
 
-	nvme_request_prep_command_prps_contig_dmamem(request, &dmem, dbuf, dbuf_nbytes, cmd);
+	(void)nvme_request_prep_command_prps_contig_dmamem(request, &dmem, dbuf, dbuf_nbytes, cmd);
 }
 
 /**
@@ -94,7 +94,7 @@ nvme_request_prep_command_prps_iov_cuda(struct nvme_request *request, struct cud
 		return;
 	}
 
-	nvme_request_prep_command_prps_iov_dmamem(request, &dmem, dvec, dvec_cnt, cmd);
+	(void)nvme_request_prep_command_prps_iov_dmamem(request, &dmem, dvec, dvec_cnt, cmd);
 }
 
 /**
