@@ -398,23 +398,28 @@ nvme_request_prep_command_prps_iov(struct nvme_request *request, struct hostmem_
  * @param cmd          Command to populate prp1 (and prp2 / PRP list)
  *                     on.
  */
-static inline void
+static inline int
 nvme_request_prep_command_prps_contig_dmamem(struct nvme_request *request, struct dmamem *dmem,
 					     void *dbuf, size_t dbuf_nbytes,
 					     struct nvme_command *cmd)
 {
+	const int registry = DMAMEM_XLATE_REGISTRY == dmem->translator;
 	const uint64_t pagesize = 4096;
 	const int page_shift = 12;
 	const uint64_t page_off = (uintptr_t)dbuf & (pagesize - 1);
 	const uint64_t npages = (page_off + dbuf_nbytes + pagesize - 1) >> page_shift;
 
 	cmd->prp1 = dmamem_va_to_iova(dmem, dbuf);
+	if (registry && !cmd->prp1) {
+		UPCIE_DEBUG("FAILED: dbuf(%p) is not in a registered region", dbuf);
+		return -EINVAL;
+	}
 
 	/* Chaining is not supported, thus assert that the given dbuf fits. */
 	assert(npages <= 1 + 512);
 
 	if (npages == 1) {
-		return;
+		return 0;
 	}
 
 	if (DMAMEM_XLATE_ARITHMETIC == dmem->translator) {
@@ -422,7 +427,7 @@ nvme_request_prep_command_prps_contig_dmamem(struct nvme_request *request, struc
 
 		if (npages == 2) {
 			cmd->prp2 = page_iova + pagesize;
-			return;
+			return 0;
 		}
 
 		uint64_t *prp_list = request->prp;
@@ -431,23 +436,35 @@ nvme_request_prep_command_prps_contig_dmamem(struct nvme_request *request, struc
 		for (uint64_t i = 1; i < npages; ++i) {
 			prp_list[i - 1] = page_iova + (i << page_shift);
 		}
-		return;
+		return 0;
 	}
 
-	/* LUT: stride within the hugepage from prp1; re-translate on
-	 * hugepage boundaries. Buffers that fit inside a single hugepage
-	 * (the common case) never cross, so this reduces to the stride
-	 * of a contiguous buffer. */
+	/* LUT and REGISTRY: stride from prp1 within the span that is known to
+	 * be contiguous, re-translating when crossing out of it. Buffers that
+	 * fit inside one span (the common case) never cross, so this reduces
+	 * to the stride of a contiguous buffer. The two differ only in what
+	 * that span is and where the offset into it is measured from: a
+	 * hugepage from the dmamem base, or a chunk in absolute address terms.
+	 */
 	uint8_t *vbase = (uint8_t *)dbuf - page_off;
-	const uint64_t hp_off =
-		(uint64_t)(vbase - (uint8_t *)dmem->base_va) & (dmem->hugepgsz - 1);
-	uint64_t strides_left = ((dmem->hugepgsz - hp_off) >> page_shift) - 1;
+	const uint64_t span = registry ? dmem->registry->gran_mask + 1 : dmem->hugepgsz;
+	const uint64_t span_off = registry ? ((uint64_t)vbase & (span - 1))
+					   : ((uint64_t)(vbase - (uint8_t *)dmem->base_va) &
+					      (span - 1));
+	uint64_t strides_left = ((span - span_off) >> page_shift) - 1;
 	uint64_t page_phys = cmd->prp1 - page_off;
 
 	if (npages == 2) {
-		cmd->prp2 = strides_left ? page_phys + pagesize
-					 : dmamem_va_to_iova(dmem, vbase + pagesize);
-		return;
+		if (strides_left) {
+			cmd->prp2 = page_phys + pagesize;
+			return 0;
+		}
+		cmd->prp2 = dmamem_va_to_iova(dmem, vbase + pagesize);
+		if (registry && !cmd->prp2) {
+			UPCIE_DEBUG("FAILED: dbuf(%p) leaves the registered region", dbuf);
+			return -EINVAL;
+		}
+		return 0;
 	}
 
 	uint64_t *prp_list = request->prp;
@@ -459,10 +476,17 @@ nvme_request_prep_command_prps_contig_dmamem(struct nvme_request *request, struc
 			strides_left--;
 		} else {
 			page_phys = dmamem_va_to_iova(dmem, vbase + (i << page_shift));
-			strides_left = (dmem->hugepgsz >> page_shift) - 1;
+			if (registry && !page_phys) {
+				UPCIE_DEBUG("FAILED: dbuf(%p) leaves the registered region",
+					    dbuf);
+				return -EINVAL;
+			}
+			strides_left = (span >> page_shift) - 1;
 		}
 		prp_list[i - 1] = page_phys;
 	}
+
+	return 0;
 }
 
 /**
@@ -486,16 +510,22 @@ nvme_request_prep_command_prps_contig_dmamem(struct nvme_request *request, struc
  * @param dvec_cnt  Element count of dvec.
  * @param cmd       Command to populate prp1 (and prp2 / PRP list) on.
  */
-static inline void
+static inline int
 nvme_request_prep_command_prps_iov_dmamem(struct nvme_request *request, struct dmamem *dmem,
 					  struct iovec *dvec, size_t dvec_cnt,
 					  struct nvme_command *cmd)
 {
+	const int registry = DMAMEM_XLATE_REGISTRY == dmem->translator;
 	const uint64_t pagesize = 4096;
 	uint64_t *prp_list = request->prp;
 	size_t prp_idx = 0;
 
 	cmd->prp1 = dmamem_va_to_iova(dmem, dvec[0].iov_base);
+	if (registry && !cmd->prp1) {
+		UPCIE_DEBUG("FAILED: iov_base(%p) is not in a registered region",
+			    dvec[0].iov_base);
+		return -EINVAL;
+	}
 
 	for (size_t i = 0; i < dvec_cnt; ++i) {
 		uint8_t *base = dvec[i].iov_base;
@@ -509,7 +539,14 @@ nvme_request_prep_command_prps_iov_dmamem(struct nvme_request *request, struct d
 		}
 
 		while (remaining > 0) {
-			prp_list[prp_idx++] = dmamem_va_to_iova(dmem, base + offset);
+			const uint64_t iova = dmamem_va_to_iova(dmem, base + offset);
+
+			if (registry && !iova) {
+				UPCIE_DEBUG("FAILED: %p is not in a registered region",
+					    base + offset);
+				return -EINVAL;
+			}
+			prp_list[prp_idx++] = iova;
 
 			offset += pagesize;
 			remaining = (remaining > pagesize) ? remaining - pagesize : 0;
@@ -521,4 +558,6 @@ nvme_request_prep_command_prps_iov_dmamem(struct nvme_request *request, struct d
 	} else if (prp_idx > 1) {
 		cmd->prp2 = request->prp_addr;
 	}
+
+	return 0;
 }

@@ -83,6 +83,11 @@ enum dmamem_translator {
 	/** iova = phys_lut[off >> shift] + (off & mask); an address the device
 	 *  uses directly, no translation installed. */
 	DMAMEM_XLATE_LUT = 0x1,
+	/** iova = registry lookup on the absolute address; spans every
+	 *  registered region rather than one contiguous range. Resolving an
+	 *  address that is not registered yields 0, which callers treat as an
+	 *  error since no valid target has bus address 0. */
+	DMAMEM_XLATE_REGISTRY = 0x2,
 };
 
 /* Forward-declare so dmamem.h stays independent of vfioctl.h include
@@ -108,6 +113,7 @@ struct dmamem {
 	enum dmamem_backing backing;
 	enum dmamem_translator translator; ///< How offsets resolve to DMA addresses
 	const uint64_t *phys_lut;   ///< Borrowed per-hugepage PA table (LUT only)
+	struct dmamem_registry *registry; ///< Borrowed region registry (REGISTRY only)
 	size_t hugepgsz;            ///< Hugepage size in bytes (LUT only)
 	int hugepgsz_shift;         ///< log2(hugepgsz) (LUT only)
 	int owned;                  ///< 1: dmamem owns fd + cpu_va; 0: wrapping caller memory
@@ -203,6 +209,18 @@ dmamem_offset_to_iova(struct dmamem *dmem, size_t offset)
 static inline uint64_t
 dmamem_va_to_iova(struct dmamem *dmem, void *vaddr)
 {
+	if (DMAMEM_XLATE_REGISTRY == dmem->translator) {
+		const struct dmamem_registry *reg = dmem->registry;
+		const uint64_t va = (uint64_t)vaddr;
+		const size_t idx = (size_t)(va >> reg->gran_shift);
+
+		if (idx >= reg->lut_capacity) {
+			return 0;
+		}
+
+		return reg->lut_phys[idx] ? reg->lut_phys[idx] + (va & reg->gran_mask) : 0;
+	}
+
 	assert(dmem->base_va);
 	return dmamem_offset_to_iova(dmem, (size_t)((char *)vaddr - (char *)dmem->base_va));
 }
