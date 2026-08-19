@@ -66,3 +66,133 @@ dmamem_from_cuda_lut(struct dmamem *dmem, struct cudamem_heap *heap)
 
 	return 0;
 }
+
+/**
+ * Discover one chunk's address from CUDA, for a dmamem_registry.
+ *
+ * Exports the chunk as a dma-buf, attaches it, enumerates the host-page
+ * addresses and verifies they are contiguous, which is the BAR1 large-page
+ * assumption the chunk model rests on.
+ *
+ * `ctx` is the `struct cudamem_config *` for the device the registry covers.
+ *
+ * @return 0 on success, negative errno on failure. -EOPNOTSUPP when a chunk
+ *         turns out not to be contiguous.
+ */
+static inline int
+dmamem_cuda_registry_populate(void *ctx, uint64_t chunk_va, size_t granularity,
+			      uint64_t *phys_base_out, struct dmabuf *attach_out)
+{
+	struct cudamem_config *config = ctx;
+	const size_t pagesize = (size_t)config->pagesize;
+	const size_t nphys = granularity >> config->pagesize_shift;
+	struct dmabuf attach = {0};
+	uint64_t *tmp = NULL;
+	int dmabuf_fd = -1;
+	int err;
+	CUresult cr;
+
+	tmp = calloc(nphys, sizeof(*tmp));
+	if (!tmp) {
+		return -ENOMEM;
+	}
+
+	cr = cuMemGetHandleForAddressRange(&dmabuf_fd, (CUdeviceptr)chunk_va, granularity,
+					   CU_MEM_RANGE_HANDLE_TYPE_DMA_BUF_FD, 0);
+	if (cr != CUDA_SUCCESS) {
+		UPCIE_DEBUG("FAILED: cuMemGetHandleForAddressRange(0x%" PRIx64 ", %zu), cr: %d",
+			    chunk_va, granularity, cr);
+		err = -EIO;
+		goto err_free;
+	}
+
+	/* NOTE: EXPERIMENTAL dependency, see <upcie/experimental/dmabuf_import.h> */
+	err = dmabuf_import_attach(dmabuf_fd, &attach);
+	if (err) {
+		UPCIE_DEBUG("FAILED: dmabuf_import_attach(), err: %d", err);
+		close(dmabuf_fd);
+		goto err_free;
+	}
+
+	err = dmabuf_get_lut(&attach, nphys, tmp, (int)pagesize);
+	if (err) {
+		UPCIE_DEBUG("FAILED: dmabuf_get_lut(), err: %d", err);
+		goto err_detach;
+	}
+
+	for (size_t i = 1; i < nphys; ++i) {
+		if (tmp[i] != tmp[0] + i * pagesize) {
+			UPCIE_DEBUG("FAILED: chunk not contiguous at i=%zu; phys[0]=0x%" PRIx64
+				    " phys[%zu]=0x%" PRIx64,
+				    i, tmp[0], i, tmp[i]);
+			err = -EOPNOTSUPP;
+			goto err_detach;
+		}
+	}
+
+	*phys_base_out = tmp[0];
+	*attach_out = attach;
+	free(tmp);
+
+	return 0;
+
+err_detach:
+	dmabuf_import_detach(&attach);
+err_free:
+	free(tmp);
+
+	return err;
+}
+
+/**
+ * Release one chunk discovered by dmamem_cuda_registry_populate().
+ */
+static inline void
+dmamem_cuda_registry_release(void *UPCIE_UNUSED(ctx), struct dmabuf *attach)
+{
+	dmabuf_import_detach(attach);
+}
+
+/**
+ * Wrap a registry as a dmamem, seeding it with the heap.
+ *
+ * The heap is adopted rather than rediscovered, since it enumerated its own
+ * addresses at init, and it then resolves through the same translator as
+ * every registered buffer. That is what lets one dmamem serve both, so the
+ * command paths need no notion of where a buffer came from.
+ *
+ * The registry must be initialised with the device's alloc_granularity and
+ * dmamem_cuda_registry_populate(); the caller keeps ownership of both it and
+ * the heap, and both must outlive the dmamem.
+ *
+ * @return 0 on success, negative errno on failure.
+ */
+static inline int
+dmamem_from_cuda_registry(struct dmamem *dmem, struct dmamem_registry *registry,
+			  struct cudamem_heap *heap)
+{
+	int err;
+
+	if (!dmem || !registry || !heap || !heap->phys_lut || !heap->config) {
+		return -EINVAL;
+	}
+
+	err = dmamem_registry_adopt(registry, (void *)(uintptr_t)heap->vaddr, heap->size,
+				    heap->phys_lut, heap->config->device_pagesize_shift, NULL);
+	if (err) {
+		UPCIE_DEBUG("FAILED: dmamem_registry_adopt(heap), err: %d", err);
+		return err;
+	}
+
+	memset(dmem, 0, sizeof(*dmem));
+	dmem->fd = -1;
+	dmem->base_va = (void *)(uintptr_t)heap->vaddr;
+	dmem->cpu_va = NULL;
+	dmem->size = heap->size;
+	dmem->backing = DMAMEM_BACKING_CUDAMEM;
+	dmem->translator = DMAMEM_XLATE_REGISTRY;
+	dmem->registry = registry;
+	dmem->owned = 0;
+
+	return 0;
+}
