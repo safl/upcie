@@ -313,10 +313,8 @@ dmamem_registry_add_impl(struct dmamem_registry *registry, void *vaddr, size_t n
 			const uint64_t chunk_va = (uint64_t)idx << gran_shift;
 
 			if (adopt_lut) {
-				const uint64_t base = va & ~mask;
-
 				registry->lut_phys[idx] =
-					adopt_lut[(chunk_va - base) >> adopt_shift];
+					adopt_lut[(chunk_va - va) >> adopt_shift];
 				cm->borrowed = 1;
 			} else {
 				err = registry->populate(registry->ctx, chunk_va,
@@ -366,9 +364,9 @@ dmamem_registry_add(struct dmamem_registry *registry, void *vaddr, size_t nbytes
 /**
  * Register a range whose addresses the caller already knows.
  *
- * `lut` holds addresses for the range starting at the chunk containing
- * `vaddr`, one entry per `1 << lut_shift` bytes, which must be no coarser
- * than the registry's granularity. Nothing is discovered and nothing is
+ * `lut` holds addresses for the range starting at `vaddr`, which must be
+ * chunk-aligned, one entry per `1 << lut_shift` bytes, no coarser than the
+ * registry's granularity. Nothing is discovered and nothing is
  * released; the caller keeps ownership of whatever produced the addresses and
  * must outlive the registration.
  *
@@ -380,6 +378,13 @@ dmamem_registry_adopt(struct dmamem_registry *registry, void *vaddr, size_t nbyt
 		      struct dmamem_registry_registration **out)
 {
 	if (!lut || lut_shift > registry->gran_shift) {
+		return -EINVAL;
+	}
+
+	/* Chunks are indexed in absolute terms, so the adopted range must start
+	 * on a chunk boundary for the caller's LUT to line up with them. */
+	if ((uint64_t)vaddr & registry->gran_mask) {
+		UPCIE_DEBUG("FAILED: vaddr(%p) is not chunk-aligned", vaddr);
 		return -EINVAL;
 	}
 
