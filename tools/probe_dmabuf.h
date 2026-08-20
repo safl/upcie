@@ -39,6 +39,14 @@ static int
 probe_alloc(uint64_t *va, size_t nbytes);
 
 /**
+ * Supplied by the flavour: recover the allocation `va` falls inside
+ *
+ * @return 0 on success, the runtime's own error code otherwise.
+ */
+static int
+probe_addrrange(uint64_t *base, size_t *size, uint64_t va);
+
+/**
  * Collapse the scatter list into maximal physically contiguous runs.
  *
  * An exporter may split a run at its own page size even when the addresses are
@@ -170,6 +178,27 @@ probe_run(size_t size)
 	probe_one("2M at base + 2M", a + (2UL << 20), 2UL << 20);
 	probe_one("3M at base", a, 3UL << 20);
 	probe_one("whole allocation", a, size);
+
+	printf("\n  an odd-sized allocation\n");
+	{
+		const size_t odd = (3UL << 20) + 4096;
+		uint64_t c = 0, base = 0;
+		size_t rsize = 0;
+
+		if (probe_alloc(&c, odd)) {
+			printf("    allocation FAILED\n");
+		} else {
+			printf("    requested(%zu) base(0x%" PRIx64 ") base%%2M(%" PRIu64 ")\n",
+			       odd, c, c % (2UL << 20));
+			if (probe_addrrange(&base, &rsize, c)) {
+				printf("    range recovery FAILED\n");
+			} else {
+				printf("    recovered size(%zu) rounded_up_to_2M(%s)\n", rsize,
+				       rsize % (2UL << 20) ? "no" : "yes");
+			}
+			probe_one("whole odd allocation", c, rsize ? rsize : odd);
+		}
+	}
 
 	printf("\n  recovering the allocation from a pointer into it\n");
 	probe_report_addrrange("at base", a, a, size);

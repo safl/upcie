@@ -58,6 +58,13 @@ seen was 4 MiB.
 So `hipMemGetHandleForAddressRange` is, on this stack, a whole-object export
 whose range arguments are accepted and discarded.
 
+**An odd-sized allocation is reported unrounded, but backed differently.**
+Asked for 3 MiB + 4 KiB, both runtimes reported the size back as exactly
+3149824. CUDA's export described exactly that many bytes, ending in a 4 KiB
+segment; AMD's described 4194304, the whole 4 MiB object, which is more than
+the size it had just reported. So the size a runtime reports bounds neither the
+export below nor above in general.
+
 **Both recover the allocation from a pointer.** `cuMemGetAddressRange` and
 `hipMemGetAddressRange` returned the exact base and size for a pointer at the
 base, at `base + 3M + 4K`, and at the last byte.
@@ -85,6 +92,13 @@ which is two allocations on one part per vendor. It also does not by itself fix
 anything on AMD, since a 2 MiB request at a 2 MiB offset is discarded like any
 other; the fix is the per-allocation export, and the granule is a separate
 choice on top of it.
+
+It also means a LUT at a chosen granule cannot be filled by asking
+`dmabuf_get_lut()` for `ceil(size / granule)` entries, since that is a length
+mismatch on CUDA whenever the allocation does not end on a granule boundary.
+Walking the scatter list directly handles the short final granule, and lets the
+walk verify contiguity within each granule as it goes, which is what turns a
+whole-object mismatch into an error rather than a wrong address.
 
 Nor does a granule have to become an alignment requirement on callers. Once the
 allocation base is recovered, the offset of a caller's pointer within it is
