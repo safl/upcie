@@ -19,7 +19,6 @@ dependencies = [
 [project.scripts]
 upcie-docs-serve = "upcie_docs.cli:serve"
 upcie-docs-build-html = "upcie_docs.cli:build_html"
-upcie-docs-build-pdf = "upcie_docs.cli:build_pdf"
 
 [build-system]
 requires = ["hatchling"]

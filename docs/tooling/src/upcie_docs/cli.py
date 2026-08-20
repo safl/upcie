@@ -41,18 +41,6 @@ def build_html() -> None:
     )
 
 
-def build_pdf() -> None:
-    root = _docs_root()
-    src = root / "src"
-    latex_out = root / "_build" / "latex"
-    _run_doxygen(root)
-    subprocess.run(
-        [sys.executable, "-m", "sphinx", "-b", "latex", str(src), str(latex_out)],
-        check=True,
-    )
-    subprocess.run(["make"], cwd=latex_out, check=True)
-
-
 def serve() -> None:
     root = _docs_root()
     src = root / "src"
