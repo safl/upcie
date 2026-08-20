@@ -113,7 +113,7 @@ struct dmamem {
 	enum dmamem_backing backing;
 	enum dmamem_translator translator; ///< How offsets resolve to DMA addresses
 	const uint64_t *phys_lut;   ///< Borrowed per-hugepage PA table (LUT only)
-	struct dmamem_registry *registry; ///< Borrowed region registry (REGISTRY only)
+	struct dmamem_registry registry; ///< Owned region registry (REGISTRY only)
 	size_t hugepgsz;            ///< Hugepage size in bytes (LUT only)
 	int hugepgsz_shift;         ///< log2(hugepgsz) (LUT only)
 	int owned;                  ///< 1: dmamem owns fd + cpu_va; 0: wrapping caller memory
@@ -210,15 +210,20 @@ static inline uint64_t
 dmamem_va_to_iova(struct dmamem *dmem, void *vaddr)
 {
 	if (DMAMEM_XLATE_REGISTRY == dmem->translator) {
-		const struct dmamem_registry *reg = dmem->registry;
 		const uint64_t va = (uint64_t)vaddr;
-		const size_t idx = (size_t)(va >> reg->gran_shift);
+		uint64_t base;
 
-		if (idx >= reg->lut_capacity) {
-			return 0;
-		}
+		/* The LUT spans the whole address space the registry was sized
+		 * for, so a userspace VA is in range by construction; the
+		 * assert is here to catch a registry sized smaller. */
+		assert((va >> dmem->registry.gran_shift) < dmem->registry.lut_capacity);
 
-		return reg->lut_phys[idx] ? reg->lut_phys[idx] + (va & reg->gran_mask) : 0;
+		base = dmem->registry.lut_phys[va >> dmem->registry.gran_shift];
+
+		/* An address nothing registered lands on a zeroed slot. Nothing
+		 * valid has bus address zero, so callers read that as the error
+		 * it is rather than building a PRP from a stale entry. */
+		return base ? base + (va & dmem->registry.gran_mask) : 0;
 	}
 
 	assert(dmem->base_va);
@@ -238,6 +243,10 @@ dmamem_destroy(struct dmamem *dmem)
 {
 	if (!dmem) {
 		return;
+	}
+
+	if (DMAMEM_XLATE_REGISTRY == dmem->translator) {
+		dmamem_registry_term(&dmem->registry);
 	}
 
 	/* At most one owner is ever set (each constructor sets exactly one, or
@@ -269,4 +278,45 @@ dmamem_destroy(struct dmamem *dmem)
 
 	memset(dmem, 0, sizeof(*dmem));
 	dmem->fd = -1;
+}
+
+/**
+ * Hand memory the caller allocated to a registry-translating dmamem.
+ *
+ * The allocation `vaddr` falls inside is made addressable, once, and shared
+ * with any other registration inside it. `vaddr` and `nbytes` may have any
+ * byte alignment; consumers may want more, e.g. NVMe PRP construction wants
+ * host-page-aligned buffers.
+ *
+ * @return 0 on success, -EOPNOTSUPP when the dmamem does not translate through
+ *         a registry, other negative errno on failure.
+ */
+static inline int
+dmamem_register(struct dmamem *dmem, void *vaddr, size_t nbytes)
+{
+	if (!dmem || (DMAMEM_XLATE_REGISTRY != dmem->translator)) {
+		return -EOPNOTSUPP;
+	}
+
+	return dmamem_registry_add(&dmem->registry, vaddr, nbytes, NULL);
+}
+
+/**
+ * Drop a registration made by dmamem_register().
+ *
+ * `vaddr` must be the address that was registered, not one inside the range.
+ * The allocation behind it is released once the last registration referring to
+ * it is gone.
+ *
+ * @return 0 on success, -EOPNOTSUPP when the dmamem does not translate through
+ *         a registry, -EINVAL when nothing was registered at `vaddr`.
+ */
+static inline int
+dmamem_unregister(struct dmamem *dmem, void *vaddr)
+{
+	if (!dmem || (DMAMEM_XLATE_REGISTRY != dmem->translator)) {
+		return -EOPNOTSUPP;
+	}
+
+	return dmamem_registry_remove(&dmem->registry, vaddr);
 }

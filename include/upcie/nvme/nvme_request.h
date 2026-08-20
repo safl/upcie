@@ -447,7 +447,7 @@ nvme_request_prep_command_prps_contig_dmamem(struct nvme_request *request, struc
 	 * hugepage from the dmamem base, or a chunk in absolute address terms.
 	 */
 	uint8_t *vbase = (uint8_t *)dbuf - page_off;
-	const uint64_t span = registry ? dmem->registry->gran_mask + 1 : dmem->hugepgsz;
+	const uint64_t span = registry ? dmem->registry.gran_mask + 1 : dmem->hugepgsz;
 	const uint64_t span_off = registry ? ((uint64_t)vbase & (span - 1))
 					   : ((uint64_t)(vbase - (uint8_t *)dmem->base_va) &
 					      (span - 1));
