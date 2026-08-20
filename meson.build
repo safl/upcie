@@ -107,3 +107,4 @@ upcie_dep = declare_dependency(
 subdir('example')
 subdir('tests')
 subdir('experimental')
+subdir('tools')
