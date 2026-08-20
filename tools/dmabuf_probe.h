@@ -154,6 +154,27 @@ dmabuf_probe_run(size_t size)
 	dmabuf_probe_one("3M at base", a, 3UL << 20);
 	dmabuf_probe_one("whole allocation", a, size);
 
+	printf("\n  an odd-sized allocation\n");
+	{
+		const size_t odd = (3UL << 20) + 4096;
+		uint64_t c = 0, base = 0;
+		size_t rsize = 0;
+
+		if (dmabuf_probe_alloc(&c, odd)) {
+			printf("    allocation FAILED\n");
+		} else {
+			printf("    requested(%zu) base(0x%" PRIx64 ") base%%2M(%" PRIu64 ")\n",
+			       odd, c, c % (2UL << 20));
+			if (dmabuf_probe_addrrange(&base, &rsize, c)) {
+				printf("    range recovery FAILED\n");
+			} else {
+				printf("    recovered size(%zu) rounded_up_to_2M(%s)\n", rsize,
+				       rsize % (2UL << 20) ? "no" : "yes");
+			}
+			dmabuf_probe_one("whole odd allocation", c, rsize ? rsize : odd);
+		}
+	}
+
 	printf("\n  recovering the allocation from a pointer into it\n");
 	dmabuf_probe_addressrange("at base", a, a, size);
 	dmabuf_probe_addressrange("at base + 3M + 4K", a + (3UL << 20) + 4096, a, size);
