@@ -132,7 +132,7 @@ struct dmamem_registry {
 	struct dmamem_registry_backing *backings;  ///< Owned list of backings
 	struct dmamem_registry_registration *list; ///< Owned list of registrations
 	dmamem_registry_range_fn range;		   ///< Recovers an allocation; may be NULL
-	dmamem_registry_populate_fn populate;	   ///< Makes an allocation addressable; required
+	dmamem_registry_populate_fn populate;	   ///< Makes an allocation addressable; may be NULL
 	dmamem_registry_release_fn release;	   ///< Undoes populate; may be NULL
 	void *ctx;				   ///< Passed to the callbacks; not owned
 };
@@ -148,7 +148,7 @@ struct dmamem_registry {
  * @param granularity Chunk size in bytes; a power of two
  * @param va_bits     Width of the address range to cover; 0 selects the default
  * @param range       Recovers the allocation a pointer falls inside; may be NULL
- * @param populate    Makes an allocation addressable; required
+ * @param populate    Makes an allocation addressable; NULL for adopt-only
  * @param release     Undoes populate; NULL when nothing is owned
  * @param ctx         Opaque flavour context handed to the callbacks
  *
@@ -162,7 +162,7 @@ dmamem_registry_init(struct dmamem_registry *registry, size_t granularity, int v
 	size_t phys_bytes;
 	int gran_shift = 0;
 
-	if (!registry || !granularity || (granularity & (granularity - 1)) || !populate) {
+	if (!registry || !granularity || (granularity & (granularity - 1))) {
 		return -EINVAL;
 	}
 
@@ -430,6 +430,11 @@ dmamem_registry_add_impl(struct dmamem_registry *registry, void *vaddr, size_t n
 				return err;
 			}
 			backing->borrowed = 1;
+		} else if (!registry->populate) {
+			UPCIE_DEBUG("FAILED: registry has no populate; adopt-only");
+			free(backing);
+			free(m);
+			return -EOPNOTSUPP;
 		} else {
 			err = registry->populate(registry->ctx, base, size,
 						 registry->gran_mask + 1,

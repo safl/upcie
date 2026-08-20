@@ -160,3 +160,60 @@ dmamem_from_hostmem_lut(struct dmamem *dmem, struct hostmem_hugepage *hp)
 
 	return 0;
 }
+
+/**
+ * Wrap an existing hostmem_hugepage as a registry-translating dmamem.
+ *
+ * The registry alternative to dmamem_from_hostmem_lut(), for the same
+ * uio_pci_generic + iommu=pt/off case. The hugepage's per-page table is
+ * adopted at the hugepage granularity, so translation is one absolute-indexed
+ * load rather than an offset from the dmamem base.
+ *
+ * The registry has no populate callback, so it adopts and never discovers:
+ * handing over further host memory with dmamem_register() would mean reading
+ * /proc/self/pagemap for it, which this does not do. That is the one capability
+ * the LUT constructor does not have either.
+ *
+ * @return 0 on success, negative errno on failure.
+ */
+static inline int
+dmamem_from_hostmem_registry(struct dmamem *dmem, struct hostmem_hugepage *hp)
+{
+	int shift, err;
+
+	if (!dmem || !hp || !hp->virt || !hp->size || !hp->phys_lut || !hp->config) {
+		return -EINVAL;
+	}
+
+	shift = dmamem_lut_pagesize_shift(hp->config->hugepgsz);
+	if (shift < 0) {
+		UPCIE_DEBUG("FAILED: unsupported hugepgsz(%zu)", hp->config->hugepgsz);
+		return -EINVAL;
+	}
+
+	memset(dmem, 0, sizeof(*dmem));
+
+	err = dmamem_registry_init(&dmem->registry, hp->config->hugepgsz, 0, NULL, NULL, NULL,
+				   NULL);
+	if (err) {
+		UPCIE_DEBUG("FAILED: dmamem_registry_init(); err(%d)", err);
+		return err;
+	}
+
+	err = dmamem_registry_adopt(&dmem->registry, hp->virt, hp->size, hp->phys_lut, shift, NULL);
+	if (err) {
+		UPCIE_DEBUG("FAILED: dmamem_registry_adopt(); err(%d)", err);
+		dmamem_registry_term(&dmem->registry);
+		return err;
+	}
+
+	dmem->fd = -1;
+	dmem->cpu_va = hp->virt;
+	dmem->base_va = dmem->cpu_va;
+	dmem->size = hp->size;
+	dmem->backing = DMAMEM_BACKING_HOSTMEM;
+	dmem->translator = DMAMEM_XLATE_REGISTRY;
+	dmem->owned = 0;
+
+	return 0;
+}

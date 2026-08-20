@@ -186,12 +186,24 @@ dmamem_lut_pagesize_shift(size_t pagesize)
  * The result is a kernel-assigned IOVA under the ARITHMETIC translator and
  * a physical or bus address under LUT; see enum dmamem_translator.
  */
+/* The two resolvers are mutually recursive: a registry indexes absolutely, so
+ * an offset has to become an address first, while the other translators
+ * measure from the base, so an address has to become an offset first. Each
+ * call takes exactly one of those steps. */
+static inline uint64_t dmamem_va_to_iova(struct dmamem *dmem, void *vaddr);
+
 static inline uint64_t
 dmamem_offset_to_iova(struct dmamem *dmem, size_t offset)
 {
 	if (DMAMEM_XLATE_LUT == dmem->translator) {
 		return dmem->phys_lut[offset >> dmem->hugepgsz_shift] +
 		       (offset & (dmem->hugepgsz - 1));
+	}
+
+	if (DMAMEM_XLATE_REGISTRY == dmem->translator) {
+		/* The registry indexes absolutely, so an offset only means
+		 * anything relative to the base this dmamem describes. */
+		return dmamem_va_to_iova(dmem, (char *)dmem->base_va + offset);
 	}
 
 	return dmem->base_iova + offset;
