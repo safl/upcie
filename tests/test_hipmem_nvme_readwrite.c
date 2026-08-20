@@ -21,6 +21,7 @@ struct rte {
 	struct hostmem_heap heap;
 	struct hipmem_config hip_config;
 	struct hipmem_heap hip_heap;
+	struct dmamem dmem;
 };
 
 struct nvme {
@@ -69,12 +70,17 @@ rte_init(struct rte *rte)
 		return err;
 	}
 
+	err = dmamem_from_hip_registry(&rte->dmem, &rte->hip_heap, 0);
+	if (err) {
+		printf("FAILED: dmamem_from_hip_registry(); err(%d)\n", err);
+		return err;
+	}
+
 	return 0;
 }
 
 int
-nvme_io(struct nvme *nvme, struct hipmem_heap *hip_heap, uint8_t opc, void *buffer,
-	size_t buffer_size)
+nvme_io(struct nvme *nvme, struct dmamem *dmem, uint8_t opc, void *buffer, size_t buffer_size)
 {
 	struct nvme_completion cpl = {0};
 	struct nvme_command cmd = {0};
@@ -94,7 +100,11 @@ nvme_io(struct nvme *nvme, struct hipmem_heap *hip_heap, uint8_t opc, void *buff
 	cmd.cdw10 = 0; ///< SLBA == 0
 	cmd.cdw12 = 0; ///< NLB == 0
 
-	nvme_request_prep_command_prps_contig_hip(req, hip_heap, buffer, buffer_size, &cmd);
+	err = nvme_request_prep_command_prps_contig_dmamem(req, dmem, buffer, buffer_size, &cmd);
+	if (err) {
+		printf("FAILED: prps_contig_dmamem(); err(%d)\n", err);
+		return err;
+	}
 
 	err = nvme_qpair_enqueue(&nvme->ioq, &cmd);
 	if (err) {
@@ -221,13 +231,13 @@ main(int argc, char **argv)
 		goto exit;
 	}
 
-	err = nvme_io(&nvme, &rte.hip_heap, 0x1, write_buf, buffer_size); ///< WRITE
+	err = nvme_io(&nvme, &rte.dmem, 0x1, write_buf, buffer_size); ///< WRITE
 	if (err) {
 		printf("FAILED: nvme_io(write); err(%d)\n", err);
 		goto exit;
 	}
 
-	err = nvme_io(&nvme, &rte.hip_heap, 0x2, read_buf, buffer_size); ///< READ
+	err = nvme_io(&nvme, &rte.dmem, 0x2, read_buf, buffer_size); ///< READ
 	if (err) {
 		printf("FAILED: nvme_io(read); err(%d)\n", err);
 		goto exit;
@@ -254,6 +264,7 @@ exit:
 	free(actual);
 	nvme_controller_close(&nvme.ctrlr);
 	hostmem_heap_term(&rte.heap);
+	dmamem_destroy(&rte.dmem);
 	hipmem_heap_term(&rte.hip_heap);
 
 	return err;

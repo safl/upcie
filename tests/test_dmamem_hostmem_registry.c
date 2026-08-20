@@ -2,25 +2,25 @@
 // Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
 
 /**
- * dmamem_from_hostmem_lut smoketest
- * =================================
+ * dmamem_from_hostmem_registry smoketest
+ * ======================================
  *
  * Exercises the LUT translator over an existing hostmem_hugepage: no
- * IOMMU mapping is installed, so no iommufd handle is opened; the
- * dmamem borrows the hugepage's phys_lut and translates each submission
- * VA to a PA via table lookup + intra-hugepage offset.
+ * IOMMU mapping is installed, so no iommufd handle is opened; the dmamem
+ * adopts the hugepage region into its registry and translates each
+ * submission VA to a PA via table lookup + intra-hugepage offset.
  *
  * The test allocates a multi-hugepage hostmem region, wraps it via
- * dmamem_from_hostmem_lut, then probes several VAs across the region:
+ * dmamem_from_hostmem_registry, then probes several VAs across the region:
  *
  *   - the base of each backing hugepage,
  *   - an arbitrary interior offset within a hugepage,
  *   - the last byte of the last hugepage.
  *
- * For each probe, the LUT-translated IOVA is compared against the
+ * For each probe, the translated IOVA is compared against the
  * pagemap-derived PA (phys_lut[i] + intra-page offset). The two must
- * match; if they diverge, the LUT translator or the hugepage_alloc
- * pagemap-population is broken.
+ * match; if they diverge, the registry, the translator, or the
+ * hugepage_alloc pagemap-population is broken.
  *
  * Requires CAP_SYS_ADMIN so hostmem_hugepage_alloc can read
  * /proc/self/pagemap and populate phys_lut. A hugepage pool with the
@@ -82,9 +82,9 @@ smoketest(size_t hugepgsz, size_t nhugepages)
 		return -EPERM;
 	}
 
-	err = dmamem_from_hostmem_lut(&dmem, &hp);
+	err = dmamem_from_hostmem_registry(&dmem, &hp, 0);
 	if (err) {
-		fprintf(stderr, "FAIL: dmamem_from_hostmem_lut() err(%d)\n", err);
+		fprintf(stderr, "FAIL: dmamem_from_hostmem_registry() err(%d)\n", err);
 		hostmem_hugepage_free(&hp);
 		return err;
 	}
@@ -105,8 +105,13 @@ smoketest(size_t hugepgsz, size_t nhugepages)
 		err = -EINVAL;
 		goto out;
 	}
-	if (dmem.phys_lut != hp.phys_lut) {
-		fprintf(stderr, "FAIL: dmem.phys_lut is not borrowed from hp.phys_lut\n");
+	if (!dmem.registry.lut_phys) {
+		fprintf(stderr, "FAIL: the registry has no table\n");
+		err = -EINVAL;
+		goto out;
+	}
+	if (!dmem.registry.lut_phys[(uint64_t)hp.virt >> dmem.registry.gran_shift]) {
+		fprintf(stderr, "FAIL: adopting the region left its first granule unclaimed\n");
 		err = -EINVAL;
 		goto out;
 	}
@@ -133,7 +138,7 @@ smoketest(size_t hugepgsz, size_t nhugepages)
 		goto out;
 	}
 
-	printf("OK: LUT translator agrees with pagemap over %zu hugepage(s) of %zu bytes\n",
+	printf("OK: the registry agrees with pagemap over %zu hugepage(s) of %zu bytes\n",
 	       nhugepages, hugepgsz);
 
 out:
