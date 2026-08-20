@@ -24,50 +24,6 @@
  */
 
 /**
- * Wrap an existing cudamem_heap as a LUT-translator dmamem.
- *
- * The cudamem_heap must have been initialised via cudamem_heap_init so
- * heap->phys_lut is already populated. No new CUDA calls are made
- * here; the dmamem borrows the LUT and every dmamem_offset_to_iova
- * lands as heap->phys_lut[offset >> shift] + intra-page offset.
- *
- * @param dmem  Pre-allocated dmamem descriptor to fill.
- * @param heap  Initialised cudamem_heap to borrow.
- *
- * @return 0 on success, negative errno on error.
- */
-static inline int
-dmamem_from_cuda_lut(struct dmamem *dmem, struct cudamem_heap *heap)
-{
-	int shift;
-
-	if (!dmem || !heap || !heap->phys_lut || !heap->config) {
-		return -EINVAL;
-	}
-
-	shift = dmamem_lut_pagesize_shift(heap->config->device_pagesize);
-	if (shift < 0) {
-		UPCIE_DEBUG("FAILED: unsupported device_pagesize(%zu)",
-			    (size_t)heap->config->device_pagesize);
-		return -EINVAL;
-	}
-
-	memset(dmem, 0, sizeof(*dmem));
-	dmem->fd = -1;
-	dmem->base_va = (void *)(uintptr_t)heap->vaddr;
-	dmem->cpu_va = NULL;
-	dmem->size = heap->size;
-	dmem->backing = DMAMEM_BACKING_CUDAMEM;
-	dmem->translator = DMAMEM_XLATE_LUT;
-	dmem->phys_lut = heap->phys_lut;
-	dmem->hugepgsz = heap->config->device_pagesize;
-	dmem->hugepgsz_shift = shift;
-	dmem->owned = 0;
-
-	return 0;
-}
-
-/**
  * Granularity for a CUDA-backed dmamem_registry.
  *
  * Matches the device's alloc_granularity, the BAR1 large-page size, which is
@@ -173,10 +129,15 @@ dmamem_cuda_registry_release(void *UPCIE_UNUSED(ctx), struct dmabuf *attach)
  *
  * The heap is borrowed and must outlive the dmamem.
  *
+ * `va_bits` bounds the LUT reservation to that much address space; 0 selects
+ * the default, which covers the whole 48-bit user range. Lower it where the
+ * reservation is not affordable, under `ulimit -v` or `vm.overcommit_memory=2`,
+ * bearing in mind that a region mapped above the bound cannot be registered.
+ *
  * @return 0 on success, negative errno on failure.
  */
 static inline int
-dmamem_from_cuda_registry(struct dmamem *dmem, struct cudamem_heap *heap)
+dmamem_from_cuda_registry(struct dmamem *dmem, struct cudamem_heap *heap, int va_bits)
 {
 	int err;
 
@@ -186,7 +147,7 @@ dmamem_from_cuda_registry(struct dmamem *dmem, struct cudamem_heap *heap)
 
 	memset(dmem, 0, sizeof(*dmem));
 
-	err = dmamem_registry_init(&dmem->registry, DMAMEM_CUDA_REGISTRY_GRANULARITY, 0,
+	err = dmamem_registry_init(&dmem->registry, DMAMEM_CUDA_REGISTRY_GRANULARITY, va_bits,
 				   dmamem_cuda_registry_range, dmamem_cuda_registry_populate,
 				   dmamem_cuda_registry_release, heap->config);
 	if (err) {
@@ -207,7 +168,7 @@ dmamem_from_cuda_registry(struct dmamem *dmem, struct cudamem_heap *heap)
 	dmem->cpu_va = NULL;
 	dmem->size = heap->size;
 	dmem->backing = DMAMEM_BACKING_CUDAMEM;
-	dmem->translator = DMAMEM_XLATE_REGISTRY;
+	dmem->translator = DMAMEM_XLATE_LUT;
 	dmem->owned = 0;
 
 	return 0;

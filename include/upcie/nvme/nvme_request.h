@@ -376,7 +376,7 @@ nvme_request_prep_command_prps_iov(struct nvme_request *request, struct hostmem_
  *   LUT: pages inside a hugepage still stride physically from prp1,
  *   but crossing a hugepage boundary requires re-translation. Same
  *   shape as the hostmem_heap variant above: stride within the
- *   hugepage, dmamem_va_to_iova (via phys_lut) at each boundary.
+ *   granule, dmamem_va_to_iova (via the registry table) at each boundary.
  *
  * The translator dispatch is one predictable compare; a process
  * runs one translator for its lifetime, so it predicts perfectly
@@ -403,14 +403,15 @@ nvme_request_prep_command_prps_contig_dmamem(struct nvme_request *request, struc
 					     void *dbuf, size_t dbuf_nbytes,
 					     struct nvme_command *cmd)
 {
-	const int registry = DMAMEM_XLATE_REGISTRY == dmem->translator;
 	const uint64_t pagesize = 4096;
 	const int page_shift = 12;
 	const uint64_t page_off = (uintptr_t)dbuf & (pagesize - 1);
 	const uint64_t npages = (page_off + dbuf_nbytes + pagesize - 1) >> page_shift;
 
+	const int lut = DMAMEM_XLATE_LUT == dmem->translator;
+
 	cmd->prp1 = dmamem_va_to_iova(dmem, dbuf);
-	if (registry && !cmd->prp1) {
+	if (lut && !cmd->prp1) {
 		UPCIE_DEBUG("FAILED: dbuf(%p) is not in a registered region", dbuf);
 		return -EINVAL;
 	}
@@ -439,18 +440,14 @@ nvme_request_prep_command_prps_contig_dmamem(struct nvme_request *request, struc
 		return 0;
 	}
 
-	/* LUT and REGISTRY: stride from prp1 within the span that is known to
-	 * be contiguous, re-translating when crossing out of it. Buffers that
-	 * fit inside one span (the common case) never cross, so this reduces
-	 * to the stride of a contiguous buffer. The two differ only in what
-	 * that span is and where the offset into it is measured from: a
-	 * hugepage from the dmamem base, or a chunk in absolute address terms.
+	/* LUT: stride from prp1 within the granule, which is known to be
+	 * contiguous, re-translating when crossing out of it. Buffers that fit
+	 * inside one granule (the common case) never cross, so this reduces to
+	 * the stride of a contiguous buffer.
 	 */
 	uint8_t *vbase = (uint8_t *)dbuf - page_off;
-	const uint64_t span = registry ? dmem->registry.gran_mask + 1 : dmem->hugepgsz;
-	const uint64_t span_off = registry ? ((uint64_t)vbase & (span - 1))
-					   : ((uint64_t)(vbase - (uint8_t *)dmem->base_va) &
-					      (span - 1));
+	const uint64_t span = dmem->registry.gran_mask + 1;
+	const uint64_t span_off = (uint64_t)vbase & (span - 1);
 	uint64_t strides_left = ((span - span_off) >> page_shift) - 1;
 	uint64_t page_phys = cmd->prp1 - page_off;
 
@@ -460,7 +457,7 @@ nvme_request_prep_command_prps_contig_dmamem(struct nvme_request *request, struc
 			return 0;
 		}
 		cmd->prp2 = dmamem_va_to_iova(dmem, vbase + pagesize);
-		if (registry && !cmd->prp2) {
+		if (!cmd->prp2) {
 			UPCIE_DEBUG("FAILED: dbuf(%p) leaves the registered region", dbuf);
 			return -EINVAL;
 		}
@@ -476,7 +473,7 @@ nvme_request_prep_command_prps_contig_dmamem(struct nvme_request *request, struc
 			strides_left--;
 		} else {
 			page_phys = dmamem_va_to_iova(dmem, vbase + (i << page_shift));
-			if (registry && !page_phys) {
+			if (!page_phys) {
 				UPCIE_DEBUG("FAILED: dbuf(%p) leaves the registered region",
 					    dbuf);
 				return -EINVAL;
@@ -515,13 +512,14 @@ nvme_request_prep_command_prps_iov_dmamem(struct nvme_request *request, struct d
 					  struct iovec *dvec, size_t dvec_cnt,
 					  struct nvme_command *cmd)
 {
-	const int registry = DMAMEM_XLATE_REGISTRY == dmem->translator;
 	const uint64_t pagesize = 4096;
 	uint64_t *prp_list = request->prp;
 	size_t prp_idx = 0;
 
+	const int lut = DMAMEM_XLATE_LUT == dmem->translator;
+
 	cmd->prp1 = dmamem_va_to_iova(dmem, dvec[0].iov_base);
-	if (registry && !cmd->prp1) {
+	if (lut && !cmd->prp1) {
 		UPCIE_DEBUG("FAILED: iov_base(%p) is not in a registered region",
 			    dvec[0].iov_base);
 		return -EINVAL;
@@ -541,7 +539,7 @@ nvme_request_prep_command_prps_iov_dmamem(struct nvme_request *request, struct d
 		while (remaining > 0) {
 			const uint64_t iova = dmamem_va_to_iova(dmem, base + offset);
 
-			if (registry && !iova) {
+			if (!iova) {
 				UPCIE_DEBUG("FAILED: %p is not in a registered region",
 					    base + offset);
 				return -EINVAL;

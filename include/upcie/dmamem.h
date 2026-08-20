@@ -21,7 +21,8 @@
  *   contiguous IOVA range for the whole dmamem. The dmamem stashes
  *   base_iova at construction and the submit path adds. No lookup.
  *
- *   LUT: iova = phys_lut[offset >> hugepgsz_shift] + (offset & mask).
+ *   LUT: iova = lut_phys[va >> gran_shift] + (va & gran_mask), read from
+ *   the registry the dmamem owns.
  *   Used when no IOMMU mapping was installed (uio_pci_generic with
  *   iommu=pt/off) and the device consumes physical addresses directly.
  *   The dmamem stashes a borrowed per-hugepage PA table and reads it on
@@ -80,14 +81,17 @@ enum dmamem_backing {
 enum dmamem_translator {
 	/** iova = base_iova + offset; the IOVA of the installed mapping. */
 	DMAMEM_XLATE_ARITHMETIC = 0x0,
-	/** iova = phys_lut[off >> shift] + (off & mask); an address the device
-	 *  uses directly, no translation installed. */
+	/** iova = lut_phys[va >> gran_shift] + (va & gran_mask); an address the
+	 *  device uses directly, with no translation installed.
+	 *
+	 *  The index is absolute rather than measured from a base, so one
+	 *  dmamem spans every region its registry holds rather than a single
+	 *  contiguous range, and nothing on the fast path distinguishes a
+	 *  buffer from the heap from one the caller registered. The registry
+	 *  owns the table; this names how it is read. An address nothing
+	 *  registered resolves to 0, which callers treat as an error since no
+	 *  valid target has bus address 0. */
 	DMAMEM_XLATE_LUT = 0x1,
-	/** iova = registry lookup on the absolute address; spans every
-	 *  registered region rather than one contiguous range. Resolving an
-	 *  address that is not registered yields 0, which callers treat as an
-	 *  error since no valid target has bus address 0. */
-	DMAMEM_XLATE_REGISTRY = 0x2,
 };
 
 /* Forward-declare so dmamem.h stays independent of vfioctl.h include
@@ -112,10 +116,7 @@ struct dmamem {
 	struct vfio_container *vfio_container; ///< Not owned; caller lifetime. NULL for iommufd and LUT.
 	enum dmamem_backing backing;
 	enum dmamem_translator translator; ///< How offsets resolve to DMA addresses
-	const uint64_t *phys_lut;   ///< Borrowed per-hugepage PA table (LUT only)
-	struct dmamem_registry registry; ///< Owned region registry (REGISTRY only)
-	size_t hugepgsz;            ///< Hugepage size in bytes (LUT only)
-	int hugepgsz_shift;         ///< log2(hugepgsz) (LUT only)
+	struct dmamem_registry registry; ///< Owned region registry (LUT only)
 	int owned;                  ///< 1: dmamem owns fd + cpu_va; 0: wrapping caller memory
 };
 
@@ -149,9 +150,9 @@ dmamem_pp(struct dmamem *dmem)
 		       : dmem->translator == DMAMEM_XLATE_ARITHMETIC ? "ARITHMETIC"
 								     : "?");
 	if (DMAMEM_XLATE_LUT == dmem->translator) {
-		wrtn += printf("  phys_lut: %p\n", (void *)dmem->phys_lut);
-		wrtn += printf("  hugepgsz: %zu\n", dmem->hugepgsz);
-		wrtn += printf("  hugepgsz_shift: %d\n", dmem->hugepgsz_shift);
+		wrtn += printf("  lut_phys: %p\n", (void *)dmem->registry.lut_phys);
+		wrtn += printf("  granularity: %" PRIu64 "\n", dmem->registry.gran_mask + 1);
+		wrtn += printf("  lut_capacity: %zu\n", dmem->registry.lut_capacity);
 	}
 	wrtn += printf("  owned: %d\n", dmem->owned);
 
@@ -196,12 +197,7 @@ static inline uint64_t
 dmamem_offset_to_iova(struct dmamem *dmem, size_t offset)
 {
 	if (DMAMEM_XLATE_LUT == dmem->translator) {
-		return dmem->phys_lut[offset >> dmem->hugepgsz_shift] +
-		       (offset & (dmem->hugepgsz - 1));
-	}
-
-	if (DMAMEM_XLATE_REGISTRY == dmem->translator) {
-		/* The registry indexes absolutely, so an offset only means
+		/* The table indexes absolutely, so an offset only means
 		 * anything relative to the base this dmamem describes. */
 		return dmamem_va_to_iova(dmem, (char *)dmem->base_va + offset);
 	}
@@ -221,7 +217,7 @@ dmamem_offset_to_iova(struct dmamem *dmem, size_t offset)
 static inline uint64_t
 dmamem_va_to_iova(struct dmamem *dmem, void *vaddr)
 {
-	if (DMAMEM_XLATE_REGISTRY == dmem->translator) {
+	if (DMAMEM_XLATE_LUT == dmem->translator) {
 		const uint64_t va = (uint64_t)vaddr;
 		uint64_t base;
 
@@ -257,7 +253,7 @@ dmamem_destroy(struct dmamem *dmem)
 		return;
 	}
 
-	if (DMAMEM_XLATE_REGISTRY == dmem->translator) {
+	if (DMAMEM_XLATE_LUT == dmem->translator) {
 		dmamem_registry_term(&dmem->registry);
 	}
 
@@ -300,13 +296,18 @@ dmamem_destroy(struct dmamem *dmem)
  * byte alignment; consumers may want more, e.g. NVMe PRP construction wants
  * host-page-aligned buffers.
  *
+ * Registering while I/O runs against other buffers is safe: translation reads
+ * one table slot, and this writes only the slots of the allocation being
+ * registered. Registering from two threads at once is not; the caller
+ * serialises that.
+ *
  * @return 0 on success, -EOPNOTSUPP when the dmamem does not translate through
  *         a registry, other negative errno on failure.
  */
 static inline int
 dmamem_register(struct dmamem *dmem, void *vaddr, size_t nbytes)
 {
-	if (!dmem || (DMAMEM_XLATE_REGISTRY != dmem->translator)) {
+	if (!dmem || (DMAMEM_XLATE_LUT != dmem->translator)) {
 		return -EOPNOTSUPP;
 	}
 
@@ -320,13 +321,20 @@ dmamem_register(struct dmamem *dmem, void *vaddr, size_t nbytes)
  * The allocation behind it is released once the last registration referring to
  * it is gone.
  *
+ * The caller must quiesce I/O over the range first. Releasing an allocation
+ * tears its mapping down, so a command already submitted against it has the
+ * memory pulled from under it, and the controller will either fault or, with
+ * no IOMMU installed, write to a page the kernel has since reused. That is a
+ * stronger requirement than freeing a heap buffer, where the memory stays
+ * mapped and the damage is confined to the caller's own arena.
+ *
  * @return 0 on success, -EOPNOTSUPP when the dmamem does not translate through
  *         a registry, -EINVAL when nothing was registered at `vaddr`.
  */
 static inline int
 dmamem_unregister(struct dmamem *dmem, void *vaddr)
 {
-	if (!dmem || (DMAMEM_XLATE_REGISTRY != dmem->translator)) {
+	if (!dmem || (DMAMEM_XLATE_LUT != dmem->translator)) {
 		return -EOPNOTSUPP;
 	}
 
