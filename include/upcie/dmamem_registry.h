@@ -118,11 +118,17 @@ struct dmamem_registry_registration {
 	struct dmamem_registry_registration *next; ///< List linkage owned by the registry
 };
 
+/**
+ * A registry is embedded in the dmamem that owns it, rather than pointed at,
+ * so translation reads its fields at a fixed offset instead of chasing a
+ * pointer first. The three the hot path touches lead, to keep them on the same
+ * cache line as the dmamem fields around them; everything below is cold.
+ */
 struct dmamem_registry {
+	uint64_t *lut_phys;  ///< chunk_idx -> chunk base address; mmap-backed
 	int gran_shift;	     ///< log2(granularity)
 	uint64_t gran_mask;  ///< granularity - 1, for the intra-chunk offset
 	size_t lut_capacity; ///< Number of slots in the LUT
-	uint64_t *lut_phys;  ///< chunk_idx -> chunk base address; mmap-backed
 	struct dmamem_registry_backing *backings;  ///< Owned list of backings
 	struct dmamem_registry_registration *list; ///< Owned list of registrations
 	dmamem_registry_range_fn range;		   ///< Recovers an allocation; may be NULL

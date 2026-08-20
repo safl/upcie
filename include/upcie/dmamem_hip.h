@@ -164,44 +164,52 @@ dmamem_hip_registry_release(void *UPCIE_UNUSED(ctx), struct dmabuf *attach)
 }
 
 /**
- * Wrap a registry as a dmamem, seeding it with the heap.
+ * Build a registry-translating dmamem around a hipmem_heap.
  *
- * The heap is adopted rather than rediscovered, since it enumerated its own
- * addresses at init, and it then resolves through the same translator as
- * every registered buffer. That is what lets one dmamem serve both, so the
- * command paths need no notion of where a buffer came from.
+ * The dmamem owns the registry: it is initialised here, seeded with the heap,
+ * and torn down by dmamem_destroy(). The heap is adopted rather than
+ * rediscovered, since it enumerated its own addresses at init, and it then
+ * resolves through the same translator as every buffer handed over with
+ * dmamem_register(). That is what lets one dmamem serve both, so the command
+ * paths need no notion of where a buffer came from.
  *
- * The registry must be initialised with dmamem_hip_registry_range() and
- * dmamem_hip_registry_populate(); the caller keeps ownership of both it and
- * the heap, and both must outlive the dmamem.
+ * The heap is borrowed and must outlive the dmamem.
  *
  * @return 0 on success, negative errno on failure.
  */
 static inline int
-dmamem_from_hip_registry(struct dmamem *dmem, struct dmamem_registry *registry,
-			  struct hipmem_heap *heap)
+dmamem_from_hip_registry(struct dmamem *dmem, struct hipmem_heap *heap)
 {
 	int err;
 
-	if (!dmem || !registry || !heap || !heap->phys_lut || !heap->config) {
+	if (!dmem || !heap || !heap->phys_lut || !heap->config) {
 		return -EINVAL;
 	}
 
-	err = dmamem_registry_adopt(registry, (void *)(uintptr_t)heap->vaddr, heap->size,
-				    heap->phys_lut, heap->config->device_pagesize_shift, NULL);
+	memset(dmem, 0, sizeof(*dmem));
+
+	err = dmamem_registry_init(&dmem->registry, DMAMEM_HIP_REGISTRY_GRANULARITY, 0,
+				   dmamem_hip_registry_range, dmamem_hip_registry_populate,
+				   dmamem_hip_registry_release, heap->config);
 	if (err) {
-		UPCIE_DEBUG("FAILED: dmamem_registry_adopt(heap), err: %d", err);
+		UPCIE_DEBUG("FAILED: dmamem_registry_init(), err: %d", err);
 		return err;
 	}
 
-	memset(dmem, 0, sizeof(*dmem));
+	err = dmamem_registry_adopt(&dmem->registry, (void *)(uintptr_t)heap->vaddr, heap->size,
+				    heap->phys_lut, heap->config->device_pagesize_shift, NULL);
+	if (err) {
+		UPCIE_DEBUG("FAILED: dmamem_registry_adopt(heap), err: %d", err);
+		dmamem_registry_term(&dmem->registry);
+		return err;
+	}
+
 	dmem->fd = -1;
 	dmem->base_va = (void *)(uintptr_t)heap->vaddr;
 	dmem->cpu_va = NULL;
 	dmem->size = heap->size;
 	dmem->backing = DMAMEM_BACKING_HIPMEM;
 	dmem->translator = DMAMEM_XLATE_REGISTRY;
-	dmem->registry = registry;
 	dmem->owned = 0;
 
 	return 0;
