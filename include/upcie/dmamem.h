@@ -88,9 +88,15 @@ enum dmamem_translator {
 	 *  dmamem spans every region its registry holds rather than a single
 	 *  contiguous range, and nothing on the fast path distinguishes a
 	 *  buffer from the heap from one the caller registered. The registry
-	 *  owns the table; this names how it is read. An address nothing
-	 *  registered resolves to 0, which callers treat as an error since no
-	 *  valid target has bus address 0. */
+	 *  owns the table; this names how it is read.
+	 *
+	 *  Resolution is defined for addresses inside a registration. An
+	 *  address in a granule nothing has claimed resolves to 0, which
+	 *  callers treat as an error since no valid target has bus address 0.
+	 *  An address in the unused remainder of a granule claimed by a
+	 *  smaller allocation resolves to a wrong address instead, because
+	 *  the table is indexed per granule and the granule is claimed whole.
+	 *  Use dmamem_registry_contains() where that distinction matters. */
 	DMAMEM_XLATE_LUT = 0x1,
 };
 
@@ -228,9 +234,21 @@ dmamem_va_to_iova(struct dmamem *dmem, void *vaddr)
 
 		base = dmem->registry.lut_phys[va >> dmem->registry.gran_shift];
 
-		/* An address nothing registered lands on a zeroed slot. Nothing
-		 * valid has bus address zero, so callers read that as the error
-		 * it is rather than building a PRP from a stale entry. */
+		/* An address in an unclaimed granule lands on a zeroed slot.
+		 * Nothing valid has bus address zero, so callers read that as
+		 * the error it is rather than building a PRP from a stale
+		 * entry. This catches an unregistered address only when its
+		 * granule is unclaimed; see the translator's documentation.
+		 *
+		 * The wider check below walks the registration list and so
+		 * takes the registry lock, which is why it is an assert rather
+		 * than part of the fast path: a debug build serialises
+		 * translation against registration, and a release build does
+		 * not. It also means a registry callback must not translate,
+		 * since it already holds that lock. */
+		assert(!dmem->registry.list ||
+		       dmamem_registry_contains(&dmem->registry, vaddr, 1));
+
 		return base ? base + (va & dmem->registry.gran_mask) : 0;
 	}
 
@@ -300,6 +318,14 @@ dmamem_destroy(struct dmamem *dmem)
  * one table slot, and this writes only the slots of the allocation being
  * registered. Registering from two threads at once is not; the caller
  * serialises that.
+ *
+ * Registration claims whole granules, so an allocation smaller than one, or
+ * one whose base is not granule aligned, is refused with -EOPNOTSUPP. Vendor
+ * allocators hand out sub-granule buffers from inside a single granule, so
+ * registering many small device allocations largely does not work. Note also
+ * that translating an address in the unused remainder of a claimed granule
+ * yields a wrong address rather than an error; do I/O only on ranges that
+ * registered successfully.
  *
  * @return 0 on success, -EOPNOTSUPP when the dmamem does not translate through
  *         a registry, other negative errno on failure.
