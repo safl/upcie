@@ -68,42 +68,68 @@ dmamem_from_cuda_lut(struct dmamem *dmem, struct cudamem_heap *heap)
 }
 
 /**
- * Discover one chunk's address from CUDA, for a dmamem_registry.
+ * Granularity for a CUDA-backed dmamem_registry.
  *
- * Exports the chunk as a dma-buf, attaches it, enumerates the host-page
- * addresses and verifies they are contiguous, which is the BAR1 large-page
- * assumption the chunk model rests on.
+ * Matches the device's alloc_granularity, the BAR1 large-page size, which is
+ * 2 MiB on the parts uPCIe targets. Sizing the LUT by it costs 1 GiB of
+ * reservation over a 48-bit address space.
+ */
+#define DMAMEM_CUDA_REGISTRY_GRANULARITY (2UL << 20)
+
+/**
+ * Recover the CUDA allocation that `va` falls inside, for a dmamem_registry.
  *
- * `ctx` is the `struct cudamem_config *` for the device the registry covers.
+ * An export describes an allocation, not a range, so a registration has to be
+ * placed at its offset within one. `ctx` is unused; the runtime knows.
  *
- * @return 0 on success, negative errno on failure. -EOPNOTSUPP when a chunk
+ * @return 0 on success, -EINVAL when `va` is not a known device address.
+ */
+static inline int
+dmamem_cuda_registry_range(void *UPCIE_UNUSED(ctx), uint64_t va, uint64_t *base_out,
+			  size_t *size_out)
+{
+	CUdeviceptr b = 0;
+	CUresult cr = cuMemGetAddressRange(&b, size_out, (CUdeviceptr)va);
+
+	if (cr != CUDA_SUCCESS) {
+		UPCIE_DEBUG("FAILED: cuMemGetAddressRange(0x%" PRIx64 "), cr: %d", va, cr);
+		return -EINVAL;
+	}
+	*base_out = (uint64_t)b;
+
+	return 0;
+}
+
+/**
+ * Make one CUDA allocation addressable, for a dmamem_registry.
+ *
+ * Exports the whole allocation as a dma-buf once, attaches it, and summarises
+ * the scatter list into one address per granule. Exporting the allocation
+ * rather than the registered range is not an optimisation: ROCm discards the
+ * range arguments and returns the whole buffer object regardless, so a
+ * per-range export resolves a sub-range to the base of the allocation. CUDA
+ * honours the range, so the same shape is correct there too. See
+ * `tools/upcie_dmabuf_probe_{cuda,hip}` for the measurements.
+ *
+ * @return 0 on success, negative errno on failure. -EOPNOTSUPP when a granule
  *         turns out not to be contiguous.
  */
 static inline int
-dmamem_cuda_registry_populate(void *ctx, uint64_t chunk_va, size_t granularity,
-			      uint64_t *phys_base_out, struct dmabuf *attach_out)
+dmamem_cuda_registry_populate(void *UPCIE_UNUSED(ctx), uint64_t base, size_t size,
+			     uint64_t granularity, uint64_t *lut_out, size_t nlut,
+			     struct dmabuf *attach_out)
 {
-	struct cudamem_config *config = ctx;
-	const size_t pagesize = (size_t)config->pagesize;
-	const size_t nphys = granularity >> config->pagesize_shift;
 	struct dmabuf attach = {0};
-	uint64_t *tmp = NULL;
 	int dmabuf_fd = -1;
 	int err;
 	CUresult cr;
 
-	tmp = calloc(nphys, sizeof(*tmp));
-	if (!tmp) {
-		return -ENOMEM;
-	}
-
-	cr = cuMemGetHandleForAddressRange(&dmabuf_fd, (CUdeviceptr)chunk_va, granularity,
+	cr = cuMemGetHandleForAddressRange(&dmabuf_fd, (CUdeviceptr)base, size,
 					   CU_MEM_RANGE_HANDLE_TYPE_DMA_BUF_FD, 0);
 	if (cr != CUDA_SUCCESS) {
 		UPCIE_DEBUG("FAILED: cuMemGetHandleForAddressRange(0x%" PRIx64 ", %zu), cr: %d",
-			    chunk_va, granularity, cr);
-		err = -EIO;
-		goto err_free;
+			    base, size, cr);
+		return -EIO;
 	}
 
 	/* NOTE: EXPERIMENTAL dependency, see <upcie/experimental/dmabuf_import.h> */
@@ -111,41 +137,23 @@ dmamem_cuda_registry_populate(void *ctx, uint64_t chunk_va, size_t granularity,
 	if (err) {
 		UPCIE_DEBUG("FAILED: dmabuf_import_attach(), err: %d", err);
 		close(dmabuf_fd);
-		goto err_free;
+		return err;
 	}
 
-	err = dmabuf_get_lut(&attach, nphys, tmp, (int)pagesize);
+	err = dmabuf_get_granule_lut(&attach, lut_out, nlut, granularity);
 	if (err) {
-		UPCIE_DEBUG("FAILED: dmabuf_get_lut(), err: %d", err);
-		goto err_detach;
+		UPCIE_DEBUG("FAILED: dmabuf_get_granule_lut(), err: %d", err);
+		dmabuf_import_detach(&attach);
+		return err;
 	}
 
-	for (size_t i = 1; i < nphys; ++i) {
-		if (tmp[i] != tmp[0] + i * pagesize) {
-			UPCIE_DEBUG("FAILED: chunk not contiguous at i=%zu; phys[0]=0x%" PRIx64
-				    " phys[%zu]=0x%" PRIx64,
-				    i, tmp[0], i, tmp[i]);
-			err = -EOPNOTSUPP;
-			goto err_detach;
-		}
-	}
-
-	*phys_base_out = tmp[0];
 	*attach_out = attach;
-	free(tmp);
 
 	return 0;
-
-err_detach:
-	dmabuf_import_detach(&attach);
-err_free:
-	free(tmp);
-
-	return err;
 }
 
 /**
- * Release one chunk discovered by dmamem_cuda_registry_populate().
+ * Release one allocation made addressable by dmamem_cuda_registry_populate().
  */
 static inline void
 dmamem_cuda_registry_release(void *UPCIE_UNUSED(ctx), struct dmabuf *attach)
@@ -161,7 +169,7 @@ dmamem_cuda_registry_release(void *UPCIE_UNUSED(ctx), struct dmabuf *attach)
  * every registered buffer. That is what lets one dmamem serve both, so the
  * command paths need no notion of where a buffer came from.
  *
- * The registry must be initialised with the device's alloc_granularity and
+ * The registry must be initialised with dmamem_cuda_registry_range() and
  * dmamem_cuda_registry_populate(); the caller keeps ownership of both it and
  * the heap, and both must outlive the dmamem.
  *

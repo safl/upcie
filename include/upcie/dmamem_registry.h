@@ -12,115 +12,137 @@
  * allocated", and the latter is what a framework holding its own GPU tensors
  * or hugepage arenas needs.
  *
- * The registry is flavour-agnostic. What differs between CUDA, HIP and
- * hugepages is only how a chunk's bus address is discovered, which is the
- * `populate` callback; the structure, the lookup and the lifetime rules are
- * common. Anything whose backing is pinned and contiguous at `granularity`
- * can be registered: device allocations, hugepages, BAR ranges, dma-buf
- * exports.
- *
- * Chunks are indexed directly, so lookup is one load regardless of how many
- * regions are registered:
+ * Lookup is one load regardless of how many regions are registered:
  *
  *     chunk_idx = vaddr >> gran_shift
  *     phys      = lut_phys[chunk_idx] + (vaddr & gran_mask)
  *
- * Two parallel arrays cover the chunk_idx range, both MAP_NORESERVE so the
- * kernel demand-pages them and the resident cost tracks live chunks rather
- * than virtual capacity: `lut_phys` on the hot path, `lut_meta` for the cold
- * path. Chunks are refcounted, so overlapping registrations amortise to one
- * population, and resolve to identical addresses for any VA they share.
+ * `lut_phys` covers the whole chunk_idx range and is MAP_NORESERVE, so the
+ * kernel demand-pages it and the resident cost tracks live chunks rather than
+ * virtual capacity.
+ *
+ * Backings
+ * --------
+ *
+ * A registration does not describe what the device can address; the
+ * allocation it falls inside does. Vendor runtimes differ sharply on this. On
+ * ROCm the range arguments to an export are accepted and discarded and the
+ * whole buffer object comes back, so exporting per registration, or worse per
+ * chunk, both re-exports the entire allocation and resolves a sub-range at a
+ * non-zero offset to the base of the allocation. CUDA honours the range
+ * exactly. Since the failure on ROCm is silent, the shape that is correct on
+ * both is the one used here: recover the allocation a registration falls
+ * inside, populate it once, and let overlapping registrations share it.
+ *
+ * A `backing` is that allocation. It is refcounted by the registrations
+ * referring to it, populated when the first arrives and released when the last
+ * leaves. `tools/upcie_dmabuf_probe_{cuda,hip}` measures the behaviour this
+ * rests on.
  *
  * Sizing
  * ------
  *
- * The reservation is `(1 << va_bits) / granularity` slots, so it scales
- * inversely with granularity: at 48-bit VA that is 1 GiB of lut_phys for a
- * 2 MiB granularity but 512 GiB for a 4 KiB one. Callers with a small
- * granularity should pass a smaller `va_bits` bounded by the address range
- * they actually use.
+ * The reservation is `(1 << va_bits) / granularity` slots of eight bytes, so
+ * it scales inversely with granularity: at 48-bit VA that is 1 GiB for a 2 MiB
+ * granularity but 512 GiB for a 4 KiB one. Callers with a small granularity
+ * should pass a smaller `va_bits` bounded by the address range they actually
+ * use.
  *
  * Adoption
  * --------
  *
- * A caller that already knows the physical addresses, such as a heap that
- * enumerated them at init, registers with `dmamem_registry_adopt()` rather
- * than paying to rediscover them. Adopted chunks are marked borrowed and are
- * never released by the registry.
+ * A caller that already knows the addresses, such as a heap that enumerated
+ * them at init, registers with `dmamem_registry_adopt()` rather than paying to
+ * rediscover them. An adopted backing is borrowed and is never released by the
+ * registry.
  *
  * @file dmamem_registry.h
  * @version 0.6.0
  */
 
 /**
- * Default width of the virtual address space, in bits, used to size the LUTs.
+ * Default width of the virtual address space, in bits, used to size the LUT.
  */
 #define DMAMEM_REGISTRY_VA_BITS 48
 
 /**
- * Discover the bus address of one `granularity`-sized, `granularity`-aligned
- * chunk.
+ * Recover the allocation that `va` falls inside.
  *
- * Called only for chunks not already live. On success the chunk's base
- * address is returned via `phys_base_out`, and any attachment that must be
- * undone later via `attach_out`; a flavour with nothing to release leaves it
- * zeroed. On failure both outputs are left untouched.
+ * May be NULL, in which case a registration is taken to be its own allocation.
+ * The base returned must be aligned to the registry's granularity, since chunk
+ * indices are absolute and the LUT is filled from the base outwards.
  *
  * @return 0 on success, negative errno on failure.
  */
-typedef int (*dmamem_registry_populate_fn)(void *ctx, uint64_t chunk_va, size_t granularity,
-					   uint64_t *phys_base_out, struct dmabuf *attach_out);
+typedef int (*dmamem_registry_range_fn)(void *ctx, uint64_t va, uint64_t *base_out,
+					size_t *size_out);
 
 /**
- * Undo what populate did for one chunk. May be NULL when nothing is owned.
+ * Make an allocation addressable and fill one LUT entry per granule.
+ *
+ * Called once per backing. `lut_out` has `nlut` entries covering `[base, base +
+ * nlut * granularity)`, and anything that must be undone later goes in
+ * `attach_out`; a flavour with nothing to release leaves it zeroed. On failure
+ * both outputs are left untouched.
+ *
+ * @return 0 on success, negative errno on failure.
+ */
+typedef int (*dmamem_registry_populate_fn)(void *ctx, uint64_t base, size_t size,
+					   uint64_t granularity, uint64_t *lut_out, size_t nlut,
+					   struct dmabuf *attach_out);
+
+/**
+ * Undo what populate did for one backing. May be NULL when nothing is owned.
  */
 typedef void (*dmamem_registry_release_fn)(void *ctx, struct dmabuf *attach);
 
 /**
- * Per-chunk state, consulted off the hot path.
- *
- * `rc` counts registrations whose floored range intersects this chunk; the
- * chunk is populated on the transition to one and released on the transition
- * back to zero. The chunk's address lives in `lut_phys`, not here, so the hot
- * path needs a single load.
+ * One allocation, shared by every registration that falls inside it.
  */
-struct dmamem_registry_chunk_meta {
-	uint32_t rc;          ///< Refcount of overlapping registrations
-	uint32_t borrowed;    ///< 1: address was adopted, there is nothing to release
-	struct dmabuf attach; ///< Attachment owned by the registry (valid when rc > 0 && !borrowed)
+struct dmamem_registry_backing {
+	uint64_t base;	   ///< Allocation base; aligned to the granularity
+	size_t size;	   ///< Allocation length in bytes
+	uint32_t rc;	   ///< Registrations referring to this backing
+	uint32_t borrowed; ///< 1: addresses were adopted, there is nothing to release
+	struct dmabuf attach;			///< Owned by the registry when !borrowed
+	struct dmamem_registry_backing *next;	///< List linkage owned by the registry
 };
 
 /**
- * One registration, so removal can find the chunks to drop.
+ * One registration, so removal can find the backing to drop.
  */
 struct dmamem_registry_registration {
-	uint64_t vaddr;                             ///< Start of the registered range
-	size_t size;                                ///< Length of the registered range in bytes
-	struct dmamem_registry_registration *next;  ///< List linkage owned by the registry
+	uint64_t vaddr;				   ///< Start of the registered range
+	size_t size;				   ///< Length of the registered range in bytes
+	struct dmamem_registry_backing *backing;   ///< Allocation it falls inside; not owned
+	struct dmamem_registry_registration *next; ///< List linkage owned by the registry
 };
 
 struct dmamem_registry {
-	int gran_shift;      ///< log2(granularity)
+	int gran_shift;	     ///< log2(granularity)
 	uint64_t gran_mask;  ///< granularity - 1, for the intra-chunk offset
-	size_t lut_capacity; ///< Number of slots in each LUT
+	size_t lut_capacity; ///< Number of slots in the LUT
 	uint64_t *lut_phys;  ///< chunk_idx -> chunk base address; mmap-backed
-	struct dmamem_registry_chunk_meta *lut_meta; ///< chunk_idx -> state; mmap-backed
-	struct dmamem_registry_registration *list;   ///< Owned list of registrations
-	dmamem_registry_populate_fn populate;        ///< Discovers a chunk's address
-	dmamem_registry_release_fn release;          ///< Undoes populate; may be NULL
-	void *ctx;                                   ///< Passed to populate/release; not owned
+	struct dmamem_registry_backing *backings;  ///< Owned list of backings
+	struct dmamem_registry_registration *list; ///< Owned list of registrations
+	dmamem_registry_range_fn range;		   ///< Recovers an allocation; may be NULL
+	dmamem_registry_populate_fn populate;	   ///< Makes an allocation addressable; required
+	dmamem_registry_release_fn release;	   ///< Undoes populate; may be NULL
+	void *ctx;				   ///< Passed to the callbacks; not owned
 };
 
 /**
  * Initialize a registry.
  *
- * Reserves the two demand-paged LUTs; no physical memory is committed until
- * chunks are registered. `granularity` must be a power of two, and every
- * region registered must be contiguous in bus-address terms across it.
+ * Reserves the demand-paged LUT; no physical memory is committed until
+ * something is registered. `granularity` must be a power of two, and every
+ * allocation registered must be contiguous in bus-address terms across it,
+ * which populate is expected to verify.
  *
  * @param granularity Chunk size in bytes; a power of two
  * @param va_bits     Width of the address range to cover; 0 selects the default
- * @param populate    Discovers a chunk's address; required
+ * @param range       Recovers the allocation a pointer falls inside; may be NULL
+ * @param populate    Makes an allocation addressable; required
  * @param release     Undoes populate; NULL when nothing is owned
  * @param ctx         Opaque flavour context handed to the callbacks
  *
@@ -128,10 +150,10 @@ struct dmamem_registry {
  */
 static inline int
 dmamem_registry_init(struct dmamem_registry *registry, size_t granularity, int va_bits,
-		     dmamem_registry_populate_fn populate, dmamem_registry_release_fn release,
-		     void *ctx)
+		     dmamem_registry_range_fn range, dmamem_registry_populate_fn populate,
+		     dmamem_registry_release_fn release, void *ctx)
 {
-	size_t phys_bytes, meta_bytes;
+	size_t phys_bytes;
 	int gran_shift = 0;
 
 	if (!registry || !granularity || (granularity & (granularity - 1)) || !populate) {
@@ -155,6 +177,7 @@ dmamem_registry_init(struct dmamem_registry *registry, size_t granularity, int v
 	registry->gran_shift = gran_shift;
 	registry->gran_mask = (uint64_t)granularity - 1;
 	registry->lut_capacity = (size_t)1 << (va_bits - gran_shift);
+	registry->range = range;
 	registry->populate = populate;
 	registry->release = release;
 	registry->ctx = ctx;
@@ -168,133 +191,211 @@ dmamem_registry_init(struct dmamem_registry *registry, size_t granularity, int v
 		return -ENOMEM;
 	}
 
-	meta_bytes = registry->lut_capacity * sizeof(*registry->lut_meta);
-	registry->lut_meta = mmap(NULL, meta_bytes, PROT_READ | PROT_WRITE,
-				  MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
-	if (registry->lut_meta == MAP_FAILED) {
-		UPCIE_DEBUG("FAILED: mmap(lut_meta, %zu); errno: %d", meta_bytes, errno);
-		munmap(registry->lut_phys, phys_bytes);
-		registry->lut_phys = NULL;
-		registry->lut_meta = NULL;
-		return -ENOMEM;
+	return 0;
+}
+
+/**
+ * Number of chunks a backing occupies in the LUT.
+ */
+static inline size_t
+dmamem_registry_backing_nlut(struct dmamem_registry *registry, size_t size)
+{
+	return (size + registry->gran_mask) >> registry->gran_shift;
+}
+
+/**
+ * Clear the table slots an allocation occupies.
+ *
+ * A partly filled range is worse than an empty one: a slot carrying an address
+ * that no registration owns resolves to a plausible wrong target, where an
+ * untouched slot resolves to the zero callers read as an error.
+ */
+static inline void
+dmamem_registry_lut_clear(struct dmamem_registry *registry, uint64_t base, size_t nlut)
+{
+	memset(&registry->lut_phys[base >> registry->gran_shift], 0,
+	       nlut * sizeof(*registry->lut_phys));
+}
+
+/**
+ * Drop a reference on a backing, releasing it when the last one goes.
+ */
+static inline void
+dmamem_registry_backing_deref(struct dmamem_registry *registry,
+			      struct dmamem_registry_backing *backing)
+{
+	struct dmamem_registry_backing **prev = &registry->backings;
+
+	if (!backing || !backing->rc) {
+		return;
+	}
+
+	backing->rc--;
+	if (backing->rc) {
+		return;
+	}
+
+	dmamem_registry_lut_clear(registry, backing->base,
+				  dmamem_registry_backing_nlut(registry, backing->size));
+
+	if (!backing->borrowed && registry->release) {
+		registry->release(registry->ctx, &backing->attach);
+	}
+
+	for (struct dmamem_registry_backing *b = *prev; b; prev = &b->next, b = b->next) {
+		if (b == backing) {
+			*prev = b->next;
+			break;
+		}
+	}
+	free(backing);
+}
+
+/**
+ * Find the backing covering `[base, base + size)`, if one is already live.
+ *
+ * A registration inside an allocation that is already populated shares it. A
+ * range straddling two backings, or matching one only partially, is not a
+ * match; that would mean the runtime reported inconsistent allocations, and
+ * silently reusing the wrong one is how a DMA ends up in the wrong place.
+ */
+static inline struct dmamem_registry_backing *
+dmamem_registry_backing_find(struct dmamem_registry *registry, uint64_t base, size_t size)
+{
+	for (struct dmamem_registry_backing *b = registry->backings; b; b = b->next) {
+		if ((base >= b->base) && ((base + size) <= (b->base + b->size))) {
+			return b;
+		}
+	}
+
+	return NULL;
+}
+
+/**
+ * Fill the LUT for an adopted range, checking each granule is contiguous.
+ *
+ * The caller's table is finer than the granularity, so only every
+ * `granularity >> lut_shift`-th entry ends up in the LUT. The entries skipped
+ * are not ignored: each granule is verified to be one contiguous run, since
+ * otherwise `base + offset` would resolve inside it to an address the caller
+ * never gave us. Checking costs one pass at registration and turns a wrong
+ * address into an error.
+ *
+ * @return 0 on success, -EOPNOTSUPP when a granule is not contiguous.
+ */
+static inline int
+dmamem_registry_adopt_fill(struct dmamem_registry *registry, uint64_t base, size_t size,
+			   const uint64_t *lut, int lut_shift, size_t nlut)
+{
+	uint64_t *dst = &registry->lut_phys[base >> registry->gran_shift];
+	const size_t fine_step = (size_t)1 << lut_shift;
+	const size_t fine_per_gran = (size_t)1 << (registry->gran_shift - lut_shift);
+	const size_t nfine = (size + fine_step - 1) >> lut_shift;
+
+	for (size_t k = 0; k < nlut; ++k) {
+		const size_t first = k * fine_per_gran;
+		size_t span = nfine - first;
+
+		if (span > fine_per_gran) {
+			span = fine_per_gran;
+		}
+
+		for (size_t i = 1; i < span; ++i) {
+			if (lut[first + i] != lut[first] + (uint64_t)i * fine_step) {
+				UPCIE_DEBUG("FAILED: adopted granule(%zu) not contiguous at i(%zu)",
+					    k, i);
+				return -EOPNOTSUPP;
+			}
+		}
+
+		dst[k] = lut[first];
 	}
 
 	return 0;
 }
 
 /**
- * Drop a reference on chunks [chunk_first, chunk_first + chunk_cnt),
- * releasing each chunk whose refcount reaches zero.
+ * Whether an allocation partially overlaps one already known.
  *
- * Chunks already at zero are skipped, so this is safe for partial unwind
- * where only some chunks in the range were bumped.
+ * Backings are assumed never to overlap: the table is indexed per granule, so
+ * two backings sharing one would each claim it, the second overwriting the
+ * first's address, and releasing either would clear a granule the other still
+ * owns. Full containment is fine and is what the refcount is for; a partial
+ * overlap means the caller has described the same memory two incompatible
+ * ways, which is refused rather than resolved.
  */
-static inline void
-dmamem_registry_chunk_deref(struct dmamem_registry *registry, size_t chunk_first, size_t chunk_cnt)
+static inline int
+dmamem_registry_backing_overlaps(struct dmamem_registry *registry, uint64_t base, size_t size)
 {
-	for (size_t k = 0; k < chunk_cnt; ++k) {
-		const size_t idx = chunk_first + k;
-		struct dmamem_registry_chunk_meta *cm = &registry->lut_meta[idx];
+	for (struct dmamem_registry_backing *b = registry->backings; b; b = b->next) {
+		const int disjoint = ((base + size) <= b->base) || (base >= (b->base + b->size));
+		const int contains = (base >= b->base) && ((base + size) <= (b->base + b->size));
+		const int contained = (b->base >= base) && ((b->base + b->size) <= (base + size));
 
-		if (cm->rc == 0) {
-			continue;
+		if (!disjoint && !contains && !contained) {
+			return 1;
 		}
-		cm->rc--;
-		if (cm->rc) {
-			continue;
-		}
-
-		if (!cm->borrowed && registry->release) {
-			registry->release(registry->ctx, &cm->attach);
-		}
-		memset(cm, 0, sizeof(*cm));
-		registry->lut_phys[idx] = 0;
 	}
+
+	return 0;
 }
 
 /**
- * Drop every registration, releasing the chunks they held. The LUT
- * reservations stay, so the registry remains usable.
- */
-static inline void
-dmamem_registry_clear(struct dmamem_registry *registry)
-{
-	struct dmamem_registry_registration *next;
-
-	if (!registry) {
-		return;
-	}
-
-	const uint64_t mask = registry->gran_mask;
-	const int gran_shift = registry->gran_shift;
-
-	for (struct dmamem_registry_registration *m = registry->list; m; m = next) {
-		const size_t chunk_first = (size_t)(m->vaddr >> gran_shift);
-		const size_t chunk_cnt =
-			(size_t)(((m->vaddr & mask) + m->size + mask) >> gran_shift);
-
-		dmamem_registry_chunk_deref(registry, chunk_first, chunk_cnt);
-
-		next = m->next;
-		free(m);
-	}
-	registry->list = NULL;
-}
-
-/**
- * Tear down a registry, releasing every chunk and both LUT reservations.
- */
-static inline void
-dmamem_registry_term(struct dmamem_registry *registry)
-{
-	if (!registry) {
-		return;
-	}
-
-	dmamem_registry_clear(registry);
-
-	if (registry->lut_phys) {
-		munmap(registry->lut_phys, registry->lut_capacity * sizeof(*registry->lut_phys));
-		registry->lut_phys = NULL;
-	}
-	if (registry->lut_meta) {
-		munmap(registry->lut_meta, registry->lut_capacity * sizeof(*registry->lut_meta));
-		registry->lut_meta = NULL;
-	}
-	registry->lut_capacity = 0;
-}
-
-/**
- * Shared body of add/adopt: bump the chunks covering [vaddr, vaddr + nbytes),
- * populating or adopting the ones that were not live, and record the
- * registration.
+ * Shared body of add/adopt: attach the range to a backing, populating or
+ * adopting one when it is not already live, and record the registration.
  *
- * When `adopt_lut` is non-NULL the chunk addresses are taken from it, indexed
- * by (chunk_va - vaddr) >> adopt_shift, and the chunks are marked borrowed.
+ * When `adopt_lut` is non-NULL the addresses are taken from it, indexed by
+ * (chunk_va - base) >> adopt_shift, and the backing is marked borrowed.
  */
 static inline int
 dmamem_registry_add_impl(struct dmamem_registry *registry, void *vaddr, size_t nbytes,
 			 const uint64_t *adopt_lut, int adopt_shift,
 			 struct dmamem_registry_registration **out)
 {
-	uint64_t va;
-	size_t chunk_first, chunk_cnt, bumped_cnt = 0;
 	struct dmamem_registry_registration *m = NULL;
+	struct dmamem_registry_backing *backing = NULL;
+	uint64_t va, base;
+	size_t size, nlut;
 	int err;
 
 	if (!registry || !registry->lut_phys || !vaddr || !nbytes) {
 		return -EINVAL;
 	}
 
-	const uint64_t mask = registry->gran_mask;
-	const int gran_shift = registry->gran_shift;
-
 	va = (uint64_t)vaddr;
-	chunk_first = (size_t)(va >> gran_shift);
-	chunk_cnt = (size_t)(((va & mask) + nbytes + mask) >> gran_shift);
+	base = va;
+	size = nbytes;
 
-	if (chunk_first + chunk_cnt > registry->lut_capacity) {
-		UPCIE_DEBUG("FAILED: range exceeds LUT capacity; raise va_bits at init");
+	/* Adoption names its own range; otherwise ask the flavour which
+	 * allocation this is part of, and fall back to the range itself when
+	 * it cannot say. */
+	if (!adopt_lut && registry->range) {
+		err = registry->range(registry->ctx, va, &base, &size);
+		if (err) {
+			UPCIE_DEBUG("FAILED: range(0x%" PRIx64 "); err(%d)", va, err);
+			return err;
+		}
+		if ((va < base) || ((va + nbytes) > (base + size))) {
+			UPCIE_DEBUG("FAILED: range(0x%" PRIx64 ", %zu) outside allocation", va,
+				    nbytes);
+			return -EINVAL;
+		}
+	}
+
+	if (base & registry->gran_mask) {
+		UPCIE_DEBUG("FAILED: allocation base(0x%" PRIx64 ") is not granule aligned", base);
+		return -EOPNOTSUPP;
+	}
+
+	nlut = dmamem_registry_backing_nlut(registry, size);
+	if (((base >> registry->gran_shift) + nlut) > registry->lut_capacity) {
+		UPCIE_DEBUG("FAILED: allocation exceeds LUT capacity; raise va_bits at init");
+		return -EINVAL;
+	}
+
+	if (dmamem_registry_backing_overlaps(registry, base, size)) {
+		UPCIE_DEBUG("FAILED: allocation(0x%" PRIx64 ", %zu) partially overlaps another",
+			    base, size);
 		return -EINVAL;
 	}
 
@@ -302,56 +403,70 @@ dmamem_registry_add_impl(struct dmamem_registry *registry, void *vaddr, size_t n
 	if (!m) {
 		return -ENOMEM;
 	}
-	m->vaddr = va;
-	m->size = nbytes;
 
-	for (size_t k = 0; k < chunk_cnt; ++k) {
-		const size_t idx = chunk_first + k;
-		struct dmamem_registry_chunk_meta *cm = &registry->lut_meta[idx];
+	backing = dmamem_registry_backing_find(registry, base, size);
+	if (!backing) {
+		backing = calloc(1, sizeof(*backing));
+		if (!backing) {
+			free(m);
+			return -ENOMEM;
+		}
+		backing->base = base;
+		backing->size = size;
 
-		if (cm->rc == 0) {
-			const uint64_t chunk_va = (uint64_t)idx << gran_shift;
-
-			if (adopt_lut) {
-				registry->lut_phys[idx] =
-					adopt_lut[(chunk_va - va) >> adopt_shift];
-				cm->borrowed = 1;
-			} else {
-				err = registry->populate(registry->ctx, chunk_va,
-							 (size_t)mask + 1,
-							 &registry->lut_phys[idx], &cm->attach);
-				if (err) {
-					goto err_unwind;
-				}
+		if (adopt_lut) {
+			err = dmamem_registry_adopt_fill(registry, base, size, adopt_lut,
+							 adopt_shift, nlut);
+			if (err) {
+				dmamem_registry_lut_clear(registry, base, nlut);
+				free(backing);
+				free(m);
+				return err;
+			}
+			backing->borrowed = 1;
+		} else {
+			err = registry->populate(registry->ctx, base, size,
+						 registry->gran_mask + 1,
+						 &registry->lut_phys[base >> registry->gran_shift],
+						 nlut, &backing->attach);
+			if (err) {
+				UPCIE_DEBUG("FAILED: populate(0x%" PRIx64 ", %zu); err(%d)", base,
+					    size, err);
+				dmamem_registry_lut_clear(registry, base, nlut);
+				free(backing);
+				free(m);
+				return err;
 			}
 		}
-		cm->rc++;
-		bumped_cnt++;
+
+		backing->next = registry->backings;
+		registry->backings = backing;
 	}
 
+	backing->rc++;
+
+	m->vaddr = va;
+	m->size = nbytes;
+	m->backing = backing;
 	m->next = registry->list;
 	registry->list = m;
+
 	if (out) {
 		*out = m;
 	}
 
 	return 0;
-
-err_unwind:
-	dmamem_registry_chunk_deref(registry, chunk_first, bumped_cnt);
-	free(m);
-
-	return err;
 }
 
 /**
- * Register a range, discovering the addresses of chunks not already live.
+ * Register a range, discovering the allocation it belongs to.
  *
- * `vaddr` and `nbytes` may have any byte alignment; the chunk cache resolves
- * at byte granularity. Consumers may impose more, e.g. NVMe PRP construction
- * wants host-page-aligned buffers.
+ * `vaddr` and `nbytes` may have any byte alignment; what must be granule
+ * aligned is the allocation the range falls inside, which the caller does not
+ * choose. Consumers may impose more, e.g. NVMe PRP construction wants
+ * host-page-aligned buffers.
  *
- * @return 0 on success, negative errno on failure. -EINVAL when the range
+ * @return 0 on success, negative errno on failure. -EINVAL when the allocation
  *         exceeds the LUT capacity chosen at init.
  */
 static inline int
@@ -365,10 +480,14 @@ dmamem_registry_add(struct dmamem_registry *registry, void *vaddr, size_t nbytes
  * Register a range whose addresses the caller already knows.
  *
  * `lut` holds addresses for the range starting at `vaddr`, which must be
- * chunk-aligned, one entry per `1 << lut_shift` bytes, no coarser than the
- * registry's granularity. Nothing is discovered and nothing is
- * released; the caller keeps ownership of whatever produced the addresses and
- * must outlive the registration.
+ * granule-aligned, one entry per `1 << lut_shift` bytes, no coarser than the
+ * registry's granularity. Nothing is discovered and nothing is released; the
+ * caller keeps ownership of whatever produced the addresses and must outlive
+ * the registration.
+ *
+ * Note that a LUT finer than the granularity is sampled, not checked: only
+ * every `granularity / (1 << lut_shift)`-th entry is read, so the caller is
+ * asserting that its region is contiguous across each granule.
  *
  * @return 0 on success, negative errno on failure.
  */
@@ -377,14 +496,14 @@ dmamem_registry_adopt(struct dmamem_registry *registry, void *vaddr, size_t nbyt
 		      const uint64_t *lut, int lut_shift,
 		      struct dmamem_registry_registration **out)
 {
-	if (!lut || lut_shift > registry->gran_shift) {
+	if (!registry || !lut || lut_shift > registry->gran_shift) {
 		return -EINVAL;
 	}
 
 	/* Chunks are indexed in absolute terms, so the adopted range must start
 	 * on a chunk boundary for the caller's LUT to line up with them. */
 	if ((uint64_t)vaddr & registry->gran_mask) {
-		UPCIE_DEBUG("FAILED: vaddr(%p) is not chunk-aligned", vaddr);
+		UPCIE_DEBUG("FAILED: vaddr(%p) is not granule aligned", vaddr);
 		return -EINVAL;
 	}
 
@@ -404,8 +523,6 @@ dmamem_registry_remove(struct dmamem_registry *registry, void *vaddr)
 	}
 
 	const uint64_t key = (uint64_t)vaddr;
-	const int gran_shift = registry->gran_shift;
-	const uint64_t mask = registry->gran_mask;
 
 	for (struct dmamem_registry_registration **prev = &registry->list, *m = registry->list; m;
 	     prev = &m->next, m = m->next) {
@@ -413,19 +530,54 @@ dmamem_registry_remove(struct dmamem_registry *registry, void *vaddr)
 			continue;
 		}
 
-		const size_t chunk_first = (size_t)(m->vaddr >> gran_shift);
-		const size_t chunk_cnt =
-			(size_t)(((m->vaddr & mask) + m->size + mask) >> gran_shift);
-
-		dmamem_registry_chunk_deref(registry, chunk_first, chunk_cnt);
-
 		*prev = m->next;
+		dmamem_registry_backing_deref(registry, m->backing);
 		free(m);
 
 		return 0;
 	}
 
 	return -EINVAL;
+}
+
+/**
+ * Drop every registration, releasing the backings they held. The LUT
+ * reservation stays, so the registry remains usable.
+ */
+static inline void
+dmamem_registry_clear(struct dmamem_registry *registry)
+{
+	struct dmamem_registry_registration *next;
+
+	if (!registry) {
+		return;
+	}
+
+	for (struct dmamem_registry_registration *m = registry->list; m; m = next) {
+		next = m->next;
+		dmamem_registry_backing_deref(registry, m->backing);
+		free(m);
+	}
+	registry->list = NULL;
+}
+
+/**
+ * Tear down a registry, releasing every backing and the LUT reservation.
+ */
+static inline void
+dmamem_registry_term(struct dmamem_registry *registry)
+{
+	if (!registry) {
+		return;
+	}
+
+	dmamem_registry_clear(registry);
+
+	if (registry->lut_phys) {
+		munmap(registry->lut_phys, registry->lut_capacity * sizeof(*registry->lut_phys));
+		registry->lut_phys = NULL;
+	}
+	registry->lut_capacity = 0;
 }
 
 /**
