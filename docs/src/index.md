@@ -48,6 +48,7 @@ build-and-test
 :maxdepth: 2
 :caption: Reference
 
+memory
 libraries
 api
 ```

@@ -18,6 +18,7 @@ version = release
 extensions = [
     "myst_parser",
     "sphinx_copybutton",
+    "sphinx_tabs.tabs",
     "breathe",
 ]
 

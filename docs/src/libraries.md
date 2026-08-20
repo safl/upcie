@@ -51,7 +51,75 @@ The descriptions below follow the bottom-up layering.
 `hostmem_dma.h`
 : A malloc-like interface for allocating and freeing DMA-capable buffers.
 
+## DMA memory
+
+In contrast to dma-buf below, which is a Linux kernel framework these headers
+merely wrap, `dmamem` is uPCIe's own abstraction. The kernel has no such
+concept. It exists because DMA-able memory arrives from several unrelated
+sources, hugepages, GPU runtimes, dma-buf exporters, BAR ranges, and because
+the address the device needs is computed differently depending on which of them
+it came from and on whether anything installed a mapping. `dmamem` is where
+those differences are absorbed, so that code above it neither knows nor cares.
+
+The name belongs to the same family as `hostmem`, `cudamem` and `hipmem`: each
+is a *memory source*, and `dmamem` is the unified view across them. Do not
+read it as a relative of the kernel's `dmabuf`, which is a neighbouring
+spelling for a different kind of thing.
+
+See {doc}`memory` for how these fit together and which combination applies to a
+given setup.
+
+`dmamem.h`
+: A region of DMA-capable memory plus the rule for computing device addresses
+  within it. Everything above it resolves addresses through `dmamem_va_to_iova()`
+  and nothing above it needs to know what the memory is.
+
+`dmamem_memfd.h`, `dmamem_dmabuf.h`, `dmamem_hostmem.h`, `dmamem_cuda.h`, `dmamem_hip.h`
+: Constructors, one per combination of memory kind and kernel interface.
+
+`dmamem_heap.h`
+: A sub-allocator over a `dmamem`, handing out pieces of a region with
+  virtual-to-device address resolution per allocation.
+
+## Device memory
+
+`cudamem_config.h`, `cudamem_heap.h`, `cudamem_dma.h`
+: NVIDIA GPU memory: device page and allocation granularity, a heap over a
+  `cuMemAlloc` reservation with its physical addresses enumerated, and a
+  malloc-shaped interface over it.
+
+`cudamem_mapping.h`
+: A registry of externally-allocated CUDA buffers, resolving addresses for
+  memory the caller allocated rather than the heap.
+
+`hipmem_config.h`, `hipmem_heap.h`, `hipmem_dma.h`
+: AMD GPU memory: device page and allocation granularity, a heap over a
+  `hipMalloc` reservation with its physical addresses enumerated, and a
+  malloc-shaped interface over it. The allocation granularity is the device
+  page size, 4 KiB, rather than the 2 MiB typical on NVIDIA.
+
+`hipmem_mapping.h`
+: A registry of externally-allocated HIP buffers, resolving addresses for
+  memory the caller allocated rather than the heap.
+
+There is no `hostmem_mapping.h`. Registering caller-allocated memory is
+supported for GPU memory but not for host memory, which is a gap rather than a
+decision; see {doc}`memory`.
+
 ## dma-buf
+
+dma-buf is a Linux kernel framework, not a uPCIe concept: it is the kernel's
+mechanism for sharing buffers between drivers and across the user-space
+boundary, where a buffer is represented by a file descriptor that an exporter
+hands out and an importer attaches to. The authoritative documentation is the
+kernel's own, under [Buffer Sharing and
+Synchronization](https://docs.kernel.org/driver-api/dma-buf.html); nothing here
+attempts to restate it.
+
+The headers below are convenience libraries over the ioctl interfaces the
+kernel exposes to user-space for that framework. They add no semantics of their
+own beyond a C representation and error handling; where behaviour is
+surprising, the kernel documentation is the place to look, not these.
 
 `dmabuf.h`
 : Represents a dma-buf and the physical pages behind it, segments those pages
@@ -60,9 +128,10 @@ The descriptions below follow the bottom-up layering.
   This header needs nothing beyond libc.
 
 `experimental/dmabuf_import.h`
-: **Experimental.** Resolves the DMA addresses behind a dma-buf
-  (`dmabuf_import_attach`/`dmabuf_import_detach`), which is what populates the
-  structure above. It imports the dma-buf through the out-of-tree
+: **Experimental.** A convenience library over the ioctls of an out-of-tree
+  module rather than of the kernel proper. Resolves the DMA addresses behind a
+  dma-buf (`dmabuf_import_attach`/`dmabuf_import_detach`), which is what
+  populates the structure above. It imports the dma-buf through the out-of-tree
   `dmabuf_import` module, shipped as the `dmabuf-import` DKMS package (see
   `experimental/dmabuf_import`). When its UAPI header
   `<linux/dmabuf_import.h>` is absent these helpers compile as stubs returning
@@ -76,7 +145,8 @@ The descriptions below follow the bottom-up layering.
 ## Experimental
 
 `experimental/iommu_map_pa.h`
-: **Experimental.** Maps an array of physical addresses into the IOMMU domain a
+: **Experimental.** Likewise a convenience library over an out-of-tree module's
+  ioctls. Maps an array of physical addresses into the IOMMU domain a
   VFIO-controlled device already uses (`iommu_map_pa_add`/`_del`),
   returning an IOVA base to address that memory through, e.g. from NVMe PRPs.
   Needs the out-of-tree `iommu-map-pa` DKMS package (see
