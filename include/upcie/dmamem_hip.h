@@ -73,20 +73,28 @@ dmamem_hip_registry_range(void *UPCIE_UNUSED(ctx), uint64_t va, uint64_t *base_o
  *         turns out not to be contiguous.
  */
 static inline int
-dmamem_hip_registry_populate(void *UPCIE_UNUSED(ctx), uint64_t base, size_t size,
+dmamem_hip_registry_populate(void *ctx, uint64_t base, size_t size,
 			     uint64_t granularity, uint64_t *lut_out, size_t nlut,
 			     struct dmabuf *attach_out)
 {
+	struct hipmem_config *config = ctx;
+	const size_t pagesize = (size_t)config->pagesize;
+	/* The export wants a page-aligned length, and the size a runtime reports
+	 * for an allocation need not be one: a framework aligning its buffers to
+	 * something finer, ggml uses 128 bytes, produces a size that is refused
+	 * with an unhelpful invalid-value. Rounding up stays inside the
+	 * allocation, which is page-backed whatever length was requested. */
+	const size_t export_nbytes = (size + pagesize - 1) & ~(pagesize - 1);
 	struct dmabuf attach = {0};
 	int dmabuf_fd = -1;
 	int err;
 	hipError_t cr;
 
-	cr = hipMemGetHandleForAddressRange(&dmabuf_fd, (hipDeviceptr_t)base, size,
+	cr = hipMemGetHandleForAddressRange(&dmabuf_fd, (hipDeviceptr_t)base, export_nbytes,
 					    hipMemRangeHandleTypeDmaBufFd, 0);
 	if (cr != hipSuccess) {
 		UPCIE_DEBUG("FAILED: hipMemGetHandleForAddressRange(0x%" PRIx64 ", %zu), cr: %d",
-			    base, size, cr);
+			    base, export_nbytes, cr);
 		return -EIO;
 	}
 

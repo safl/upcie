@@ -71,20 +71,28 @@ dmamem_cuda_registry_range(void *UPCIE_UNUSED(ctx), uint64_t va, uint64_t *base_
  *         turns out not to be contiguous.
  */
 static inline int
-dmamem_cuda_registry_populate(void *UPCIE_UNUSED(ctx), uint64_t base, size_t size,
+dmamem_cuda_registry_populate(void *ctx, uint64_t base, size_t size,
 			     uint64_t granularity, uint64_t *lut_out, size_t nlut,
 			     struct dmabuf *attach_out)
 {
+	struct cudamem_config *config = ctx;
+	const size_t pagesize = (size_t)config->pagesize;
+	/* The export wants a page-aligned length, and the size a runtime reports
+	 * for an allocation need not be one: a framework aligning its buffers to
+	 * something finer, ggml uses 128 bytes, produces a size that is refused
+	 * with an unhelpful invalid-value. Rounding up stays inside the
+	 * allocation, which is page-backed whatever length was requested. */
+	const size_t export_nbytes = (size + pagesize - 1) & ~(pagesize - 1);
 	struct dmabuf attach = {0};
 	int dmabuf_fd = -1;
 	int err;
 	CUresult cr;
 
-	cr = cuMemGetHandleForAddressRange(&dmabuf_fd, (CUdeviceptr)base, size,
+	cr = cuMemGetHandleForAddressRange(&dmabuf_fd, (CUdeviceptr)base, export_nbytes,
 					   CU_MEM_RANGE_HANDLE_TYPE_DMA_BUF_FD, 0);
 	if (cr != CUDA_SUCCESS) {
 		UPCIE_DEBUG("FAILED: cuMemGetHandleForAddressRange(0x%" PRIx64 ", %zu), cr: %d",
-			    base, size, cr);
+			    base, export_nbytes, cr);
 		return -EIO;
 	}
 
