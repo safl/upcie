@@ -49,6 +49,7 @@ extern "C" {
 #include <fcntl.h>
 #include <inttypes.h>
 #include <linux/memfd.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
