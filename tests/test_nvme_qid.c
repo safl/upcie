@@ -86,6 +86,41 @@ test_used_counts_across_words(void)
 }
 
 static int
+test_every_admitted_qid_is_representable(void)
+{
+	uint64_t bitmap[NVME_QID_BITMAP_WORDS + 1];
+
+	/* The bounds checks admit qid < NVME_QID_MAX, so the bitmap has to hold
+	 * every one of them. Truncating the word count instead of rounding up
+	 * leaves the top of that range indexing past the end.
+	 *
+	 * The guard word is zero rather than a pattern: allocating only ever
+	 * sets a bit, so any write lands in a word that should have stayed
+	 * clear, whereas a pattern can already carry the bit being set. */
+	assert(!nvme_qid_bitmap_init(bitmap));
+	bitmap[NVME_QID_BITMAP_WORDS] = 0;
+
+	if (nvme_qid_alloc(bitmap, NVME_QID_MAX - 1)) {
+		printf("FAILED: the highest admitted qid was refused\n");
+		return 1;
+	}
+
+	if (bitmap[NVME_QID_BITMAP_WORDS]) {
+		printf("FAILED: allocating qid %u wrote past the end of the bitmap\n",
+		       NVME_QID_MAX - 1);
+		return 1;
+	}
+
+	if (nvme_qid_used(bitmap) != 2) {
+		printf("FAILED: the highest admitted qid was not counted\n");
+		return 1;
+	}
+
+	printf("PASSED: every admitted qid is representable\n");
+	return 0;
+}
+
+static int
 test_allocating_twice_counts_once(void)
 {
 	uint64_t bitmap[NVME_QID_BITMAP_WORDS];
@@ -113,6 +148,9 @@ main(void)
 		return 1;
 	}
 	if (test_used_counts_across_words()) {
+		return 1;
+	}
+	if (test_every_admitted_qid_is_representable()) {
 		return 1;
 	}
 	if (test_allocating_twice_counts_once()) {
