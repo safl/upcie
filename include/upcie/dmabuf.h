@@ -18,14 +18,14 @@
  */
 
 struct dmabuf_page {
-	uint64_t addr; ///< Address of a page
-	uint64_t len;  ///< Length of the page (can span multiple phys pages)
+	uint64_t addr;			///< Address of a page
+	uint64_t len;			///< Length of the page (can span multiple phys pages)
 };
 
 struct dmabuf {
-	int fd;                    ///< dma-buf file descriptor
-	size_t npages;             ///< Number of pages in the dma-buf
-	struct dmabuf_page *pages; ///< Array of pages in the dma-buf
+	int fd;				///< dma-buf file descriptor
+	size_t npages;			///< Number of pages in the dma-buf
+	struct dmabuf_page *pages;	///< Array of pages in the dma-buf
 };
 
 /**
@@ -72,9 +72,7 @@ dmabuf_get_lut(struct dmabuf *dmabuf, size_t nphys, uint64_t *phys_lut, uint64_t
 		// handle a single address for multiple pages
 		for (uint64_t k = 0; k < dmabuf->pages[j].len / page_size; k++) {
 			if (i >= nphys) {
-				UPCIE_DEBUG(
-					"FAILED: dmabuf (%zu) has more pages than expected (%zu)",
-					i, nphys);
+				UPCIE_DEBUG("FAILED: dmabuf (%zu) has more pages than expected (%zu)", i, nphys);
 				return -EINVAL;
 			}
 

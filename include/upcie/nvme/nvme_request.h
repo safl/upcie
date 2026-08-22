@@ -474,8 +474,7 @@ nvme_request_prep_command_prps_contig_dmamem(struct nvme_request *request, struc
 		} else {
 			page_phys = dmamem_va_to_iova(dmem, vbase + (i << page_shift));
 			if (!page_phys) {
-				UPCIE_DEBUG("FAILED: dbuf(%p) leaves the registered region",
-					    dbuf);
+				UPCIE_DEBUG("FAILED: dbuf(%p) leaves the registered region", dbuf);
 				return -EINVAL;
 			}
 			strides_left = (span >> page_shift) - 1;

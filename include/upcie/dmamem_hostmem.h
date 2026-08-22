@@ -127,10 +127,9 @@ dmamem_from_hostmem_type1(struct dmamem *dmem, struct vfio_container *container,
  * physical addresses. The hugepage's per-page table is adopted at the hugepage
  * granularity, so translation is one absolute-indexed load.
  *
- * The registry has no populate callback, so it adopts and never discovers:
- * handing over further host memory with dmamem_register() would mean reading
- * /proc/self/pagemap for it, which this does not do. That is the one capability
- * the LUT constructor does not have either.
+ * No populate callback, so it adopts and never discovers: further host memory
+ * via dmamem_register() would mean reading /proc/self/pagemap, which this does
+ * not do.
  *
  * `va_bits` bounds the LUT reservation to that much address space; 0 selects
  * the default, which covers the whole 48-bit user range. Lower it where the
@@ -156,14 +155,15 @@ dmamem_from_hostmem_registry(struct dmamem *dmem, struct hostmem_hugepage *hp, i
 
 	memset(dmem, 0, sizeof(*dmem));
 
-	err = dmamem_registry_init(&dmem->registry, hp->config->hugepgsz, va_bits, NULL, NULL, NULL,
-				   NULL);
+	err = dmamem_registry_init(&dmem->registry, hp->config->hugepgsz, va_bits, NULL, NULL,
+				   NULL, NULL);
 	if (err) {
 		UPCIE_DEBUG("FAILED: dmamem_registry_init(); err(%d)", err);
 		return err;
 	}
 
-	err = dmamem_registry_adopt(&dmem->registry, hp->virt, hp->size, hp->phys_lut, shift, NULL);
+	err = dmamem_registry_adopt(&dmem->registry, hp->virt, hp->size, hp->phys_lut, shift,
+				    NULL);
 	if (err) {
 		UPCIE_DEBUG("FAILED: dmamem_registry_adopt(); err(%d)", err);
 		dmamem_registry_term(&dmem->registry);

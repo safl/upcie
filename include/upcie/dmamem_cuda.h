@@ -42,7 +42,7 @@
  */
 static inline int
 dmamem_cuda_registry_range(void *UPCIE_UNUSED(ctx), uint64_t va, uint64_t *base_out,
-			  size_t *size_out)
+			   size_t *size_out)
 {
 	CUdeviceptr b = 0;
 	CUresult cr = cuMemGetAddressRange(&b, size_out, (CUdeviceptr)va);
@@ -60,28 +60,22 @@ dmamem_cuda_registry_range(void *UPCIE_UNUSED(ctx), uint64_t va, uint64_t *base_
  * Make one CUDA allocation addressable, for a dmamem_registry.
  *
  * Exports the whole allocation as a dma-buf once, attaches it, and summarises
- * the scatter list into one address per granule. Exporting the allocation
- * rather than the registered range is not an optimisation: ROCm discards the
- * range arguments and returns the whole buffer object regardless, so a
- * per-range export resolves a sub-range to the base of the allocation. CUDA
- * honours the range, so the same shape is correct there too. See
- * `tools/upcie_dmabuf_probe_{cuda,hip}` for the measurements.
+ * the scatter list into one address per granule. Why the allocation rather than
+ * the registered range is in dmamem_registry.h, under Backings.
  *
  * @return 0 on success, negative errno on failure. -EOPNOTSUPP when a granule
  *         turns out not to be contiguous.
  */
 static inline int
-dmamem_cuda_registry_populate(void *ctx, uint64_t base, size_t size,
-			     uint64_t granularity, uint64_t *lut_out, size_t nlut,
-			     struct dmabuf *attach_out)
+dmamem_cuda_registry_populate(void *ctx, uint64_t base, size_t size, uint64_t granularity,
+			      uint64_t *lut_out, size_t nlut, struct dmabuf *attach_out)
 {
 	struct cudamem_config *config = ctx;
 	const size_t pagesize = (size_t)config->pagesize;
-	/* The export wants a page-aligned length, and the size a runtime reports
-	 * for an allocation need not be one: a framework aligning its buffers to
-	 * something finer, ggml uses 128 bytes, produces a size that is refused
-	 * with an unhelpful invalid-value. Rounding up stays inside the
-	 * allocation, which is page-backed whatever length was requested. */
+	/* The export wants a page-aligned length, and a runtime-reported size
+	 * need not be one: a framework aligning finer, ggml uses 128 bytes, gets
+	 * an unhelpful invalid-value. Rounding up stays inside the allocation,
+	 * which is page-backed whatever was requested. */
 	const size_t export_nbytes = (size + pagesize - 1) & ~(pagesize - 1);
 	struct dmabuf attach = {0};
 	int dmabuf_fd = -1;
