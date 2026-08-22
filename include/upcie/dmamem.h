@@ -84,19 +84,16 @@ enum dmamem_translator {
 	/** iova = lut_phys[va >> gran_shift] + (va & gran_mask); an address the
 	 *  device uses directly, with no translation installed.
 	 *
-	 *  The index is absolute rather than measured from a base, so one
-	 *  dmamem spans every region its registry holds rather than a single
-	 *  contiguous range, and nothing on the fast path distinguishes a
-	 *  buffer from the heap from one the caller registered. The registry
-	 *  owns the table; this names how it is read.
+	 *  Indexed absolutely, so one dmamem spans every region its registry
+	 *  holds and the fast path cannot tell a heap buffer from a registered
+	 *  one.
 	 *
-	 *  Resolution is defined for addresses inside a registration. An
-	 *  address in a granule nothing has claimed resolves to 0, which
-	 *  callers treat as an error since no valid target has bus address 0.
-	 *  An address in the unused remainder of a granule claimed by a
-	 *  smaller allocation resolves to a wrong address instead, because
-	 *  the table is indexed per granule and the granule is claimed whole.
-	 *  Use dmamem_registry_contains() where that distinction matters. */
+	 *  Resolution is defined only inside a registration. An unclaimed
+	 *  granule resolves to 0, read as an error since nothing valid is based
+	 *  there, which also makes a genuine bus address 0 unrepresentable. The
+	 *  unused remainder of a granule claimed by a smaller allocation
+	 *  resolves to a wrong address instead; use dmamem_registry_contains()
+	 *  where that distinction matters. */
 	DMAMEM_XLATE_LUT = 0x1,
 };
 
@@ -113,17 +110,19 @@ struct vfio_container;
  * was installed and destroy has nothing to undo.
  */
 struct dmamem {
-	int fd;                     ///< memfd or dma-buf when owned=1; -1 when wrapping
-	void *base_va;              ///< Base of the address space offsets are measured from
-	void *cpu_va;               ///< CPU virtual address, NULL when not mappable
-	size_t size;                ///< Size in bytes
-	uint64_t base_iova;         ///< Base IOVA (ARITHMETIC translator only)
-	struct iommufd *iommufd;    ///< Not owned; caller lifetime; carries the IOAS id. NULL for type1/LUT.
-	struct vfio_container *vfio_container; ///< Not owned; caller lifetime. NULL for iommufd and LUT.
+	int fd;             ///< memfd or dma-buf when owned=1; -1 when wrapping
+	void *base_va;      ///< Base of the address space offsets are measured from
+	void *cpu_va;       ///< CPU virtual address, NULL when not mappable
+	size_t size;        ///< Size in bytes
+	uint64_t base_iova; ///< Base IOVA (ARITHMETIC translator only)
+	struct iommufd
+		*iommufd; ///< Not owned; caller lifetime; carries the IOAS id. NULL for type1/LUT.
+	struct vfio_container
+		*vfio_container; ///< Not owned; caller lifetime. NULL for iommufd and LUT.
 	enum dmamem_backing backing;
 	enum dmamem_translator translator; ///< How offsets resolve to DMA addresses
 	struct dmamem_registry registry;   ///< Owned region registry (LUT only)
-	int owned;                  ///< 1: dmamem owns fd + cpu_va; 0: wrapping caller memory
+	int owned; ///< 1: dmamem owns fd + cpu_va; 0: wrapping caller memory
 };
 
 /**
@@ -151,10 +150,10 @@ dmamem_pp(struct dmamem *dmem)
 	wrtn += printf("  iommufd.fd: %d\n", dmem->iommufd ? dmem->iommufd->fd : -1);
 	wrtn += printf("  vfio_container: %s\n", dmem->vfio_container ? "set" : "none");
 	wrtn += printf("  backing: %d\n", dmem->backing);
-	wrtn += printf("  translator: %s\n",
-		       dmem->translator == DMAMEM_XLATE_LUT          ? "LUT"
-		       : dmem->translator == DMAMEM_XLATE_ARITHMETIC ? "ARITHMETIC"
-								     : "?");
+	wrtn += printf("  translator: %s\n", dmem->translator == DMAMEM_XLATE_LUT ? "LUT"
+					     : dmem->translator == DMAMEM_XLATE_ARITHMETIC
+						     ? "ARITHMETIC"
+						     : "?");
 	if (DMAMEM_XLATE_LUT == dmem->translator) {
 		wrtn += printf("  lut_phys: %p\n", (void *)dmem->registry.lut_phys);
 		wrtn += printf("  granularity: %" PRIu64 "\n", dmem->registry.gran_mask + 1);
@@ -193,10 +192,9 @@ dmamem_lut_pagesize_shift(size_t pagesize)
  * The result is a kernel-assigned IOVA under the ARITHMETIC translator and
  * a physical or bus address under LUT; see enum dmamem_translator.
  */
-/* The two resolvers are mutually recursive: a registry indexes absolutely, so
- * an offset has to become an address first, while the other translators
- * measure from the base, so an address has to become an offset first. Each
- * call takes exactly one of those steps. */
+/* Mutually recursive: a registry indexes absolutely, so an offset becomes an
+ * address first, while the others measure from the base and go the other way.
+ * Each call takes exactly one step. */
 static inline uint64_t
 dmamem_va_to_iova(struct dmamem *dmem, void *vaddr);
 
@@ -228,25 +226,18 @@ dmamem_va_to_iova(struct dmamem *dmem, void *vaddr)
 		const uint64_t va = (uint64_t)vaddr;
 		uint64_t base;
 
-		/* The LUT spans the whole address space the registry was sized
-		 * for, so a userspace VA is in range by construction; the
-		 * assert is here to catch a registry sized smaller. */
+		/* In range by construction; the assert catches a registry sized
+		 * smaller than the addresses handed to it. */
 		assert((va >> dmem->registry.gran_shift) < dmem->registry.lut_capacity);
 
 		base = dmem->registry.lut_phys[va >> dmem->registry.gran_shift];
 
-		/* An address in an unclaimed granule lands on a zeroed slot.
-		 * Nothing valid has bus address zero, so callers read that as
-		 * the error it is rather than building a PRP from a stale
-		 * entry. This catches an unregistered address only when its
-		 * granule is unclaimed; see the translator's documentation.
-		 *
-		 * The wider check below walks the registration list and so
-		 * takes the registry lock, which is why it is an assert rather
-		 * than part of the fast path: a debug build serialises
-		 * translation against registration, and a release build does
-		 * not. It also means a registry callback must not translate,
-		 * since it already holds that lock. */
+		/* Catches an unregistered address only when its granule is
+		 * unclaimed. The wider check walks the registration list and
+		 * takes the registry lock, hence an assert rather than the fast
+		 * path: a debug build serialises translation against
+		 * registration where a release build does not, and a registry
+		 * callback must therefore not translate. */
 		assert(!dmem->registry.list ||
 		       dmamem_registry_contains(&dmem->registry, vaddr, 1));
 

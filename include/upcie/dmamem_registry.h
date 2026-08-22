@@ -6,73 +6,60 @@
  * ================================================
  *
  * Where a dmamem describes one contiguous range, a registry describes an
- * arbitrary number of them, so a caller can hand over memory it already owns
- * and have the device DMA into it. That is the difference between "use the
- * buffers the library allocated" and "use the buffers the application
- * allocated", and the latter is what a framework holding its own GPU tensors
- * or hugepage arenas needs.
+ * arbitrary number of them, so a caller can hand over memory it already owns.
  *
  * Lookup is one load regardless of how many regions are registered:
  *
  *     chunk_idx = vaddr >> gran_shift
  *     phys      = lut_phys[chunk_idx] + (vaddr & gran_mask)
  *
- * `lut_phys` covers the whole chunk_idx range and is MAP_NORESERVE, so the
- * kernel demand-pages it and the resident cost tracks live chunks rather than
- * virtual capacity.
+ * `lut_phys` spans the whole chunk_idx range and is MAP_NORESERVE, so resident
+ * cost tracks live chunks rather than virtual capacity. A registry belongs to
+ * one dmamem, so a buffer must be registered into each one it is used from.
  *
  * Backings
  * --------
  *
- * A registration does not describe what the device can address; the
- * allocation it falls inside does. Vendor runtimes differ sharply on this. On
- * ROCm the range arguments to an export are accepted and discarded and the
- * whole buffer object comes back, so exporting per registration, or worse per
- * chunk, both re-exports the entire allocation and resolves a sub-range at a
- * non-zero offset to the base of the allocation. CUDA honours the range
- * exactly. Since the failure on ROCm is silent, the shape that is correct on
- * both is the one used here: recover the allocation a registration falls
- * inside, populate it once, and let overlapping registrations share it.
- *
- * A `backing` is that allocation. It is refcounted by the registrations
- * referring to it, populated when the first arrives and released when the last
- * leaves. `tools/upcie_dmabuf_probe_{cuda,hip}` measures the behaviour this
- * rests on.
+ * What the device can address is the allocation a registration falls inside,
+ * not the registration. ROCm accepts and discards the range arguments to an
+ * export and returns the whole buffer object, so exporting per registration
+ * re-exports the allocation and resolves a sub-range to the allocation base.
+ * CUDA honours the range. Since the ROCm failure is silent, both use the shape
+ * that is correct on both: recover the enclosing allocation, populate it once,
+ * and let overlapping registrations share it, refcounted.
+ * `tools/upcie_dmabuf_probe_{cuda,hip}` measures this.
  *
  * Sizing
  * ------
  *
- * The reservation is `(1 << va_bits) / granularity` slots of eight bytes, so
- * it scales inversely with granularity: at 48-bit VA that is 1 GiB for a 2 MiB
- * granularity but 512 GiB for a 4 KiB one. Callers with a small granularity
- * should pass a smaller `va_bits` bounded by the address range they actually
- * use.
+ * The reservation is `(1 << va_bits) / granularity` slots of eight bytes, so it
+ * scales inversely with granularity: at 48-bit VA, 1 GiB for a 2 MiB
+ * granularity but 512 GiB for a 4 KiB one. Pass a smaller `va_bits` bounded by
+ * the range actually used.
  *
  * Adoption
  * --------
  *
- * A caller that already knows the addresses, such as a heap that enumerated
- * them at init, registers with `dmamem_registry_adopt()` rather than paying to
- * rediscover them. An adopted backing is borrowed and is never released by the
- * registry.
+ * `dmamem_registry_adopt()` takes addresses a caller already knows, such as a
+ * heap that enumerated them at init. An adopted backing is borrowed and never
+ * released by the registry.
  *
  * @file dmamem_registry.h
  * @version 0.6.0
  */
 
 /**
- * Default width of the virtual address space, in bits, used to size the LUT.
+ * Default width of the address space the table spans, in bits.
  *
- * 47 rather than 48 because that is the whole of it: on x86-64 without `la57`
- * the canonical split puts user addresses in [0, 2^47), so a table spanning 47
- * bits covers every address a process can be handed, and 48 would reserve
- * twice as much to index a half that cannot occur. Device pointers included,
- * since unified virtual addressing carves them from the same address space.
+ * 47 is the whole user range on x86-64 without `la57`, device pointers
+ * included, since unified virtual addressing carves them from the same space.
+ * Under `la57` the range widens to 56 bits and both 47 and 48 rely on Linux
+ * handing out addresses below 2^47 unless asked otherwise; a registration
+ * above the span fails loudly at dmamem_registry_add().
  *
- * Five-level paging widens the user range to 56 bits, where neither 47 nor 48
- * spans it and both rely on Linux handing out addresses below 2^47 unless the
- * caller asks for more. A registration above the span fails at
- * dmamem_registry_add(), loudly, rather than resolving wrongly.
+ * Lowering it shrinks the reservation but narrows what can be translated, and
+ * the fast path bounds-checks by assert only: above the span is an
+ * out-of-range read in a release build, not the zero that means unregistered.
  */
 #define DMAMEM_REGISTRY_VA_BITS 47
 
@@ -92,8 +79,7 @@ typedef int (*dmamem_registry_range_fn)(void *ctx, uint64_t va, uint64_t *base_o
  * Make an allocation addressable and fill one LUT entry per granule.
  *
  * Called once per backing. `lut_out` has `nlut` entries covering `[base, base +
- * nlut * granularity)`, and anything that must be undone later goes in
- * `attach_out`; a flavour with nothing to release leaves it zeroed. On failure
+ * nlut * granularity)`; anything to undo later goes in `attach_out`. On failure
  * both outputs are left untouched.
  *
  * @return 0 on success, negative errno on failure.
@@ -152,25 +138,18 @@ struct dmamem_registry {
 };
 
 /*
- * The lock covers registration and removal, never translation. Translation
- * reads one table slot and touches nothing else, so it stays lock-free and
- * runs concurrently with registration of other allocations, which is the
- * property the whole absolute-indexed design exists to provide.
- *
- * It is held across `populate`, which exports and attaches a dma-buf and is
- * therefore slow, so registrations of different allocations serialise. That is
- * affordable because there is one export per allocation rather than one per
- * granule: a consumer registering a handful of large buffers pays it a handful
- * of times. It would not have been affordable against a per-granule export.
+ * The lock covers registration and removal, never translation, which reads one
+ * table slot and stays lock-free. It is held across `populate`, so
+ * registrations serialise on a dma-buf export; affordable only because there
+ * is one export per allocation rather than one per granule.
  */
 
 /**
  * Initialize a registry.
  *
  * Reserves the demand-paged LUT; no physical memory is committed until
- * something is registered. `granularity` must be a power of two, and every
- * allocation registered must be contiguous in bus-address terms across it,
- * which populate is expected to verify.
+ * something is registered. Every allocation registered must be contiguous in
+ * bus-address terms across `granularity`, which populate verifies.
  *
  * @param granularity Chunk size in bytes; a power of two
  * @param va_bits     Width of the address range to cover; 0 selects the default
@@ -249,9 +228,8 @@ dmamem_registry_backing_nlut(struct dmamem_registry *registry, size_t size)
 /**
  * Clear the table slots an allocation occupies.
  *
- * A partly filled range is worse than an empty one: a slot carrying an address
- * that no registration owns resolves to a plausible wrong target, where an
- * untouched slot resolves to the zero callers read as an error.
+ * A slot carrying an address no registration owns resolves to a plausible
+ * wrong target, where an untouched one resolves to the zero read as an error.
  */
 static inline void
 dmamem_registry_lut_clear(struct dmamem_registry *registry, uint64_t base, size_t nlut)
@@ -297,10 +275,9 @@ dmamem_registry_backing_deref(struct dmamem_registry *registry,
 /**
  * Find the backing covering `[base, base + size)`, if one is already live.
  *
- * A registration inside an allocation that is already populated shares it. A
- * range straddling two backings, or matching one only partially, is not a
- * match; that would mean the runtime reported inconsistent allocations, and
- * silently reusing the wrong one is how a DMA ends up in the wrong place.
+ * A range straddling two backings, or matching one only partially, is not a
+ * match: that means the runtime reported inconsistent allocations, and reusing
+ * the wrong one is how a DMA ends up in the wrong place.
  */
 static inline struct dmamem_registry_backing *
 dmamem_registry_backing_find(struct dmamem_registry *registry, uint64_t base, size_t size)
@@ -317,12 +294,9 @@ dmamem_registry_backing_find(struct dmamem_registry *registry, uint64_t base, si
 /**
  * Fill the LUT for an adopted range, checking each granule is contiguous.
  *
- * The caller's table is finer than the granularity, so only every
- * `granularity >> lut_shift`-th entry ends up in the LUT. The entries skipped
- * are not ignored: each granule is verified to be one contiguous run, since
- * otherwise `base + offset` would resolve inside it to an address the caller
- * never gave us. Checking costs one pass at registration and turns a wrong
- * address into an error.
+ * Only every `granularity >> lut_shift`-th entry reaches the LUT, but the
+ * skipped ones are verified contiguous: otherwise `base + offset` resolves
+ * inside a granule to an address the caller never gave.
  *
  * @return 0 on success, -EOPNOTSUPP when a granule is not contiguous.
  */
@@ -361,12 +335,10 @@ dmamem_registry_adopt_fill(struct dmamem_registry *registry, uint64_t base, size
 /**
  * Whether an allocation partially overlaps one already known.
  *
- * Backings are assumed never to overlap: the table is indexed per granule, so
- * two backings sharing one would each claim it, the second overwriting the
- * first's address, and releasing either would clear a granule the other still
- * owns. Full containment is fine and is what the refcount is for; a partial
- * overlap means the caller has described the same memory two incompatible
- * ways, which is refused rather than resolved.
+ * Two backings sharing a granule would each claim it, the second overwriting
+ * the first, and releasing either would clear a granule the other still owns.
+ * Full containment is fine and is what the refcount is for; partial overlap is
+ * refused rather than resolved.
  */
 static inline int
 dmamem_registry_backing_overlaps(struct dmamem_registry *registry, uint64_t base, size_t size)
@@ -390,6 +362,10 @@ dmamem_registry_backing_overlaps(struct dmamem_registry *registry, uint64_t base
  *
  * When `adopt_lut` is non-NULL the addresses are taken from it, indexed by
  * (chunk_va - base) >> adopt_shift, and the backing is marked borrowed.
+ *
+ * A range inside a live backing refcounts it and does not read the caller's
+ * table, so a second caller describing the same allocation differently is
+ * ignored rather than merged.
  */
 static inline int
 dmamem_registry_add_impl(struct dmamem_registry *registry, void *vaddr, size_t nbytes,
@@ -510,10 +486,9 @@ dmamem_registry_add_impl(struct dmamem_registry *registry, void *vaddr, size_t n
 /**
  * Register a range, discovering the allocation it belongs to.
  *
- * `vaddr` and `nbytes` may have any byte alignment; what must be granule
- * aligned is the allocation the range falls inside, which the caller does not
- * choose. Consumers may impose more, e.g. NVMe PRP construction wants
- * host-page-aligned buffers.
+ * `vaddr` and `nbytes` may have any alignment; what must be granule-aligned is
+ * the enclosing allocation, which the caller does not choose. Consumers may
+ * impose more, e.g. NVMe PRP construction wants host-page-aligned buffers.
  *
  * @return 0 on success, negative errno on failure. -EINVAL when the allocation
  *         exceeds the LUT capacity chosen at init.
@@ -538,15 +513,12 @@ dmamem_registry_add(struct dmamem_registry *registry, void *vaddr, size_t nbytes
 /**
  * Register a range whose addresses the caller already knows.
  *
- * `lut` holds addresses for the range starting at `vaddr`, which must be
- * granule-aligned, one entry per `1 << lut_shift` bytes, no coarser than the
- * registry's granularity. Nothing is discovered and nothing is released; the
- * caller keeps ownership of whatever produced the addresses and must outlive
- * the registration.
+ * `lut` holds addresses from `vaddr`, which must be granule-aligned, one entry
+ * per `1 << lut_shift` bytes. Nothing is discovered or released; the caller
+ * keeps ownership and must outlive the registration.
  *
- * Note that a LUT finer than the granularity is sampled, not checked: only
- * every `granularity / (1 << lut_shift)`-th entry is read, so the caller is
- * asserting that its region is contiguous across each granule.
+ * A LUT finer than the granularity is sampled, not checked, so the caller
+ * asserts its region is contiguous across each granule.
  *
  * @return 0 on success, negative errno on failure.
  */
@@ -655,12 +627,9 @@ dmamem_registry_term(struct dmamem_registry *registry)
 /**
  * Whether `[virt, virt + nbytes)` lies inside a live registration.
  *
- * Walks the backings, so this is a cold-path check, not something the
- * translation path can afford. It exists because translation cannot answer
- * this: the table is indexed per granule, so an address in the unused
- * remainder of a granule claimed by a smaller allocation resolves to a
- * plausible wrong address rather than to zero. Callers that want to know
- * whether an address is really theirs ask here.
+ * Walks the backings, so cold-path only. Translation cannot answer it: the
+ * table is per granule, so an address in the unused remainder of a granule
+ * resolves to a plausible wrong address rather than to zero.
  *
  * @return 1 when contained, 0 otherwise.
  */
