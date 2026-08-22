@@ -42,7 +42,7 @@
  */
 static inline int
 dmamem_cuda_registry_range(void *UPCIE_UNUSED(ctx), uint64_t va, uint64_t *base_out,
-			  size_t *size_out)
+			   size_t *size_out)
 {
 	CUdeviceptr b = 0;
 	CUresult cr = cuMemGetAddressRange(&b, size_out, (CUdeviceptr)va);
@@ -71,9 +71,8 @@ dmamem_cuda_registry_range(void *UPCIE_UNUSED(ctx), uint64_t va, uint64_t *base_
  *         turns out not to be contiguous.
  */
 static inline int
-dmamem_cuda_registry_populate(void *ctx, uint64_t base, size_t size,
-			     uint64_t granularity, uint64_t *lut_out, size_t nlut,
-			     struct dmabuf *attach_out)
+dmamem_cuda_registry_populate(void *ctx, uint64_t base, size_t size, uint64_t granularity,
+			      uint64_t *lut_out, size_t nlut, struct dmabuf *attach_out)
 {
 	struct cudamem_config *config = ctx;
 	const size_t pagesize = (size_t)config->pagesize;

@@ -122,7 +122,7 @@ struct dmamem {
 	struct vfio_container *vfio_container; ///< Not owned; caller lifetime. NULL for iommufd and LUT.
 	enum dmamem_backing backing;
 	enum dmamem_translator translator; ///< How offsets resolve to DMA addresses
-	struct dmamem_registry registry; ///< Owned region registry (LUT only)
+	struct dmamem_registry registry;   ///< Owned region registry (LUT only)
 	int owned;                  ///< 1: dmamem owns fd + cpu_va; 0: wrapping caller memory
 };
 
@@ -197,7 +197,8 @@ dmamem_lut_pagesize_shift(size_t pagesize)
  * an offset has to become an address first, while the other translators
  * measure from the base, so an address has to become an offset first. Each
  * call takes exactly one of those steps. */
-static inline uint64_t dmamem_va_to_iova(struct dmamem *dmem, void *vaddr);
+static inline uint64_t
+dmamem_va_to_iova(struct dmamem *dmem, void *vaddr);
 
 static inline uint64_t
 dmamem_offset_to_iova(struct dmamem *dmem, size_t offset)

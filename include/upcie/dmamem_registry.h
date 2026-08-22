@@ -111,20 +111,20 @@ typedef void (*dmamem_registry_release_fn)(void *ctx, struct dmabuf *attach);
  * One allocation, shared by every registration that falls inside it.
  */
 struct dmamem_registry_backing {
-	uint64_t base;	   ///< Allocation base; aligned to the granularity
-	size_t size;	   ///< Allocation length in bytes
-	uint32_t rc;	   ///< Registrations referring to this backing
-	uint32_t borrowed; ///< 1: addresses were adopted, there is nothing to release
-	struct dmabuf attach;			///< Owned by the registry when !borrowed
-	struct dmamem_registry_backing *next;	///< List linkage owned by the registry
+	uint64_t base;        ///< Allocation base; aligned to the granularity
+	size_t size;          ///< Allocation length in bytes
+	uint32_t rc;          ///< Registrations referring to this backing
+	uint32_t borrowed;    ///< 1: addresses were adopted, there is nothing to release
+	struct dmabuf attach; ///< Owned by the registry when !borrowed
+	struct dmamem_registry_backing *next; ///< List linkage owned by the registry
 };
 
 /**
  * One registration, so removal can find the backing to drop.
  */
 struct dmamem_registry_registration {
-	uint64_t vaddr;				   ///< Start of the registered range
-	size_t size;				   ///< Length of the registered range in bytes
+	uint64_t vaddr;                            ///< Start of the registered range
+	size_t size;                               ///< Length of the registered range in bytes
 	struct dmamem_registry_backing *backing;   ///< Allocation it falls inside; not owned
 	struct dmamem_registry_registration *next; ///< List linkage owned by the registry
 };
@@ -136,19 +136,19 @@ struct dmamem_registry_registration {
  * cache line as the dmamem fields around them; everything below is cold.
  */
 struct dmamem_registry {
-	uint64_t *lut_phys;  ///< chunk_idx -> chunk base address; mmap-backed
-	int gran_shift;	     ///< log2(granularity)
-	uint64_t gran_mask;  ///< granularity - 1, for the intra-chunk offset
-	size_t lut_capacity; ///< Number of slots in the LUT
-	struct dmamem_registry_backing *backings;  ///< Owned list of backings
+	uint64_t *lut_phys;                       ///< chunk_idx -> chunk base address; mmap-backed
+	int gran_shift;                           ///< log2(granularity)
+	uint64_t gran_mask;                       ///< granularity - 1, for the intra-chunk offset
+	size_t lut_capacity;                      ///< Number of slots in the LUT
+	struct dmamem_registry_backing *backings; ///< Owned list of backings
 	struct dmamem_registry_registration *list; ///< Owned list of registrations
 	/* The callbacks run with the lock held, so none of them may register,
 	 * remove, or translate through this registry. */
-	dmamem_registry_range_fn range;		   ///< Recovers an allocation; may be NULL
-	dmamem_registry_populate_fn populate;	   ///< Makes an allocation addressable; may be NULL
-	dmamem_registry_release_fn release;	   ///< Undoes populate; may be NULL
-	void *ctx;				   ///< Passed to the callbacks; not owned
-	pthread_mutex_t lock;			   ///< Serialises registration; see below
+	dmamem_registry_range_fn range;       ///< Recovers an allocation; may be NULL
+	dmamem_registry_populate_fn populate; ///< Makes an allocation addressable; may be NULL
+	dmamem_registry_release_fn release;   ///< Undoes populate; may be NULL
+	void *ctx;                            ///< Passed to the callbacks; not owned
+	pthread_mutex_t lock;                 ///< Serialises registration; see below
 };
 
 /*
@@ -345,8 +345,9 @@ dmamem_registry_adopt_fill(struct dmamem_registry *registry, uint64_t base, size
 
 		for (size_t i = 1; i < span; ++i) {
 			if (lut[first + i] != lut[first] + (uint64_t)i * fine_step) {
-				UPCIE_DEBUG("FAILED: adopted granule(%zu) not contiguous at i(%zu)",
-					    k, i);
+				UPCIE_DEBUG(
+					"FAILED: adopted granule(%zu) not contiguous at i(%zu)", k,
+					i);
 				return -EOPNOTSUPP;
 			}
 		}

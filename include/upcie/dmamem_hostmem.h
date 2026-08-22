@@ -156,14 +156,15 @@ dmamem_from_hostmem_registry(struct dmamem *dmem, struct hostmem_hugepage *hp, i
 
 	memset(dmem, 0, sizeof(*dmem));
 
-	err = dmamem_registry_init(&dmem->registry, hp->config->hugepgsz, va_bits, NULL, NULL, NULL,
-				   NULL);
+	err = dmamem_registry_init(&dmem->registry, hp->config->hugepgsz, va_bits, NULL, NULL,
+				   NULL, NULL);
 	if (err) {
 		UPCIE_DEBUG("FAILED: dmamem_registry_init(); err(%d)", err);
 		return err;
 	}
 
-	err = dmamem_registry_adopt(&dmem->registry, hp->virt, hp->size, hp->phys_lut, shift, NULL);
+	err = dmamem_registry_adopt(&dmem->registry, hp->virt, hp->size, hp->phys_lut, shift,
+				    NULL);
 	if (err) {
 		UPCIE_DEBUG("FAILED: dmamem_registry_adopt(); err(%d)", err);
 		dmamem_registry_term(&dmem->registry);

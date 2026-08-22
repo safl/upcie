@@ -73,9 +73,8 @@ dmamem_hip_registry_range(void *UPCIE_UNUSED(ctx), uint64_t va, uint64_t *base_o
  *         turns out not to be contiguous.
  */
 static inline int
-dmamem_hip_registry_populate(void *ctx, uint64_t base, size_t size,
-			     uint64_t granularity, uint64_t *lut_out, size_t nlut,
-			     struct dmabuf *attach_out)
+dmamem_hip_registry_populate(void *ctx, uint64_t base, size_t size, uint64_t granularity,
+			     uint64_t *lut_out, size_t nlut, struct dmabuf *attach_out)
 {
 	struct hipmem_config *config = ctx;
 	const size_t pagesize = (size_t)config->pagesize;

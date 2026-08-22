@@ -76,8 +76,8 @@ smoketest(size_t hugepgsz, size_t nhugepages)
 		return err;
 	}
 	if (!hp.phys_lut) {
-		fprintf(stderr,
-			"FAIL: phys_lut is NULL (pagemap read likely denied; need CAP_SYS_ADMIN)\n");
+		fprintf(stderr, "FAIL: phys_lut is NULL (pagemap read likely denied; need "
+				"CAP_SYS_ADMIN)\n");
 		hostmem_hugepage_free(&hp);
 		return -EPERM;
 	}
