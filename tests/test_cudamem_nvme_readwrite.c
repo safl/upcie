@@ -8,6 +8,7 @@ struct rte {
 	struct hostmem_heap heap;
 	struct cudamem_config cuda_config;
 	struct cudamem_heap cuda_heap;
+	struct dmamem dmem;
 	CUcontext cu_ctx;
 };
 
@@ -64,11 +65,17 @@ rte_init(struct rte *rte)
 		return err;
 	}
 
+	err = dmamem_from_cuda_registry(&rte->dmem, &rte->cuda_heap, 0);
+	if (err) {
+		printf("FAILED: dmamem_from_cuda_registry(); err(%d)\n", err);
+		return err;
+	}
+
 	return 0;
 }
 
 int
-nvme_io(struct nvme *nvme, struct cudamem_heap *cuda_heap, uint8_t opc, void *buffer, size_t buffer_size)
+nvme_io(struct nvme *nvme, struct dmamem *dmem, uint8_t opc, void *buffer, size_t buffer_size)
 {
 	struct nvme_completion cpl = {0};
 	struct nvme_command cmd = {0};
@@ -88,7 +95,11 @@ nvme_io(struct nvme *nvme, struct cudamem_heap *cuda_heap, uint8_t opc, void *bu
 	cmd.cdw10 = 0; ///< SLBA == 0
 	cmd.cdw12 = 0; ///< NLB == 0
 
-	nvme_request_prep_command_prps_contig_cuda(req, cuda_heap, buffer, buffer_size, &cmd);
+	err = nvme_request_prep_command_prps_contig_dmamem(req, dmem, buffer, buffer_size, &cmd);
+	if (err) {
+		printf("FAILED: prps_contig_dmamem(); err(%d)\n", err);
+		return err;
+	}
 
 	err = nvme_qpair_enqueue(&nvme->ioq, &cmd);
 	if (err) {
@@ -224,13 +235,13 @@ main(int argc, char **argv)
 		goto exit;
 	}
 
-	err = nvme_io(&nvme, &rte.cuda_heap, 0x1, write_buf, buffer_size);
+	err = nvme_io(&nvme, &rte.dmem, 0x1, write_buf, buffer_size);
 	if (err) {
 		printf("FAILED: nvme_io(write); err(%d)\n", err);
 		goto exit;
 	}
 
-	err = nvme_io(&nvme, &rte.cuda_heap, 0x2, read_buf, buffer_size);
+	err = nvme_io(&nvme, &rte.dmem, 0x2, read_buf, buffer_size);
 	if (err) {
 		printf("FAILED: nvme_io(read); err(%d)\n", err);
 		goto exit;
@@ -260,6 +271,7 @@ exit:
 	free(actual);
 	nvme_controller_close(&nvme.ctrlr);
 	hostmem_heap_term(&rte.heap);
+	dmamem_destroy(&rte.dmem);
 	cudamem_heap_term(&rte.cuda_heap);
 	cuCtxDestroy(rte.cu_ctx);
 

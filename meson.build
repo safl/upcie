@@ -43,6 +43,7 @@ install_headers(
     'include/upcie/dmamem_hip.h',
     'include/upcie/dmamem_hostmem.h',
     'include/upcie/dmamem_memfd.h',
+    'include/upcie/dmamem_registry.h',
     'include/upcie/hostmem_config.h',
     'include/upcie/hostmem_dma.h',
     'include/upcie/hostmem.h',
@@ -108,3 +109,4 @@ upcie_dep = declare_dependency(
 subdir('example')
 subdir('tests')
 subdir('experimental')
+subdir('tools')
