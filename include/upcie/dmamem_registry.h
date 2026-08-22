@@ -21,6 +21,11 @@
  * kernel demand-pages it and the resident cost tracks live chunks rather than
  * virtual capacity.
  *
+ * A registry belongs to one dmamem, so a process holding several pays the
+ * reservation once per dmamem and registers a buffer into each one it wants
+ * that buffer addressable from. That suits a consumer with a single heap and
+ * is worth weighing before giving every controller its own.
+ *
  * Backings
  * --------
  *
@@ -73,6 +78,16 @@
  * spans it and both rely on Linux handing out addresses below 2^47 unless the
  * caller asks for more. A registration above the span fails at
  * dmamem_registry_add(), loudly, rather than resolving wrongly.
+ */
+/**
+ * Default width of the address space the table spans.
+ *
+ * 47 is the whole user address space on x86-64 without la57. A consumer may
+ * lower it to shrink the reservation, but doing so narrows what can be
+ * translated: the fast path bounds-checks by assert only, so a pointer above
+ * the span is an out-of-range read in a release build rather than the zero
+ * that means unregistered. Lower it only where every address handed to the
+ * PRP builders is known to fit.
  */
 #define DMAMEM_REGISTRY_VA_BITS 47
 
@@ -390,6 +405,11 @@ dmamem_registry_backing_overlaps(struct dmamem_registry *registry, uint64_t base
  *
  * When `adopt_lut` is non-NULL the addresses are taken from it, indexed by
  * (chunk_va - base) >> adopt_shift, and the backing is marked borrowed.
+ *
+ * A range falling inside a backing that is already live refcounts that backing
+ * and does not read the caller's table: the addresses are the allocation's,
+ * not the registration's, so a second caller describing the same allocation
+ * differently is ignored rather than merged.
  */
 static inline int
 dmamem_registry_add_impl(struct dmamem_registry *registry, void *vaddr, size_t nbytes,

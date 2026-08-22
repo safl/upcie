@@ -93,6 +93,9 @@ enum dmamem_translator {
 	 *  Resolution is defined for addresses inside a registration. An
 	 *  address in a granule nothing has claimed resolves to 0, which
 	 *  callers treat as an error since no valid target has bus address 0.
+	 *  That makes 0 unrepresentable: a granule genuinely based there, which
+	 *  needs the IOMMU out of the way, cannot be told from an unclaimed
+	 *  one.
 	 *  An address in the unused remainder of a granule claimed by a
 	 *  smaller allocation resolves to a wrong address instead, because
 	 *  the table is indexed per granule and the granule is claimed whole.
