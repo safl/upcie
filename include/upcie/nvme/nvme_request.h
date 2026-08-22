@@ -538,7 +538,10 @@ nvme_request_prep_command_prps_iov_dmamem(struct nvme_request *request, struct d
 		while (remaining > 0) {
 			const uint64_t iova = dmamem_va_to_iova(dmem, base + offset);
 
-			if (!iova) {
+			/* Zero means unregistered under the LUT only. An
+			 * arithmetic mapping may legitimately sit at IOVA 0,
+			 * and prp1 above is gated the same way. */
+			if (lut && !iova) {
 				UPCIE_DEBUG("FAILED: %p is not in a registered region",
 					    base + offset);
 				return -EINVAL;
