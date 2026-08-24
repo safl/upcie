@@ -11,6 +11,81 @@ HIP one on a machine with ROCm.
 
 ## upcie_probe_dmabuf_{cuda,hip}
 ## upcie_probe_vfio_bar_import_{cuda,hip}
+## upcie_probe_vfio_share_gpu_cuda
+
+Asks whether a process that holds nothing but a passed vfio device fd can reach
+the BAR from a GPU kernel.
+
+Passing the descriptor over `SCM_RIGHTS` and mapping BAR0 in the receiver is
+known to work. What that leaves untested is the step the GPU-initiated NVMe
+path depends on: `cuMemHostRegister()` with `CU_MEMHOSTREGISTER_IOMEMORY` on a
+window of the received mapping, and an SM reaching it. The read comes from a
+kernel rather than from `cuMemcpyDtoH()`, because the copy engine is not what
+rings a doorbell.
+
+It is two processes rather than a fork with a `setuid()` in it, because
+dropping privilege is not the same state as never having had it: the dropped
+process keeps the supplementary groups it started with unless they are cleared,
+and a uid change clears the dumpable flag, either of which could be what a
+refusal is really about. So the secondary is started separately, as whatever
+user starts it, and the two meet over a named socket. It reads `CAP` rather
+than writing a doorbell, so it disturbs nothing, and both sides print what they
+read.
+
+Usage, with the primary in the background since it serves one secondary and
+leaves when it disconnects:
+
+    upcie_probe_vfio_share_gpu_cuda primary /dev/vfio/devices/vfio8 /tmp/probe.sock &
+    setpriv --reuid=1000 --regid=1000 --clear-groups \
+        upcie_probe_vfio_share_gpu_cuda secondary /tmp/probe.sock
+
+### Findings
+
+Measured 2026-08-24 on Linux 7.0.0-28-generic, NVIDIA RTX A6000 with driver
+580.173.02 and CUDA 13.3, against a Samsung NVMe controller bound to
+`vfio-pci`, reading `CAP` at BAR0 offset 0. Two runs against the same primary,
+differing only in who starts the secondary.
+
+A passed descriptor is enough, and privilege decides how far it goes. Started
+as root, the secondary gets all the way, and the SM reads what the primary
+reads:
+
+    [secondary] running as                   uid=0 euid=0 gid=0
+    [secondary] recv device fd               ok
+    [secondary] host read                    0x28033fff 0x08000030
+    [secondary] cuMemHostRegister(IOMEMORY)  ok
+    [secondary] kernel read                  0x28033fff 0x08000030
+
+Started as uid 1000, with `setpriv --reuid=1000 --regid=1000 --clear-groups` so
+that it never held privilege and carries no inherited groups, it receives the
+descriptor, maps BAR0 and reads the same register, then stops:
+
+    [secondary] running as                   uid=1000 euid=1000 gid=1000
+    [secondary] cuMemHostRegister(IOMEMORY)  CUDA_ERROR_NOT_PERMITTED
+
+The `standalone` mode is the control for that, opening the device itself with
+no delegation anywhere. With the cdev and `/dev/iommu` chowned to the user, an
+unprivileged process binds, attaches, maps BAR0 and reads the same register,
+and is refused in the same place:
+
+    [standalone] running as                   uid=1000 euid=1000 gid=1000
+    [standalone] bind and attach              ok
+    [standalone] host read                    0x28033fff 0x08000030
+    [standalone] cuMemHostRegister(IOMEMORY)  CUDA_ERROR_NOT_PERMITTED
+
+while the same binary as root reads `CAP` from a kernel. So the descriptor
+delegates the device, and `CU_MEMHOSTREGISTER_IOMEMORY` delegates nothing: it
+wants privilege of the calling process, and passing a descriptor has nothing to
+do with it. An unprivileged process can drive a controller from the CPU, its
+own or a delegated one, since ringing a doorbell from the host is an ordinary
+store into a mapping it already has. It cannot submit from a GPU kernel either
+way. Which capability short of root suffices was not tested.
+
+Worth noting in passing, since it is the model libvirt uses and it is now
+measured here: an unprivileged process can own a vfio device end to end when
+udev gives it the nodes.
+
+## upcie_probe_vfio_bar_import_{cuda,hip}
 
 Asks whether a GPU runtime will import another device's MMIO as a dma-buf and
 hand back a device pointer.
