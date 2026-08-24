@@ -82,7 +82,7 @@ main(int argc, char *argv[])
 		return 1;
 	}
 
-	err = nvme_runtime_record_export(&ctrlr, record);
+	err = nvme_runtime_record_export(&ctrlr, heap.memory.size, record);
 	if (!err) {
 		err = nvme_qpair_grant_export(&ctrlr, &qpair, prps, &grant);
 	}

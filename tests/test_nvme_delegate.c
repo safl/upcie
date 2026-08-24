@@ -118,7 +118,7 @@ owner(const char *bdf, const char *path)
 	}
 
 	record = hostmem_dma_malloc(&heap, sizeof(*record));
-	if (!record || nvme_runtime_record_export(&ctrlr, record)) {
+	if (!record || nvme_runtime_record_export(&ctrlr, heap.memory.size, record)) {
 		printf("# FAILED: export the record\n");
 		return -EIO;
 	}

@@ -79,14 +79,18 @@ struct nvme_qpair_grant {
  * Fill a record from a controller this process opened
  *
  * @param ctrlr An opened controller
+ * @param heap_nbytes Size of the region the offsets refer into. The caller
+ * names it because it is not always a hostmem_heap: a runtime built on dmamem
+ * has one all the same, and this has no business knowing which
  * @param record Pre-allocated record to fill
  *
  * @return 0 on success, negative errno on error
  */
 static inline int
-nvme_runtime_record_export(const struct nvme_controller *ctrlr, struct nvme_runtime_record *record)
+nvme_runtime_record_export(const struct nvme_controller *ctrlr, size_t heap_nbytes,
+			   struct nvme_runtime_record *record)
 {
-	if (!ctrlr || !record || !ctrlr->heap) {
+	if (!ctrlr || !record || !heap_nbytes) {
 		return -EINVAL;
 	}
 
@@ -95,7 +99,7 @@ nvme_runtime_record_export(const struct nvme_controller *ctrlr, struct nvme_runt
 	record->timeout_ms = (uint32_t)ctrlr->timeout_ms;
 	record->cap = nvme_mmio_cap_read(ctrlr->func.bars[0].region);
 	record->cc = ctrlr->cc;
-	record->heap_nbytes = (uint32_t)ctrlr->heap->memory.size;
+	record->heap_nbytes = (uint32_t)heap_nbytes;
 	snprintf(record->bdf, sizeof(record->bdf), "%s", ctrlr->func.bdf);
 
 	return 0;
