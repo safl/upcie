@@ -4,6 +4,13 @@
 
 incdir = include_directories('../include', '.')
 
+executable(
+  'upcie_probe_vfio_delegate',
+  files('upcie_probe_vfio_delegate.c'),
+  include_directories: incdir,
+  install: true,
+)
+
 cuda_dep = dependency(
   'cuda', modules: ['cuda'],
   required: false,
