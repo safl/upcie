@@ -12,6 +12,28 @@ HIP one on a machine with ROCm.
 ## upcie_probe_dmabuf_{cuda,hip}
 ## upcie_probe_vfio_bar_import_{cuda,hip}
 ## upcie_probe_vfio_share_gpu_cuda
+## upcie_probe_vram_ioas_{cuda,hip}
+
+Asks whether GPU memory can enter an iommufd IOAS, which is what a controller
+behind an IOMMU would have to DMA against.
+
+Under `uio_pci_generic` a controller consumes physical addresses and reaches a
+GPU allocation through its dma-buf scatter list. Under `vfio-pci` it consumes
+IOVAs, so the allocation has to be mapped with `IOMMU_IOAS_MAP_FILE`.
+`iommufd.h` records that as of 6.19 that call accepts only dma-bufs exported by
+vfio-pci and rejects those exported by CUDA or HIP. The probe asks the running
+kernel rather than trusting the comment, and maps a `memfd` first as a control,
+since a `MAP_FILE` that refuses everything would say nothing about GPU memory in
+particular.
+
+The question it was written to settle: can a controller under an IOMMU DMA into
+VRAM at all? That sits upstream of every question about sharing one controller
+between processes, because it decides whether GPU consumers can use `vfio-pci`
+in the first place.
+
+Usage: `upcie_probe_vram_ioas_cuda`, no arguments.
+
+## upcie_probe_vfio_share_gpu_cuda
 
 Asks whether a process that holds nothing but a passed vfio device fd can reach
 the BAR from a GPU kernel.
