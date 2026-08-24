@@ -110,7 +110,7 @@ nvme_runtime_record_export(const struct nvme_controller *ctrlr, size_t heap_nbyt
  */
 static inline int
 nvme_ioqpair_export(const struct nvme_controller *ctrlr, const struct nvme_qpair *qpair,
-			const void *prps, struct nvme_ioqpair *allocation)
+		    const void *prps, struct nvme_ioqpair *allocation)
 {
 	const char *base;
 
@@ -192,7 +192,7 @@ nvme_runtime_record_import(struct nvme_controller *ctrlr, const struct nvme_runt
  */
 static inline int
 nvme_ioqpair_import(struct nvme_qpair *qpair, const struct nvme_ioqpair *allocation,
-			struct nvme_controller *ctrlr)
+		    struct nvme_controller *ctrlr)
 {
 	int dstrd;
 	char *base;
@@ -216,8 +216,8 @@ nvme_ioqpair_import(struct nvme_qpair *qpair, const struct nvme_ioqpair *allocat
 	qpair->depth = allocation->depth;
 	qpair->sq = base + allocation->sq_offset;
 	qpair->cq = base + allocation->cq_offset;
-	qpair->sqdb =
-		(char *)ctrlr->func.bars[0].region + 0x1000 + ((2 * allocation->qid) << (2 + dstrd));
+	qpair->sqdb = (char *)ctrlr->func.bars[0].region + 0x1000 +
+		      ((2 * allocation->qid) << (2 + dstrd));
 	qpair->cqdb = (char *)ctrlr->func.bars[0].region + 0x1000 +
 		      ((2 * allocation->qid + 1) << (2 + dstrd));
 	qpair->tail = 0;

@@ -94,7 +94,8 @@ main(int argc, char *argv[])
 	hostmem_heap_record_set(&heap, (uint64_t)((char *)record - (char *)heap.memory.virt));
 	printf("record: version(%u) bdf(%s) timeout_ms(%u) at heap offset 0x%" PRIx64 "\n",
 	       record->version, record->bdf, record->timeout_ms, hostmem_heap_record_get(&heap));
-	printf("allocation:  qid(%u) depth(%u) sq_offset(0x%" PRIx64 ") cq_offset(0x%" PRIx64 ")\n",
+	printf("allocation:  qid(%u) depth(%u) sq_offset(0x%" PRIx64 ") cq_offset(0x%" PRIx64
+	       ")\n",
 	       allocation.qid, allocation.depth, allocation.sq_offset, allocation.cq_offset);
 
 	/* Everything below this line pretends to be another process: it has the
