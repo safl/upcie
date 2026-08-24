@@ -25,6 +25,14 @@ if cuda_dep.found()
     install: true,
   )
 
+  executable(
+    'upcie_vram_ioas_probe_cuda',
+    files('upcie_vram_ioas_probe_cuda.c'),
+    include_directories: incdir,
+    dependencies: [cuda_dep],
+    install: true,
+  )
+
   nvcc = find_program('nvcc')
 
   vfio_share_gpu_kernel_obj = custom_target(
@@ -59,6 +67,14 @@ if hip_lib.found() and hip_hdr
   executable(
     'upcie_dmabuf_probe_hip',
     files('upcie_dmabuf_probe_hip.c'),
+    include_directories: incdir,
+    dependencies: [hip_lib],
+    c_args: ['-D__HIP_PLATFORM_AMD__'],
+    install: true,
+  )
+  executable(
+    'upcie_vram_ioas_probe_hip',
+    files('upcie_vram_ioas_probe_hip.c'),
     include_directories: incdir,
     dependencies: [hip_lib],
     c_args: ['-D__HIP_PLATFORM_AMD__'],
