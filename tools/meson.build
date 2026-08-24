@@ -24,6 +24,31 @@ if cuda_dep.found()
     dependencies: [cuda_dep],
     install: true,
   )
+
+  nvcc = find_program('nvcc')
+
+  vfio_share_gpu_kernel_obj = custom_target(
+    'vfio_share_gpu_kernel_obj',
+    input: files('vfio_share_gpu_kernel.cu'),
+    output: 'vfio_share_gpu_kernel.o',
+    command: [
+      nvcc, '-c', '-arch=' + get_option('cuda-arch'),
+      '-I', meson.project_source_root() / 'include',
+      '-include', meson.project_build_root() / 'upcie_config.h',
+      '@INPUT@', '-o', '@OUTPUT@',
+    ],
+  )
+
+  executable(
+    'upcie_vfio_share_gpu_probe_cuda',
+    [files('upcie_vfio_share_gpu_probe_cuda.c'), vfio_share_gpu_kernel_obj],
+    include_directories: incdir,
+    dependencies: [cuda_dep],
+    # nvcc emits a C++ static-init guard in the kernel object (CUDA 13), so
+    # link libstdc++ for __cxa_guard_acquire/release in this C target.
+    link_args: ['-lstdc++'],
+    install: true,
+  )
 endif
 
 cc = meson.get_compiler('c')
