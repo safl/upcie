@@ -10,6 +10,70 @@ present, so the CUDA probe appears on a machine with the CUDA driver and the
 HIP one on a machine with ROCm.
 
 ## upcie_probe_dmabuf_{cuda,hip}
+## upcie_probe_vfio_bar_import_{cuda,hip}
+
+Asks whether a GPU runtime will import another device's MMIO as a dma-buf and
+hand back a device pointer.
+
+`VFIO_DEVICE_FEATURE_DMA_BUF` exports a slice of a BAR as a dma-buf, and that
+descriptor has no CPU mapping: `test_dmamem_vfio_bar` reports
+`cpu_va=unavailable`. So a process holding only the descriptor cannot produce a
+host address, and `cuMemHostRegister()` with `CU_MEMHOSTREGISTER_IOMEMORY`,
+which is how the GPU-initiated NVMe path reaches a doorbell, has nothing to
+register. The remaining route is for the runtime to import the descriptor
+itself.
+
+The probe binds the device, exports a slice, imports it through
+`cuImportExternalMemory` or `hipImportExternalMemory`, maps it, and reads the
+first two dwords back from the device side. It reads rather than writes and
+defaults to offset 0, so what it touches is `CAP` and not a doorbell; the host
+reads the same register through its own mapping and the two are printed side by
+side. Equal values are the whole result.
+
+The question it was written to settle: can MMIO be delegated to a process that
+never holds the device fd? If the import fails, delegating a controller's
+doorbells means delegating the controller.
+
+Usage: `upcie_probe_vfio_bar_import_cuda <cdev> [region] [offset] [length]`,
+for example `upcie_probe_vfio_bar_import_cuda /dev/vfio/devices/vfio8 0 0
+0x1000`.
+
+### Findings
+
+Measured 2026-08-24, both hosts Linux 7.0.0-28-generic, against a Samsung NVMe
+controller bound to `vfio-pci`, BAR0 at offset 0 for 4 KiB. warp: NVIDIA RTX
+A6000, driver 580.173.02 (the open modules, `Dual MIT/GPL`), CUDA 13.3. wave:
+AMD Radeon RX 7800 XT with ROCm.
+
+Neither runtime takes it, and on NVIDIA the reason is not the one the probe was
+written to find:
+
+    CUDA   self-import (control)  CUDA_ERROR_NOT_SUPPORTED(801)
+           import(DMABUF_FD)      CUDA_ERROR_NOT_SUPPORTED(801)
+           import(OPAQUE_FD)      CUDA_ERROR_UNKNOWN(999)
+    HIP    hipImportExternalMemory=hipErrorOutOfMemory(2)
+
+The control allocates GPU memory, exports it with
+`cuMemGetHandleForAddressRange`, and imports that back. It fails identically, so
+`cuImportExternalMemory` with `CU_EXTERNAL_MEMORY_HANDLE_TYPE_DMABUF_FD` is
+unsupported on this stack for any exporter, and says nothing about vfio. The
+export direction works; only the import is refused. Nothing appears in the
+kernel log while it happens, and the open modules' importer,
+`nv_dma_import_from_fd()` in `nvidia/nv-dmabuf.c`, prints on both of its failure
+paths, which suggests the refusal is above the open layer.
+
+HIP has no dma-buf handle type at all: `hipExternalMemoryHandleType` stops at
+`NvSciBuf`, so `OpaqueFd` was the only thing to ask for.
+
+The export side is sound in both cases: `EXPORT_DMA_BUF` succeeds, and the host
+reads `0x28033fff` for `CAP` through its own mapping.
+
+So MMIO cannot be handed to a process as a descriptor today. A process that
+must ring a doorbell has to hold the device fd, map the BAR itself, and register
+the host address with `cuMemHostRegister(CU_MEMHOSTREGISTER_IOMEMORY)`, which is
+what the GPU-initiated path already does.
+
+## upcie_probe_dmabuf_{cuda,hip}
 
 Asks what a GPU runtime returns when told to export a device address range as
 a dma-buf, which is the mechanism uPCIe translates VRAM addresses through.
