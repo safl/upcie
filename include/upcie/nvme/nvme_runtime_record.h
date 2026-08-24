@@ -59,10 +59,11 @@ struct nvme_runtime_record {
  * addresses with its own mapping, and derives the doorbells from its own BAR0.
  */
 struct nvme_ioqpair {
-	uint64_t sq_offset; ///< Submission queue, as a heap offset
-	uint64_t cq_offset; ///< Completion queue, as a heap offset
-	uint32_t qid;       ///< The identifier allocated, never zero
-	uint16_t depth;     ///< Entries in the queue pair
+	uint64_t sq_offset;  ///< Submission queue, as a heap offset
+	uint64_t cq_offset;  ///< Completion queue, as a heap offset
+	uint64_t prp_offset; ///< PRP scratch for the client's request pool
+	uint32_t qid;        ///< The identifier allocated, never zero
+	uint16_t depth;      ///< Entries in the queue pair
 	uint16_t _rsvd;
 };
 
@@ -101,17 +102,19 @@ nvme_runtime_record_export(const struct nvme_controller *ctrlr, size_t heap_nbyt
  *
  * @param ctrlr The controller the queue belongs to
  * @param qpair A queue pair created with nvme_controller_create_io_qpair
+ * @param prps PRP scratch the server allocated for the client, of
+ * NVME_REQUEST_POOL_LEN pages
  * @param allocation Pre-allocated allocation to fill
  *
  * @return 0 on success, negative errno on error
  */
 static inline int
 nvme_ioqpair_export(const struct nvme_controller *ctrlr, const struct nvme_qpair *qpair,
-			struct nvme_ioqpair *allocation)
+			const void *prps, struct nvme_ioqpair *allocation)
 {
 	const char *base;
 
-	if (!ctrlr || !qpair || !allocation || !ctrlr->heap) {
+	if (!ctrlr || !qpair || !prps || !allocation || !ctrlr->heap) {
 		return -EINVAL;
 	}
 	if (!qpair->qid) {
@@ -123,6 +126,7 @@ nvme_ioqpair_export(const struct nvme_controller *ctrlr, const struct nvme_qpair
 	memset(allocation, 0, sizeof(*allocation));
 	allocation->sq_offset = (uint64_t)((const char *)qpair->sq - base);
 	allocation->cq_offset = (uint64_t)((const char *)qpair->cq - base);
+	allocation->prp_offset = (uint64_t)((const char *)prps - base);
 	allocation->qid = qpair->qid;
 	allocation->depth = qpair->depth;
 
@@ -176,8 +180,9 @@ nvme_runtime_record_import(struct nvme_controller *ctrlr, const struct nvme_runt
  * Build a queue pair from a allocation, without creating anything on the device
  *
  * The queue itself already exists; this attaches to it. The request pool is
- * allocated here because it is this process's, and is released by
- * nvme_ioqpair_release().
+ * allocated here because it is this process's, and points at the scratch the
+ * allocation names, since a client cannot allocate from the server's heap. Release
+ * it with nvme_ioqpair_release().
  *
  * @param qpair Pre-allocated queue pair to fill
  * @param allocation A allocation from nvme_ioqpair_export
@@ -226,7 +231,7 @@ nvme_ioqpair_import(struct nvme_qpair *qpair, const struct nvme_ioqpair *allocat
 	}
 	nvme_request_pool_init(qpair->rpool);
 
-	err = nvme_request_pool_init_prps(qpair->rpool, ctrlr->heap);
+	err = nvme_request_pool_attach_prps(qpair->rpool, ctrlr->heap, allocation->prp_offset);
 	if (err) {
 		free(qpair->rpool);
 		qpair->rpool = NULL;
@@ -248,7 +253,7 @@ nvme_ioqpair_release(struct nvme_qpair *qpair)
 		return;
 	}
 
-	nvme_request_pool_term_prps(qpair->rpool, qpair->heap);
+	/* The scratch belongs to whoever allocated the queue. */
 	free(qpair->rpool);
 	memset(qpair, 0, sizeof(*qpair));
 }

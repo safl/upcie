@@ -42,6 +42,7 @@ main(int argc, char *argv[])
 	struct nvme_command cmd = {0};
 	struct nvme_completion cpl = {0};
 	void *payload;
+	void *prps;
 	int err;
 
 	if (argc != 2) {
@@ -69,6 +70,12 @@ main(int argc, char *argv[])
 		return 1;
 	}
 
+	prps = hostmem_dma_alloc_array(&heap, NVME_REQUEST_POOL_LEN, config.pagesize);
+	if (!prps) {
+		printf("# FAILED: hostmem_dma_alloc_array(prps); errno(%d)\n", errno);
+		return 1;
+	}
+
 	record = hostmem_dma_malloc(&heap, sizeof(*record));
 	if (!record) {
 		printf("# FAILED: hostmem_dma_malloc(record); errno(%d)\n", errno);
@@ -77,7 +84,7 @@ main(int argc, char *argv[])
 
 	err = nvme_runtime_record_export(&ctrlr, heap.memory.size, record);
 	if (!err) {
-		err = nvme_ioqpair_export(&ctrlr, &qpair, &allocation);
+		err = nvme_ioqpair_export(&ctrlr, &qpair, prps, &allocation);
 	}
 	if (err) {
 		printf("# FAILED: export; err(%d)\n", err);
