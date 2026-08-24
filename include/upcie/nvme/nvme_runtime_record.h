@@ -23,6 +23,10 @@
  * which it may not be able to read. So the server leaves a description of the
  * memory in the memory, and the record says where: see hostmem_shared_desc.
  *
+ * A client also has to translate, and physical addresses come from pagemap,
+ * which it may not be able to read. So the server leaves a description of the
+ * memory in the memory, and the record says where: see hostmem_shared_desc.
+ *
  * The record is filled once, when the runtime is built, and is not written
  * again. That is deliberate: the queue identifier space, the heap allocator
  * and the admin queue stay with the process that owns the controller, and a
@@ -53,6 +57,7 @@ struct nvme_runtime_record {
 	uint64_t cap;         ///< Controller capabilities as read at open
 	uint32_t cc;          ///< Controller configuration as written at open
 	uint32_t heap_nbytes; ///< Size of the heap the offsets below refer into
+	uint64_t desc_offset; ///< Where the heap's description sits, for translation
 	char bdf[16];         ///< The controller, for a client to check it agrees
 };
 
