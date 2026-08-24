@@ -15,9 +15,14 @@
  * The client is a separate process rather than a fork, so that it holds
  * nothing it was not handed.
  *
+ * The server refuses a peer speaking another version, which the
+ * client-badversion mode checks, since a record whose layout comes from this
+ * library cannot be read by something built against a different one.
+ *
  * Usage:
  *   test_nvme_cplane server <bdf> <socket>
  *   test_nvme_cplane client <socket>
+ *   test_nvme_cplane client-badversion <socket>
  */
 #define _UPCIE_WITH_NVME
 #include <upcie/upcie.h>
@@ -138,6 +143,17 @@ server(const char *bdf, const char *path)
 		return -errno;
 	}
 
+	{
+		struct ucred cred = {0};
+
+		if (nvme_cplane_peer_cred(sock, &cred)) {
+			printf("# FAILED: nvme_cplane_peer_cred(); errno(%d)\n", errno);
+			return -errno;
+		}
+		printf("server: serving pid(%d) uid(%u) gid(%u)\n", cred.pid, (unsigned)cred.uid,
+		       (unsigned)cred.gid);
+	}
+
 	while (!(err = nvme_cplane_msg_recv(sock, &msg, NULL, NULL))) {
 		struct nvme_cplane_msg reply = {.op = msg.op, .version = NVME_CPLANE_VERSION};
 		int fds[NVME_CPLANE_FDS_MAX];
@@ -223,7 +239,7 @@ server(const char *bdf, const char *path)
  * The client: holds nothing it was not handed.
  */
 static int
-client(const char *path)
+client(const char *path, int bad_version)
 {
 	struct nvme_controller ctrlr = {0};
 	struct hostmem_config config = {0};
@@ -246,6 +262,29 @@ client(const char *path)
 	}
 
 	msg.op = NVME_CPLANE_OP_ATTACH;
+	if (bad_version) {
+		/* nvme_cplane_request() stamps the current version, so the
+		 * mismatch has to be sent by hand. */
+		msg.version = NVME_CPLANE_VERSION + 1;
+		err = nvme_cplane_msg_send(sock, &msg, NULL, 0);
+		if (!err) {
+			err = nvme_cplane_msg_recv(sock, &msg, NULL, NULL);
+		}
+		if (err) {
+			printf("# FAILED: version probe; err(%d)\n", err);
+			return err;
+		}
+		if (msg.status != -EPROTO) {
+			printf("# FAILED: server accepted version(%u), status(%d)\n",
+			       NVME_CPLANE_VERSION + 1, msg.status);
+			return -EIO;
+		}
+		printf("# LGTM: server refused version(%u) with EPROTO\n",
+		       NVME_CPLANE_VERSION + 1);
+		close(sock);
+		return 0;
+	}
+
 	err = nvme_cplane_request(sock, &msg, fds, &nfds);
 	if (err || (nfds != 2)) {
 		printf("# FAILED: attach; err(%d) nfds(%u)\n", err, nfds);
@@ -358,11 +397,15 @@ main(int argc, char *argv[])
 		return server(argv[2], argv[3]) ? EXIT_FAILURE : EXIT_SUCCESS;
 	}
 	if ((argc == 3) && !strcmp(argv[1], "client")) {
-		return client(argv[2]) ? EXIT_FAILURE : EXIT_SUCCESS;
+		return client(argv[2], 0) ? EXIT_FAILURE : EXIT_SUCCESS;
+	}
+	if ((argc == 3) && !strcmp(argv[1], "client-badversion")) {
+		return client(argv[2], 1) ? EXIT_FAILURE : EXIT_SUCCESS;
 	}
 
 	fprintf(stderr, "usage: %s server <bdf> <socket>\n", argv[0]);
 	fprintf(stderr, "       %s client <socket>\n", argv[0]);
+	fprintf(stderr, "       %s client-badversion <socket>\n", argv[0]);
 
 	return 2;
 }

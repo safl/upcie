@@ -253,6 +253,35 @@ nvme_cplane_request(int sock, struct nvme_cplane_msg *msg, int *fds, uint32_t *n
 }
 
 /**
+ * Who is on the other end of a connection
+ *
+ * An server deciding whether to serve somebody needs to know who they are, and
+ * SO_PEERCRED is the answer the kernel vouches for: the peer cannot claim a
+ * uid it does not have. What an server does with it is policy and belongs to
+ * the server, which is why nothing here decides.
+ *
+ * @param sock A connected unix socket
+ * @param cred Pre-allocated credentials to fill
+ *
+ * @return 0 on success, negative errno on error
+ */
+static inline int
+nvme_cplane_peer_cred(int sock, struct ucred *cred)
+{
+	socklen_t nbytes = sizeof(*cred);
+
+	if ((sock < 0) || !cred) {
+		return -EINVAL;
+	}
+
+	if (getsockopt(sock, SOL_SOCKET, SO_PEERCRED, cred, &nbytes)) {
+		return -errno;
+	}
+
+	return 0;
+}
+
+/**
  * Whether an admin command is one a client may ask for
  *
  * Accepts everything, and exists so that an server which needs to intervene has
