@@ -9,6 +9,58 @@ They build with the rest of the project, each only where its dependency is
 present, so the CUDA probe appears on a machine with the CUDA driver and the
 HIP one on a machine with ROCm.
 
+## upcie_vfio_delegate_probe
+
+Asks two questions a design for sharing a controller has to answer, neither of
+which is about GPUs.
+
+**Which way registration goes.** A secondary holding the iommufd maps its own
+memory, which pins pages against the secondary. A secondary that instead sends
+a descriptor and asks the primary to map it pins them against the primary. The
+probe does both, in that order, and prints `RLIMIT_MEMLOCK` on each side, so
+running either side under a lowered limit shows which one it bounds.
+
+**What survives the primary.** The primary exits after serving. The secondary
+then re-reads a register through its own mapping of BAR0 and tries a further
+mapping through the iommufd it was handed. A device fd keeps the device bound;
+whether the address space outlives the process that created it is what a
+restart policy turns on.
+
+Usage, primary in the background since it serves one secondary and exits:
+
+    upcie_vfio_delegate_probe primary /dev/vfio/devices/vfio8 /tmp/d.sock &
+    upcie_vfio_delegate_probe secondary /tmp/d.sock
+    sh -c 'ulimit -l 64; upcie_vfio_delegate_probe secondary /tmp/d.sock'
+
+### Findings
+
+Measured 2026-08-24 on Linux 7.0.0-28-generic, a Samsung NVMe controller bound
+to `vfio-pci`, 2 MiB per mapping.
+
+**RLIMIT_MEMLOCK bounds none of it.** With the limit at 64 KiB on the
+secondary, and separately on the primary, every mapping still succeeded: the
+secondary's own `MAP_FILE` of a memfd, its `IOMMU_IOAS_MAP` of anonymous
+memory, and the primary's `MAP_FILE` on its behalf. So which side is "charged"
+is not a question this limit answers, and an unprivileged secondary does not
+need its limit raised to register memory.
+
+**The address space outlives the primary.** After the primary exits, closing
+its device fd and its iommufd, the secondary still reads `CAP` through its own
+mapping of BAR0 and still maps new memory through the iommufd it was handed:
+
+    [secondary] primary is gone                ok
+    [secondary] host read after                0x28033fff
+    [secondary] map after, via passed fd       ok, iova=0x800000
+
+The descriptors a secondary holds keep both the device and the IOAS alive, so a
+secondary is not obliged to die with the process that handed them over.
+
+**Both registration directions work.** The secondary can map its own memory
+through the passed iommufd, and the primary can map a descriptor the secondary
+sends. Nothing in the kernel prefers one; the choice is a design decision, and
+the accounting argument for one of them does not survive the first finding
+above.
+
 ## upcie_vram_ioas_probe_{cuda,hip}
 
 Asks whether GPU memory can enter an iommufd IOAS, which is what a controller
