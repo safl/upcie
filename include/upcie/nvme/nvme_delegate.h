@@ -11,6 +11,12 @@
  * Everything after that is a fixed-size message, and none of it is on the I/O
  * path.
  *
+ * A consumer allocates nothing from the shared heap either, for the same
+ * reason it does not touch the admin queue: the allocator is the owner's and
+ * its free list has no lock. It asks, and is handed an offset. Allocation
+ * belongs on the control plane in any case, being done once for memory used
+ * many times.
+ *
  * A consumer submits I/O itself, on queues it was granted, ringing its own
  * doorbell. What it does not do is touch the admin queue, because there is one
  * of those and its head and tail are held by value; the owner submits admin
@@ -44,6 +50,8 @@ enum nvme_delegate_op {
 	NVME_DELEGATE_OP_GRANT = 2,   ///< Consumer asks for a queue of a given depth
 	NVME_DELEGATE_OP_RELEASE = 3, ///< Consumer hands a queue back
 	NVME_DELEGATE_OP_ADMIN = 4,   ///< Consumer asks for an admin command to be submitted
+	NVME_DELEGATE_OP_ALLOC = 5,   ///< Consumer asks for DMA memory it cannot allocate
+	NVME_DELEGATE_OP_FREE = 6,    ///< Consumer hands that memory back
 };
 
 /**
@@ -72,6 +80,10 @@ struct nvme_delegate_msg {
 		struct {
 			uint32_t qid; ///< The queue being handed back
 		} release;
+		struct {
+			uint64_t nbytes; ///< Request: how much is wanted
+			uint64_t offset; ///< Reply, and the request when freeing
+		} mem;
 		struct {
 			struct nvme_command cmd;    ///< Request: what to submit
 			struct nvme_completion cpl; ///< Reply: what came back
