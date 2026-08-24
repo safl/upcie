@@ -73,6 +73,14 @@ if hip_lib.found() and hip_hdr
     install: true,
   )
   executable(
+    'upcie_vfio_share_gpu_probe_hip',
+    files('upcie_vfio_share_gpu_probe_hip.c'),
+    include_directories: incdir,
+    dependencies: [hip_lib],
+    c_args: ['-D__HIP_PLATFORM_AMD__'],
+    install: true,
+  )
+  executable(
     'upcie_vram_ioas_probe_hip',
     files('upcie_vram_ioas_probe_hip.c'),
     include_directories: incdir,
