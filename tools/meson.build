@@ -17,6 +17,13 @@ if cuda_dep.found()
     dependencies: [cuda_dep],
     install: true,
   )
+  executable(
+    'upcie_vfio_bar_import_probe_cuda',
+    files('upcie_vfio_bar_import_probe_cuda.c'),
+    include_directories: incdir,
+    dependencies: [cuda_dep],
+    install: true,
+  )
 endif
 
 cc = meson.get_compiler('c')
@@ -27,6 +34,14 @@ if hip_lib.found() and hip_hdr
   executable(
     'upcie_dmabuf_probe_hip',
     files('upcie_dmabuf_probe_hip.c'),
+    include_directories: incdir,
+    dependencies: [hip_lib],
+    c_args: ['-D__HIP_PLATFORM_AMD__'],
+    install: true,
+  )
+  executable(
+    'upcie_vfio_bar_import_probe_hip',
+    files('upcie_vfio_bar_import_probe_hip.c'),
     include_directories: incdir,
     dependencies: [hip_lib],
     c_args: ['-D__HIP_PLATFORM_AMD__'],
