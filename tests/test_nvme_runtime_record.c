@@ -10,10 +10,12 @@
  * construction is worth testing before any of it crosses a process boundary,
  * because a fault in it looks exactly like a fault in the delegation.
  *
- * So: open a controller, create an I/O queue pair, describe both, then build a
- * second controller and queue pair from the description alone and read LBA 0
- * through the second one. Same process, no sockets, no privilege beyond what
- * opening the device already took.
+ * So: open a controller, create an I/O queue pair, put the record in the heap
+ * where a consumer can find it, then attach to that heap by descriptor and
+ * build a second controller and queue pair from what is in it, and read LBA 0
+ * through the second one. Same process, no sockets, and the attached side
+ * takes its physical addresses from the heap header rather than from pagemap,
+ * which is what lets an unprivileged consumer translate at all.
  *
  * Usage:
  *   test_nvme_runtime_record <bdf>
@@ -28,7 +30,8 @@
 int
 main(int argc, char *argv[])
 {
-	struct nvme_runtime_record record = {0};
+	struct nvme_runtime_record *record;
+	struct hostmem_heap attached_heap = {0};
 	struct nvme_qpair_grant grant = {0};
 	struct nvme_controller ctrlr = {0};
 	struct nvme_controller imported = {0};
@@ -66,7 +69,13 @@ main(int argc, char *argv[])
 		return 1;
 	}
 
-	err = nvme_runtime_record_export(&ctrlr, &record);
+	record = hostmem_dma_malloc(&heap, sizeof(*record));
+	if (!record) {
+		printf("# FAILED: hostmem_dma_malloc(record); errno(%d)\n", errno);
+		return 1;
+	}
+
+	err = nvme_runtime_record_export(&ctrlr, record);
 	if (!err) {
 		err = nvme_qpair_grant_export(&ctrlr, &qpair, &grant);
 	}
@@ -74,15 +83,33 @@ main(int argc, char *argv[])
 		printf("# FAILED: export; err(%d)\n", err);
 		return 1;
 	}
-	printf("record: version(%u) bdf(%s) timeout_ms(%u)\n", record.version, record.bdf,
-	       record.timeout_ms);
+
+	hostmem_heap_record_set(&heap, (uint64_t)((char *)record - (char *)heap.memory.virt));
+	printf("record: version(%u) bdf(%s) timeout_ms(%u) at heap offset 0x%" PRIx64 "\n",
+	       record->version, record->bdf, record->timeout_ms, hostmem_heap_record_get(&heap));
 	printf("grant:  qid(%u) depth(%u) sq_offset(0x%" PRIx64 ") cq_offset(0x%" PRIx64 ")\n",
 	       grant.qid, grant.depth, grant.sq_offset, grant.cq_offset);
 
 	/* Everything below this line pretends to be another process: it has the
-	 * record, the grant, a mapping of the heap and a mapping of BAR0, and
-	 * nothing else. */
-	err = nvme_runtime_record_import(&imported, &record, ctrlr.func.bars[0].region, &heap);
+	 * heap descriptor, the grant, and a mapping of BAR0, and finds the
+	 * record for itself. */
+	err = hostmem_heap_attach(&attached_heap, hostmem_heap_fd(&heap), &config);
+	if (err) {
+		printf("# FAILED: hostmem_heap_attach(); err(%d)\n", err);
+		return 1;
+	}
+	if (!hostmem_heap_record_get(&attached_heap)) {
+		printf("# FAILED: attached heap carries no record offset\n");
+		return 1;
+	}
+	printf("# LGTM: attached by descriptor, %u hugepages, phys[0]=0x%" PRIx64 "\n",
+	       (unsigned)attached_heap.nphys, attached_heap.phys_lut[0]);
+
+	err = nvme_runtime_record_import(
+		&imported,
+		(const struct nvme_runtime_record *)((char *)attached_heap.memory.virt +
+						     hostmem_heap_record_get(&attached_heap)),
+		ctrlr.func.bars[0].region, &attached_heap);
 	if (err) {
 		printf("# FAILED: nvme_runtime_record_import(); err(%d)\n", err);
 		return 1;
@@ -94,14 +121,17 @@ main(int argc, char *argv[])
 		return 1;
 	}
 
-	if ((attached.sqdb != qpair.sqdb) || (attached.cqdb != qpair.cqdb) ||
-	    (attached.sq != qpair.sq) || (attached.cq != qpair.cq)) {
-		printf("# FAILED: imported queue does not describe the same memory\n");
+	if (attached.sqdb != qpair.sqdb || attached.cqdb != qpair.cqdb) {
+		printf("# FAILED: imported queue rings a different doorbell\n");
 		return 1;
 	}
-	printf("# LGTM: imported queue resolves to the same addresses\n");
+	if (hostmem_dma_v2p(&attached_heap, attached.sq) != hostmem_dma_v2p(&heap, qpair.sq)) {
+		printf("# FAILED: imported queue resolves to different memory\n");
+		return 1;
+	}
+	printf("# LGTM: imported queue resolves to the same doorbell and memory\n");
 
-	payload = hostmem_dma_malloc(&heap, NBYTES);
+	payload = hostmem_dma_malloc(&heap, NBYTES); ///< The owner allocates; see the design
 	if (!payload) {
 		printf("# FAILED: hostmem_dma_malloc(); errno(%d)\n", errno);
 		return 1;
@@ -110,7 +140,7 @@ main(int argc, char *argv[])
 
 	cmd.opc = 0x2; ///< Read
 	cmd.nsid = 1;
-	cmd.prp1 = hostmem_dma_v2p(&heap, payload);
+	cmd.prp1 = hostmem_dma_v2p(&attached_heap, payload);
 	cmd.cdw10 = 0; ///< SLBA low
 	cmd.cdw12 = 0; ///< Read one block
 
@@ -132,6 +162,7 @@ main(int argc, char *argv[])
 	printf("# LGTM: read LBA 0 through the imported queue\n");
 
 	nvme_qpair_grant_release(&attached);
+	hostmem_heap_detach(&attached_heap);
 	hostmem_dma_free(&heap, payload);
 	nvme_controller_delete_io_qpair(&ctrlr, &qpair);
 	nvme_controller_close(&ctrlr);
