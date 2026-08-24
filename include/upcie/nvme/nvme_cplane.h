@@ -11,6 +11,12 @@
  * Everything after that is a fixed-size message, and none of it is on the I/O
  * path.
  *
+ * A client allocates nothing from the shared heap either, for the same
+ * reason it does not touch the admin queue: the allocator is the server's and
+ * its free list has no lock. It asks, and is handed an offset. Allocation
+ * belongs on the control plane in any case, being done once for memory used
+ * many times.
+ *
  * A client submits I/O itself, on queues it was allocated, ringing its own
  * doorbell. What it does not do is touch the admin queue, because there is one
  * of those and its head and tail are held by value; the server submits admin
@@ -45,6 +51,8 @@ enum nvme_cplane_op {
 	NVME_CPLANE_OP_ALLOC_IOQPAIR = 2, ///< Client asks for a queue of a given depth
 	NVME_CPLANE_OP_FREE_IOQPAIR = 3,  ///< Client hands a queue back
 	NVME_CPLANE_OP_ADMIN_CMD = 4,     ///< Client asks for an admin command to be submitted
+	NVME_CPLANE_OP_ALLOC_BUF = 5,     ///< Client asks for DMA memory it cannot allocate
+	NVME_CPLANE_OP_FREE_BUF = 6,      ///< Client hands that memory back
 
 	/** Anybody asks which controllers the server holds, and what each has */
 	NVME_CPLANE_OP_LIST = 8,
@@ -91,6 +99,10 @@ struct nvme_cplane_msg {
 		struct {
 			uint32_t qid; ///< The queue being handed back
 		} release;
+		struct {
+			uint64_t nbytes; ///< Request: how much is wanted
+			uint64_t offset; ///< Reply, and the request when freeing
+		} mem;
 		struct {
 			struct nvme_command cmd;    ///< Request: what to submit
 			struct nvme_completion cpl; ///< Reply: what came back
