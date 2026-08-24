@@ -15,9 +15,14 @@
  * The consumer is a separate process rather than a fork, so that it holds
  * nothing it was not handed.
  *
+ * The owner refuses a peer speaking another version, which the
+ * consumer-badversion mode checks, since a record whose layout comes from this
+ * library cannot be read by something built against a different one.
+ *
  * Usage:
  *   test_nvme_delegate owner <bdf> <socket>
  *   test_nvme_delegate consumer <socket>
+ *   test_nvme_delegate consumer-badversion <socket>
  */
 #define _UPCIE_WITH_NVME
 #include <upcie/upcie.h>
@@ -138,6 +143,17 @@ owner(const char *bdf, const char *path)
 		return -errno;
 	}
 
+	{
+		struct ucred cred = {0};
+
+		if (nvme_delegate_peer_cred(sock, &cred)) {
+			printf("# FAILED: nvme_delegate_peer_cred(); errno(%d)\n", errno);
+			return -errno;
+		}
+		printf("owner: serving pid(%d) uid(%u) gid(%u)\n", cred.pid, (unsigned)cred.uid,
+		       (unsigned)cred.gid);
+	}
+
 	while (!(err = nvme_delegate_msg_recv(sock, &msg, NULL, NULL))) {
 		struct nvme_delegate_msg reply = {.op = msg.op, .version = NVME_DELEGATE_VERSION};
 		int fds[NVME_DELEGATE_FDS_MAX];
@@ -222,7 +238,7 @@ owner(const char *bdf, const char *path)
  * The consumer: holds nothing it was not handed.
  */
 static int
-consumer(const char *path)
+consumer(const char *path, int bad_version)
 {
 	struct nvme_controller ctrlr = {0};
 	struct hostmem_config config = {0};
@@ -245,6 +261,29 @@ consumer(const char *path)
 	}
 
 	msg.op = NVME_DELEGATE_OP_ATTACH;
+	if (bad_version) {
+		/* nvme_delegate_request() stamps the current version, so the
+		 * mismatch has to be sent by hand. */
+		msg.version = NVME_DELEGATE_VERSION + 1;
+		err = nvme_delegate_msg_send(sock, &msg, NULL, 0);
+		if (!err) {
+			err = nvme_delegate_msg_recv(sock, &msg, NULL, NULL);
+		}
+		if (err) {
+			printf("# FAILED: version probe; err(%d)\n", err);
+			return err;
+		}
+		if (msg.status != -EPROTO) {
+			printf("# FAILED: owner accepted version(%u), status(%d)\n",
+			       NVME_DELEGATE_VERSION + 1, msg.status);
+			return -EIO;
+		}
+		printf("# LGTM: owner refused version(%u) with EPROTO\n",
+		       NVME_DELEGATE_VERSION + 1);
+		close(sock);
+		return 0;
+	}
+
 	err = nvme_delegate_request(sock, &msg, fds, &nfds);
 	if (err || (nfds != 2)) {
 		printf("# FAILED: attach; err(%d) nfds(%u)\n", err, nfds);
@@ -357,11 +396,15 @@ main(int argc, char *argv[])
 		return owner(argv[2], argv[3]) ? EXIT_FAILURE : EXIT_SUCCESS;
 	}
 	if ((argc == 3) && !strcmp(argv[1], "consumer")) {
-		return consumer(argv[2]) ? EXIT_FAILURE : EXIT_SUCCESS;
+		return consumer(argv[2], 0) ? EXIT_FAILURE : EXIT_SUCCESS;
+	}
+	if ((argc == 3) && !strcmp(argv[1], "consumer-badversion")) {
+		return consumer(argv[2], 1) ? EXIT_FAILURE : EXIT_SUCCESS;
 	}
 
 	fprintf(stderr, "usage: %s owner <bdf> <socket>\n", argv[0]);
 	fprintf(stderr, "       %s consumer <socket>\n", argv[0]);
+	fprintf(stderr, "       %s consumer-badversion <socket>\n", argv[0]);
 
 	return 2;
 }
