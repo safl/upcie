@@ -58,10 +58,11 @@ struct nvme_runtime_record {
  * addresses with its own mapping, and derives the doorbells from its own BAR0.
  */
 struct nvme_qpair_grant {
-	uint64_t sq_offset; ///< Submission queue, as a heap offset
-	uint64_t cq_offset; ///< Completion queue, as a heap offset
-	uint32_t qid;       ///< The identifier granted, never zero
-	uint16_t depth;     ///< Entries in the queue pair
+	uint64_t sq_offset;  ///< Submission queue, as a heap offset
+	uint64_t cq_offset;  ///< Completion queue, as a heap offset
+	uint64_t prp_offset; ///< PRP scratch for the consumer's request pool
+	uint32_t qid;        ///< The identifier granted, never zero
+	uint16_t depth;      ///< Entries in the queue pair
 	uint16_t _rsvd;
 };
 
@@ -96,17 +97,19 @@ nvme_runtime_record_export(const struct nvme_controller *ctrlr, struct nvme_runt
  *
  * @param ctrlr The controller the queue belongs to
  * @param qpair A queue pair created with nvme_controller_create_io_qpair
+ * @param prps PRP scratch the owner allocated for the consumer, of
+ * NVME_REQUEST_POOL_LEN pages
  * @param grant Pre-allocated grant to fill
  *
  * @return 0 on success, negative errno on error
  */
 static inline int
 nvme_qpair_grant_export(const struct nvme_controller *ctrlr, const struct nvme_qpair *qpair,
-			struct nvme_qpair_grant *grant)
+			const void *prps, struct nvme_qpair_grant *grant)
 {
 	const char *base;
 
-	if (!ctrlr || !qpair || !grant || !ctrlr->heap) {
+	if (!ctrlr || !qpair || !prps || !grant || !ctrlr->heap) {
 		return -EINVAL;
 	}
 	if (!qpair->qid) {
@@ -118,6 +121,7 @@ nvme_qpair_grant_export(const struct nvme_controller *ctrlr, const struct nvme_q
 	memset(grant, 0, sizeof(*grant));
 	grant->sq_offset = (uint64_t)((const char *)qpair->sq - base);
 	grant->cq_offset = (uint64_t)((const char *)qpair->cq - base);
+	grant->prp_offset = (uint64_t)((const char *)prps - base);
 	grant->qid = qpair->qid;
 	grant->depth = qpair->depth;
 
@@ -171,8 +175,9 @@ nvme_runtime_record_import(struct nvme_controller *ctrlr, const struct nvme_runt
  * Build a queue pair from a grant, without creating anything on the device
  *
  * The queue itself already exists; this attaches to it. The request pool is
- * allocated here because it is this process's, and is released by
- * nvme_qpair_grant_release().
+ * allocated here because it is this process's, and points at the scratch the
+ * grant names, since a consumer cannot allocate from the owner's heap. Release
+ * it with nvme_qpair_grant_release().
  *
  * @param qpair Pre-allocated queue pair to fill
  * @param grant A grant from nvme_qpair_grant_export
@@ -221,7 +226,7 @@ nvme_qpair_grant_import(struct nvme_qpair *qpair, const struct nvme_qpair_grant 
 	}
 	nvme_request_pool_init(qpair->rpool);
 
-	err = nvme_request_pool_init_prps(qpair->rpool, ctrlr->heap);
+	err = nvme_request_pool_attach_prps(qpair->rpool, ctrlr->heap, grant->prp_offset);
 	if (err) {
 		free(qpair->rpool);
 		qpair->rpool = NULL;
@@ -243,7 +248,7 @@ nvme_qpair_grant_release(struct nvme_qpair *qpair)
 		return;
 	}
 
-	nvme_request_pool_term_prps(qpair->rpool, qpair->heap);
+	/* The scratch belongs to whoever granted the queue. */
 	free(qpair->rpool);
 	memset(qpair, 0, sizeof(*qpair));
 }
