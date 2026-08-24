@@ -33,10 +33,14 @@
 #define DMAMEM_CUDA_REGISTRY_GRANULARITY (2UL << 20)
 
 /**
- * Recover the CUDA allocation that `va` falls inside, for a dmamem_registry.
+ * Recover the mapping that `va` falls inside, for a dmamem_registry.
  *
  * An export describes an allocation, not a range, so a registration has to be
- * placed at its offset within one. `ctx` is unused; the runtime knows.
+ * placed at its offset within one. The allocation a runtime reports is the
+ * caller's suballocation, whose base is arbitrary, while the LUT is indexed by
+ * granule; asking for the mapping instead gives the block the driver placed
+ * that suballocation in, which is granule aligned and shared by everything
+ * packed into it. `ctx` is unused; the runtime knows.
  *
  * @return 0 on success, -EINVAL when `va` is not a known device address.
  */
@@ -44,14 +48,36 @@ static inline int
 dmamem_cuda_registry_range(void *UPCIE_UNUSED(ctx), uint64_t va, uint64_t *base_out,
 			   size_t *size_out)
 {
+	const uint64_t gran = DMAMEM_CUDA_REGISTRY_GRANULARITY;
 	CUdeviceptr b = 0;
-	CUresult cr = cuMemGetAddressRange(&b, size_out, (CUdeviceptr)va);
+	size_t size = 0;
+	CUresult cr;
 
+#if CUDA_VERSION >= 11030
+	if ((cuPointerGetAttribute(&b, CU_POINTER_ATTRIBUTE_MAPPING_BASE_ADDR, (CUdeviceptr)va) ==
+	     CUDA_SUCCESS) &&
+	    (cuPointerGetAttribute(&size, CU_POINTER_ATTRIBUTE_MAPPING_SIZE, (CUdeviceptr)va) ==
+	     CUDA_SUCCESS)) {
+		*base_out = (uint64_t)b;
+		*size_out = size;
+
+		return 0;
+	}
+#endif
+
+	/* Runtimes without the mapping attributes report the suballocation only.
+	 * Widen it to the granule, else a sub-granule buffer has no aligned base
+	 * and cannot be registered. The large page backs the whole granule, so
+	 * the export takes a base below the allocation. */
+	cr = cuMemGetAddressRange(&b, &size, (CUdeviceptr)va);
 	if (cr != CUDA_SUCCESS) {
 		UPCIE_DEBUG("FAILED: cuMemGetAddressRange(0x%" PRIx64 "), cr: %d", va, cr);
 		return -EINVAL;
 	}
-	*base_out = (uint64_t)b;
+
+	*base_out = (uint64_t)b & ~(gran - 1);
+	size += (uint64_t)b - *base_out;
+	*size_out = (size + gran - 1) & ~(gran - 1);
 
 	return 0;
 }
