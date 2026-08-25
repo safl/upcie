@@ -94,8 +94,6 @@ install_headers(
     'include/upcie/nvme/nvme_qpair.h',
     'include/upcie/nvme/nvme_qpair_cuda.h',
     'include/upcie/nvme/nvme_request.h',
-    'include/upcie/nvme/nvme_request_cuda.h',
-    'include/upcie/nvme/nvme_request_hip.h',
   ],
   subdir: 'upcie/nvme'
 )
