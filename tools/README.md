@@ -61,6 +61,63 @@ sends. Nothing in the kernel prefers one; the choice is a design decision, and
 the accounting argument for one of them does not survive the first finding
 above.
 
+## upcie_vfio_cdev_probe
+
+Asks whether a second process can claim a device another process already holds,
+which is the question any design for sharing a controller has to answer first.
+
+    upcie_vfio_cdev_probe <cdev> <attach:0|1> <hold-seconds>
+
+Run it while a primary holds the device and works normally. `open()` on the
+character device succeeds, which is what makes an independent second path look
+feasible, and that is as far as it gets:
+
+    --- SECOND, bind only:
+      open(cdev)                   ok
+      BIND_IOMMUFD                 Invalid argument
+      GET_REGION_INFO(BAR0)        Invalid argument
+
+A device cannot be bound to more than one `iommufd_ctx`, so
+`VFIO_DEVICE_BIND_IOMMUFD` fails, and since the UAPI header states the user is
+restricted from accessing the device before binding completes, everything after
+it fails too. No region info means no BAR, which means no doorbell. Offering a
+different iommufd does not help and neither does declining to attach.
+
+Note what does succeed in that second process: opening `/dev/iommu`, allocating
+an IOAS, and mapping memory into it. That is the trap, because the result is a
+valid-looking address space attached to no device.
+
+## upcie_vfio_share_probe
+
+Asks whether a privileged primary can delegate a device to an unprivileged
+secondary, and how far the delegation reaches. This is the same question
+`upcie_vfio_delegate_probe` asks about accounting and lifetime, put instead
+about privilege.
+
+    upcie_vfio_share_probe primary   <cdev> <sock>
+    upcie_vfio_share_probe secondary <sock>
+
+The primary binds the device, maps a memfd into its IOAS, then passes the
+device fd, the iommufd and the memfd over a unix socket. The secondary must be
+run as an ordinary user for the answer to mean anything, since dropping root
+inside one process is not the same test.
+
+    [secondary uid=1000]
+      recv fds                       ok
+      GET_REGION_INFO(BAR0)          ok
+      mmap(BAR0)                     ok
+      NVMe CAP low dword             0x28033fff   (secondary)
+      shared DMA buffer              wrote 0x00c0ffee
+      IOAS_MAP own buffer            ok
+        -> iova                      0x400000
+
+Three things follow. The secondary reaches the BAR and therefore the doorbells.
+It shares DMA memory through a memfd neither process had to name in the
+filesystem. And it registers memory of its own choosing through the passed
+iommufd, so it is not restricted to buffers the primary arranged in advance.
+Reading the same `CAP` value the primary reads is what confirms it is genuinely
+looking at the controller's registers.
+
 ## upcie_vram_ioas_probe_{cuda,hip}
 
 Asks whether GPU memory can enter an iommufd IOAS, which is what a controller
