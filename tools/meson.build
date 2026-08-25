@@ -11,6 +11,20 @@ executable(
   install: true,
 )
 
+executable(
+  'upcie_probe_vfio_cdev',
+  files('upcie_probe_vfio_cdev.c'),
+  include_directories: incdir,
+  install: true,
+)
+
+executable(
+  'upcie_probe_vfio_share',
+  files('upcie_probe_vfio_share.c'),
+  include_directories: incdir,
+  install: true,
+)
+
 cuda_dep = dependency(
   'cuda', modules: ['cuda'],
   required: false,
