@@ -73,6 +73,26 @@ The descriptions below follow the bottom-up layering.
   `hipmem_heap.h`, `hipmem_mapping.h`) all reach their physical addresses
   through this path, so they carry the same dependency.
 
+## DMA memory
+
+`dmamem.h`
+: A region a device can read and write, plus the translation from a pointer
+  into it to the address the device puts on the bus. One translator serves
+  every flavour: arithmetic from a base where a mapping was installed, or a
+  registry lookup where the addresses were not ours to choose.
+
+`dmamem_registry.h`
+: Resolves arbitrarily many registered regions through a granule-indexed
+  table, so a lookup stays a single load however many are registered. What the
+  device can address is the allocation a registration falls inside, held as a
+  refcounted backing. Registration and removal are not thread-safe and the
+  consumer serialises them; translation is lock-free.
+
+`dmamem_heap.h`, `dmamem_hostmem.h`, `dmamem_cuda.h`, `dmamem_hip.h`,
+`dmamem_memfd.h`, `dmamem_dmabuf.h`
+: A suballocating heap over a dmamem, and the constructors for the flavours:
+  hugepages, CUDA and HIP allocations, a memfd, and an existing dma-buf.
+
 ## Experimental
 
 `experimental/iommu_map_pa.h`
