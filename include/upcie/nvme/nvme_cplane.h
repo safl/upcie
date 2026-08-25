@@ -11,6 +11,9 @@
  * Everything after that is a fixed-size message, and none of it is on the I/O
  * path.
  *
+ * Asking what an server is holding is on the same channel, since connecting at
+ * all is most of the answer: somebody is serving that identifier.
+ *
  * A client allocates nothing from the shared heap either, for the same
  * reason it does not touch the admin queue: the allocator is the server's and
  * its free list has no lock. It asks, and is handed an offset. Allocation
@@ -53,6 +56,7 @@ enum nvme_cplane_op {
 	NVME_CPLANE_OP_ADMIN_CMD = 4,     ///< Client asks for an admin command to be submitted
 	NVME_CPLANE_OP_ALLOC_BUF = 5,     ///< Client asks for DMA memory it cannot allocate
 	NVME_CPLANE_OP_FREE_BUF = 6,      ///< Client hands that memory back
+	NVME_CPLANE_OP_STATUS = 7,        ///< Anybody asks what the server is holding
 
 	/** Anybody asks which controllers the server holds, and what each has */
 	NVME_CPLANE_OP_LIST = 8,
@@ -103,6 +107,34 @@ struct nvme_cplane_msg {
 			uint64_t nbytes; ///< Request: how much is wanted
 			uint64_t offset; ///< Reply, and the request when freeing
 		} mem;
+		struct {
+			uint32_t nconsumers; ///< How many are attached right now
+			uint32_t nqueues;    ///< How many queues they hold between them
+
+			/**
+			 * What the controller allocated, from Get Features
+			 * (Number of Queues). Zero means it did not answer,
+			 * not that it has none; only the server can ask, since
+			 * asking is an admin command.
+			 */
+			uint32_t nsq_total;
+			uint32_t ncq_total;
+
+			char bdf[16]; ///< The controller being served
+		} status;
+		struct {
+			uint32_t nctrlrs; ///< Reply: entries below that are filled
+			uint32_t nheld;   ///< Reply: held in all; exceeds nctrlrs when truncated
+
+			/** What the server holds, `nctrlrs` of them */
+			struct {
+				char bdf[16];       ///< The controller
+				uint32_t nioqpairs; ///< I/O queue pairs allocated on it
+				uint32_t nsq_total; ///< What it has; 0 means it did not answer
+				uint32_t ncq_total;
+				uint32_t _rsvd;
+			} ctrlrs[NVME_CPLANE_LIST_MAX];
+		} list;
 		struct {
 			struct nvme_command cmd;    ///< Request: what to submit
 			struct nvme_completion cpl; ///< Reply: what came back
