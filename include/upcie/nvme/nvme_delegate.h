@@ -11,6 +11,9 @@
  * Everything after that is a fixed-size message, and none of it is on the I/O
  * path.
  *
+ * Asking what an owner is holding is on the same channel, since connecting at
+ * all is most of the answer: somebody is serving that identifier.
+ *
  * A consumer allocates nothing from the shared heap either, for the same
  * reason it does not touch the admin queue: the allocator is the owner's and
  * its free list has no lock. It asks, and is handed an offset. Allocation
@@ -52,6 +55,7 @@ enum nvme_delegate_op {
 	NVME_DELEGATE_OP_ADMIN = 4,   ///< Consumer asks for an admin command to be submitted
 	NVME_DELEGATE_OP_ALLOC = 5,   ///< Consumer asks for DMA memory it cannot allocate
 	NVME_DELEGATE_OP_FREE = 6,    ///< Consumer hands that memory back
+	NVME_DELEGATE_OP_STATUS = 7,  ///< Anybody asks what the owner is holding
 };
 
 /**
@@ -84,6 +88,11 @@ struct nvme_delegate_msg {
 			uint64_t nbytes; ///< Request: how much is wanted
 			uint64_t offset; ///< Reply, and the request when freeing
 		} mem;
+		struct {
+			uint32_t nconsumers; ///< How many are attached right now
+			uint32_t nqueues;    ///< How many queues they hold between them
+			char bdf[16];        ///< The controller being served
+		} status;
 		struct {
 			struct nvme_command cmd;    ///< Request: what to submit
 			struct nvme_completion cpl; ///< Reply: what came back
