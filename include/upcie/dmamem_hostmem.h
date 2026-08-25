@@ -151,13 +151,19 @@ dmamem_from_hostmem_type1(struct dmamem *dmem, struct vfio_container *container,
  * offset in the handshake, so nothing has to be reserved at a fixed place and
  * neither allocator has to know it exists.
  */
+enum hostmem_shared_kind {
+	HOSTMEM_SHARED_LUT = 0x1,       ///< phys[] holds a base per granule
+	HOSTMEM_SHARED_ARITHMETIC = 0x2 ///< the whole region resolves from base_addr
+};
+
 struct hostmem_shared_desc {
 	uint32_t version;    ///< HOSTMEM_SHARED_DESC_VERSION
-	uint32_t nphys;      ///< Entries in phys[]
-	uint64_t nbytes;     ///< Size of the region the table describes
-	uint32_t gran_shift; ///< log2 of the granule each entry covers
-	uint32_t _rsvd;
-	uint64_t phys[]; ///< Physical base of each granule, in order
+	uint32_t kind;       ///< One of enum hostmem_shared_kind
+	uint64_t nbytes;     ///< Size of the region described
+	uint64_t base_addr;  ///< ARITHMETIC: what offset zero resolves to
+	uint32_t nphys;      ///< LUT: entries in phys[]
+	uint32_t gran_shift; ///< LUT: log2 of the granule each entry covers
+	uint64_t phys[];     ///< LUT: base of each granule, in order
 };
 
 #define HOSTMEM_SHARED_DESC_VERSION 1U
@@ -194,11 +200,42 @@ hostmem_shared_desc_fill(struct hostmem_shared_desc *desc, const struct hostmem_
 	}
 
 	desc->version = HOSTMEM_SHARED_DESC_VERSION;
+	desc->kind = HOSTMEM_SHARED_LUT;
 	desc->nphys = (uint32_t)hp->nphys;
 	desc->nbytes = hp->size;
 	desc->gran_shift = (uint32_t)shift;
-	desc->_rsvd = 0;
+	desc->base_addr = 0;
 	memcpy(desc->phys, hp->phys_lut, hp->nphys * sizeof(*desc->phys));
+
+	return 0;
+}
+
+/**
+ * Describe a region the device reaches at one base address
+ *
+ * Where the device translates through an address space rather than through
+ * physical addresses, there is no table to carry: every offset resolves from
+ * the base the region was mapped at.
+ *
+ * @param desc Pre-allocated description; sizeof(*desc) is enough for this kind
+ * @param nbytes Size of the region
+ * @param base_addr What offset zero in it resolves to for the device
+ *
+ * @return 0 on success, negative errno on error
+ */
+static inline int
+hostmem_shared_desc_fill_arithmetic(struct hostmem_shared_desc *desc, size_t nbytes,
+				    uint64_t base_addr)
+{
+	if (!desc || !nbytes) {
+		return -EINVAL;
+	}
+
+	memset(desc, 0, sizeof(*desc));
+	desc->version = HOSTMEM_SHARED_DESC_VERSION;
+	desc->kind = HOSTMEM_SHARED_ARITHMETIC;
+	desc->nbytes = nbytes;
+	desc->base_addr = base_addr;
 
 	return 0;
 }
@@ -233,6 +270,22 @@ dmamem_from_shared_hostmem(struct dmamem *dmem, void *base, const struct hostmem
 	}
 
 	memset(dmem, 0, sizeof(*dmem));
+
+	if (desc->kind == HOSTMEM_SHARED_ARITHMETIC) {
+		/* Nothing to index: the device resolves the whole region from
+		 * one base, and this process's addresses do not enter into
+		 * it. */
+		dmem->fd = -1;
+		dmem->cpu_va = base;
+		dmem->base_va = base;
+		dmem->base_iova = desc->base_addr;
+		dmem->size = desc->nbytes;
+		dmem->backing = DMAMEM_BACKING_HOSTMEM;
+		dmem->translator = DMAMEM_XLATE_ARITHMETIC;
+		dmem->owned = 0;
+
+		return 0;
+	}
 
 	err = dmamem_registry_init(&dmem->registry, (size_t)1 << desc->gran_shift, va_bits, NULL,
 				   NULL, NULL, NULL);
