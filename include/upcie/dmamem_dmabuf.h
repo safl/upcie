@@ -69,6 +69,16 @@ dmamem_from_dmabuf(struct dmamem *dmem, struct iommufd *iommufd, int dmabuf_fd, 
 				    IOMMU_IOAS_MAP_READABLE | IOMMU_IOAS_MAP_WRITEABLE,
 				    &dmem->base_iova);
 	if (err) {
+		if (err == -ENOTSUP) {
+			/* The kernel takes dma-bufs exported by vfio-pci and
+			 * refuses the rest, so this is what a GPU allocation
+			 * meets on its way into an address space. Named here
+			 * because the errno alone sends people looking at the
+			 * wrong call. */
+			UPCIE_DEBUG("FAILED: IOMMU_IOAS_MAP_FILE refused this dma-buf; a "
+				    "kernel that maps GPU memory for a peer to DMA against "
+				    "is required");
+		}
 		UPCIE_DEBUG("FAILED: iommufd_ioas_map_file(dma-buf); err(%d)", err);
 		if (dmem->cpu_va) {
 			munmap(dmem->cpu_va, size);
