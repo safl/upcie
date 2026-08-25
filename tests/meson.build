@@ -12,9 +12,9 @@ test_sources = files(
   'test_dmamem_nvme_identify.c',
   'test_dmamem_vfio_bar.c',
   'test_dmamem_nvme_vram.c',
+  'test_dmamem_hostmem_registry.c',
   'test_dmamem_heap.c',
   'test_dmamem_registry.c',
-  'test_dmamem_hostmem_registry.c',
   'test_nvme_qid.c',
 )
 
@@ -37,6 +37,7 @@ cutest_sources = files(
   'test_cudamem_mapping.c',
   'test_cudamem_nvme_readwrite.c',
   'test_cudamem_mapping_nvme_readwrite.c',
+  'test_dmamem_cuda_registry_suballoc.c',
 )
 
 # Tests depending on linking with CUDA and compiled CUDA kernels
