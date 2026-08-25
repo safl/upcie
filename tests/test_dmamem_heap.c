@@ -21,8 +21,8 @@ heap_lut_init(struct dmamem *dmem, struct dmamem_heap *heap)
 	memset(dmem, 0, sizeof(*dmem));
 	dmem->size = 512UL * 1024 * 1024;
 	dmem->translator = DMAMEM_XLATE_LUT;
-	dmem->hugepgsz = HUGEPGSZ;
-	dmem->hugepgsz_shift = 21;
+	dmem->registry.gran_shift = 21;
+	dmem->registry.gran_mask = HUGEPGSZ - 1;
 
 	assert(!dmamem_heap_init(heap, dmem, 4096));
 }
