@@ -4,13 +4,9 @@ This directory contains an experimental proof of concept for direct
 NVMe-to-GPU P2P DMA while the NVMe device is controlled by VFIO. It is not a
 supported uPCIe API or a production-safe VFIO extension.
 
-> [!WARNING]
-> The test writes to namespace 1, LBA 0 of the selected NVMe controller. Run it
-> only on a disposable test device whose contents may be destroyed.
-
 The helper accepts GPU device-physical addresses derived from the CUDA
 `dma-buf`, inserts them into the IOMMU domain currently used by the target
-VFIO device, and returns a handle for removing those mappings. The test builds
+VFIO device, and returns a handle for removing those mappings. A caller builds
 NVMe PRPs from the resulting IOVA range.
 
 uPCIe consumes it through `<upcie/dmamem_iommu_map_pa.h>`, which
@@ -69,26 +65,23 @@ make -C experimental/iommu_map_pa/module
 sudo insmod experimental/iommu_map_pa/module/iommu_map_pa.ko
 ```
 
-## Build the test
+## Exercise it
 
-Configure the project normally, then explicitly build the experimental test:
+`tests/test_dmamem_cuda_iommu_map_pa_nvme_readwrite` drives the module through
+uPCIe: an NVMe on vfio-cdev + iommufd, CUDA VRAM reached through the decorator,
+and I/O verified in both directions. It builds with the rest of the tests when
+CUDA is present.
 
-```sh
-meson setup builddir
-meson compile -C builddir test_cudamem_iommu_map_nvme_readwrite
-```
+> [!WARNING]
+> It writes to namespace 1, LBA 0 of the selected NVMe controller. Run it only
+> on a disposable test device whose contents may be destroyed.
 
-The test binary is created at:
-
-```text
-builddir/experimental/iommu_map_pa/test_cudamem_iommu_map_nvme_readwrite
-```
-
-Run it only after binding the target NVMe device to `vfio-pci` and setting up
-the required huge pages:
+Run it after binding the target NVMe to `vfio-pci`, reserving huge pages, and
+loading this module and `dmabuf_import`:
 
 ```sh
-sudo ./builddir/experimental/iommu_map_pa/test_cudamem_iommu_map_nvme_readwrite 0000:02:00.0
+sudo ./builddir/tests/test_dmamem_cuda_iommu_map_pa_nvme_readwrite \
+    0000:01:00.0 /dev/vfio/devices/vfio0
 ```
 
 Unload the module only after the test has exited and removed all mappings.
