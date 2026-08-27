@@ -94,6 +94,20 @@ The descriptions below follow the bottom-up layering.
 : A suballocating heap over a dmamem, and the constructors for the flavours:
   hugepages, CUDA and HIP allocations, a memfd, and an existing dma-buf.
 
+`dmamem_iommu_map_pa.h`
+: **Experimental.** Decorates a `dmamem_registry` backend so its allocations are
+  addressable with an enforcing IOMMU: the inner backend enumerates physical
+  addresses as usual, the decorator inserts them into the target device's IOMMU
+  domain, and the LUT is rewritten to hold the resulting IOVAs: a decorated LUT
+  resolves to IOVAs, not to the physical addresses one otherwise holds.
+  Translation and the submit path are unchanged, so a backend serves both
+  `iommu=pt/off` and an enforcing IOMMU with one implementation; see
+  `dmamem_from_cuda_iommu_map_pa()` and `dmamem_from_hip_iommu_map_pa()`. IOVAs
+  come from a caller-reserved window the domain's owner must be kept out of:
+  `dmamem_iommu_map_pa_reserve_window()` under iommufd, once the target device
+  is attached, or a window above installed RAM by convention under a type1
+  container. Carries the same DKMS dependency as `experimental/iommu_map_pa.h`.
+
 ## Experimental
 
 `experimental/iommu_map_pa.h`
