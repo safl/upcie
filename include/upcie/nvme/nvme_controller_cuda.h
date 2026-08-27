@@ -161,6 +161,21 @@ nvme_controller_cuda_create_io_qpair(struct nvme_controller *ctrlr,
 			goto free_sq;
 		}
 
+		/* The heap does not clear what it hands out, and a consumer reads a
+		 * completion as ready from its phase tag. Stale bytes carrying the
+		 * awaited phase are a completion that never happened. */
+		err = cuMemsetD8((CUdeviceptr)_qpair.sq, 0, nbytes);
+		if (err) {
+			UPCIE_DEBUG("FAILED: cuMemsetD8(sq); CUresult(%d)", err);
+			goto free_cq;
+		}
+
+		err = cuMemsetD8((CUdeviceptr)_qpair.cq, 0, nbytes);
+		if (err) {
+			UPCIE_DEBUG("FAILED: cuMemsetD8(cq); CUresult(%d)", err);
+			goto free_cq;
+		}
+
 		err = cuMemcpyHtoD((CUdeviceptr)qpair, &_qpair, sizeof(_qpair));
 		if (err) {
 			UPCIE_DEBUG("FAILED: cuMemcpyHtoD(host QP -> device QP); CUresult(%d)", err);
