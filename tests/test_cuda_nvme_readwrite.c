@@ -14,6 +14,7 @@ struct rte {
 	struct hostmem_heap heap;
 	struct cudamem_config cuda_config;
 	struct cudamem_heap cuda_heap;
+	struct dmamem cuda_dmem;
 	CUcontext cu_ctx;
 };
 
@@ -29,6 +30,7 @@ void
 rte_term(struct rte *rte)
 {
 	hostmem_heap_term(&rte->heap);
+	dmamem_destroy(&rte->cuda_dmem);
 	cudamem_heap_term(&rte->cuda_heap);
 	cuCtxDestroy(rte->cu_ctx);
 }
@@ -83,6 +85,15 @@ rte_init(struct rte *rte, size_t cuda_heap_size)
 	err = cudamem_heap_init(&rte->cuda_heap, cuda_heap_size, &rte->cuda_config);
 	if (err) {
 		printf("FAILED: cudamem_heap_init(); err(%d)\n", err);
+		cuCtxDestroy(rte->cu_ctx);
+		hostmem_heap_term(&rte->heap);
+		return err;
+	}
+
+	err = dmamem_from_cuda_registry(&rte->cuda_dmem, &rte->cuda_heap, 0);
+	if (err) {
+		printf("FAILED: dmamem_from_cuda_registry(); err(%d)\n", err);
+		cudamem_heap_term(&rte->cuda_heap);
 		cuCtxDestroy(rte->cu_ctx);
 		hostmem_heap_term(&rte->heap);
 		return err;
@@ -149,7 +160,8 @@ nvme_init(struct nvme *nvme, const char *bdf, struct rte *rte, int num_queues, i
 		// NVMe queues hold at most depth-1 in-flight commands; add 1 so all
 		// queue_depth threads can have a command outstanding simultaneously.
 		err = nvme_controller_cuda_create_io_qpair(&nvme->ctrlr, nvme->ioqs[i],
-							   queue_depth + 1, &rte->cuda_heap);
+							   queue_depth + 1, &rte->cuda_heap,
+							   &rte->cuda_dmem);
 		if (err) {
 			printf("FAILED: nvme_controller_cuda_create_io_qpair(%d); err(%d)\n", i, err);
 			cuMemFree((CUdeviceptr)nvme->ioqs[i]);
@@ -181,7 +193,7 @@ err_term:
 }
 
 int
-prep_nvme_io(struct nvme *nvme, struct cudamem_heap *cuda_heap, uint8_t opc, void *buffers,
+prep_nvme_io(struct nvme *nvme, struct dmamem *cuda_dmem, uint8_t opc, void *buffers,
 	     size_t num_ios)
 {
 	struct nvme_command *cmds;
@@ -209,8 +221,13 @@ prep_nvme_io(struct nvme *nvme, struct cudamem_heap *cuda_heap, uint8_t opc, voi
 		cmds[gid].opc = opc;
 		cmds[gid].cdw10 = gid; ///< SLBA == global IO index
 		cmds[gid].cdw12 = 0;   ///< NLB == 1 LBA
-		cmds[gid].prp1 = cudamem_heap_block_vtp(
-			cuda_heap, (uint8_t *)buffers + gid * BUF_SIZE);
+		cmds[gid].prp1 = dmamem_va_to_iova(cuda_dmem, (uint8_t *)buffers + gid * BUF_SIZE);
+		if (!cmds[gid].prp1) {
+			printf("FAILED: dmamem_va_to_iova(buffer %zu); not registered\n", gid);
+			free(cmds);
+			free(results);
+			return -EFAULT;
+		}
 	}
 
 	err = cuMemAlloc((CUdeviceptr *)&cu_cmds, num_ios * sizeof(*cmds));
@@ -350,13 +367,13 @@ main(int argc, char **argv)
 		}
 	}
 
-	err = prep_nvme_io(&nvme, &rte.cuda_heap, 0x1, write_buf, num_ios);
+	err = prep_nvme_io(&nvme, &rte.cuda_dmem, 0x1, write_buf, num_ios);
 	if (err) {
 		printf("FAILED: nvme_io(write); err(%d)\n", err);
 		goto exit;
 	}
 
-	err = prep_nvme_io(&nvme, &rte.cuda_heap, 0x2, read_buf, num_ios);
+	err = prep_nvme_io(&nvme, &rte.cuda_dmem, 0x2, read_buf, num_ios);
 	if (err) {
 		printf("FAILED: nvme_io(read); err(%d)\n", err);
 		goto exit;
