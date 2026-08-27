@@ -13,6 +13,13 @@ The helper accepts GPU device-physical addresses derived from the CUDA
 VFIO device, and returns a handle for removing those mappings. The test builds
 NVMe PRPs from the resulting IOVA range.
 
+uPCIe consumes it through `<upcie/dmamem_iommu_map_pa.h>`, which
+wraps the helper as a `dmamem_registry` backend decorator so device memory
+resolves through `dmamem_va_to_iova()` like everything else; see
+`dmamem_from_cuda_iommu_map_pa()` and `dmamem_from_hip_iommu_map_pa()`. The raw
+ioctl wrappers in `<upcie/experimental/iommu_map_pa.h>` remain available for
+callers that want to place mappings themselves.
+
 ## Safety limitations
 
 - The module calls `iommu_map()` on a live domain borrowed from
@@ -24,7 +31,14 @@ NVMe PRPs from the resulting IOVA range.
 - The caller-selected IOVA range must not overlap mappings managed by VFIO or
   iommufd.
 - Every experimental mapping must be removed before the VFIO container, HWPT,
-  or device attachment is destroyed or changed.
+  or device attachment is destroyed or changed. Through the dmamem decorator
+  that means destroying the dmamem before closing the NVMe controller.
+- The IOVA window the caller maps into is invisible to VFIO and iommufd, which
+  will hand out the same addresses unless told not to. Under iommufd, keep the
+  IOAS out of it with `dmamem_iommu_map_pa_reserve_window()`, after the target
+  device is attached and before any host memory is mapped: the reservation
+  constrains allocation from that call onwards, and mappings made before it
+  keep whatever IOVAs the kernel gave them, window or not.
 - Do not rebind the target device or alter its IOMMU domain while the helper
   file descriptor is open.
 
