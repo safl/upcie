@@ -78,17 +78,24 @@ nvme_controller_cuda_delete_io_qpair(struct nvme_controller *ctrlr,
  * Allocates a CUDA submission-queue, a CUDA completion-queue, and wraps them in
  * the nvme_qpair struct
  *
+ * The queues are allocated on `heap` and addressed through `dmem`, so
+ * `dmem` must be the one wrapping `heap`, from dmamem_from_cuda_registry()
+ * or dmamem_from_cuda_iommu_map_pa(). Whichever translator it carries then
+ * applies: a physical address with iommu=pt/off, an IOVA where an IOMMU
+ * translates for the controller.
+ *
  * @param ctrlr Pointer to a pre-allocated NVMe controller
  * @param qpair Pointer to a pre-allocated queue-pair (using CUDA)
  * @param depth The queue depth
  * @param heap Pointer to CUDA Heap
+ * @param dmem The dmamem wrapping `heap`; resolves the queue addresses
  *
  * @return 0 on success. Negative values indicate errno-style errors, positive values are CUresult errors.
  */
 static inline int
 nvme_controller_cuda_create_io_qpair(struct nvme_controller *ctrlr,
                                      struct nvme_qpair_cuda *qpair, uint16_t depth,
-                                     struct cudamem_heap *heap)
+                                     struct cudamem_heap *heap, struct dmamem *dmem)
 {
 	/* _qpair declared at function scope so sq/cq remain accessible when building
 	 * the Create I/O CQ/SQ admin commands below. This code is inlined here
@@ -96,8 +103,16 @@ nvme_controller_cuda_create_io_qpair(struct nvme_controller *ctrlr,
 	 * device-code compilation units.
 	 */
 	struct nvme_qpair_cuda _qpair = {0};
+	uint64_t sq_iova, cq_iova;
 	uint16_t qid;
 	int err;
+
+	/* An unrelated dmamem resolves the queues to a plausible-looking address
+	 * rather than to zero, which no later check would catch. */
+	if (!heap || !dmem || (dmem->base_va != (void *)(uintptr_t)heap->vaddr)) {
+		UPCIE_DEBUG("FAILED: dmem is not the dmamem wrapping heap");
+		return -EINVAL;
+	}
 
 	err = nvme_qid_find_free(ctrlr->qids);
 	if (err < 1) {
@@ -167,6 +182,14 @@ nvme_controller_cuda_create_io_qpair(struct nvme_controller *ctrlr,
 			return err;
 		}
 
+		sq_iova = dmamem_va_to_iova(dmem, _qpair.sq);
+		cq_iova = dmamem_va_to_iova(dmem, _qpair.cq);
+		if (!sq_iova || !cq_iova) {
+			err = -EFAULT;
+			UPCIE_DEBUG("FAILED: dmamem_va_to_iova(sq/cq); not registered");
+			goto free_cq;
+		}
+
 		err = cuMemcpyHtoD((CUdeviceptr)qpair, &_qpair, sizeof(_qpair));
 		if (err) {
 			UPCIE_DEBUG("FAILED: cuMemcpyHtoD(host QP -> device QP); CUresult(%d)", err);
@@ -183,7 +206,7 @@ nvme_controller_cuda_create_io_qpair(struct nvme_controller *ctrlr,
 		struct nvme_completion cpl = {0};
 
 		cmd.opc = 0x5; ///< Create I/O Completion Queue
-		cmd.prp1 = cudamem_heap_block_vtp(heap, _qpair.cq);
+		cmd.prp1 = cq_iova;
 		cmd.cdw10 = ((depth - 1) << 16) | qid;
 		cmd.cdw11 = 0x1; ///< Physically contigous
 
@@ -199,7 +222,7 @@ nvme_controller_cuda_create_io_qpair(struct nvme_controller *ctrlr,
 		struct nvme_completion cpl = {0};
 
 		cmd.opc = 0x1; ///< Create I/O Submission Queue
-		cmd.prp1 = cudamem_heap_block_vtp(heap, _qpair.sq);
+		cmd.prp1 = sq_iova;
 		cmd.cdw10 = ((depth - 1) << 16) | qid;
 		cmd.cdw11 = (qid << 16) | 0x1; ///< CQID and Physically contigous
 
