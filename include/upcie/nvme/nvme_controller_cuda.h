@@ -32,6 +32,7 @@ nvme_controller_cuda_delete_io_qpair(struct nvme_controller *ctrlr,
 	err = cuMemcpyDtoH(&_qpair, (CUdeviceptr)qpair, sizeof(_qpair));
 	if (err) {
 		UPCIE_DEBUG("FAILED: cuMemcpyDtoH(device QP -> host QP); CUresult(%d)", err);
+		return;
 	}
 
 	err = cuMemHostUnregister(_qpair.sqdb);
@@ -72,6 +73,8 @@ nvme_controller_cuda_delete_io_qpair(struct nvme_controller *ctrlr,
 
 	cudamem_heap_block_free(heap, _qpair.sq);
 	cudamem_heap_block_free(heap, _qpair.cq);
+
+	nvme_qid_free(ctrlr->qids, _qpair.qid);
 }
 
 /**
