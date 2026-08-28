@@ -244,6 +244,15 @@ nvme_cplane_msg_recv(int sock, struct nvme_cplane_msg *msg, int *fds, uint32_t *
 		}
 
 		if (!nread && fds && nfds) {
+			/* The kernel closes whatever did not fit, so a truncated
+			 * ancillary block is a short descriptor list that looks
+			 * like a complete one. Refuse it rather than proceed with
+			 * fewer descriptors than the peer sent. */
+			if (hdr.msg_flags & MSG_CTRUNC) {
+				UPCIE_DEBUG("FAILED: ancillary data truncated");
+				return -EPROTO;
+			}
+
 			cmsg = CMSG_FIRSTHDR(&hdr);
 			if (cmsg && (cmsg->cmsg_type == SCM_RIGHTS)) {
 				*nfds = (uint32_t)((cmsg->cmsg_len - CMSG_LEN(0)) / sizeof(int));
