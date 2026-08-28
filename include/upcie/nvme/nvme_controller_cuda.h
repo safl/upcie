@@ -143,8 +143,7 @@ nvme_controller_cuda_create_io_qpair(struct nvme_controller *ctrlr,
 		err = cuMemHostRegister(_qpair.cqdb, sizeof(uint32_t), CU_MEMHOSTREGISTER_IOMEMORY);
 		if (err) {
 			UPCIE_DEBUG("FAILED: cuMemHostRegister(cqdb); CUresult(%d)", err);
-			cuMemHostUnregister(_qpair.sqdb);
-			return err;
+			goto unregister_sqdb;
 		}
 
 		/* One element: the queue is created Physically Contiguous below. */
@@ -152,29 +151,20 @@ nvme_controller_cuda_create_io_qpair(struct nvme_controller *ctrlr,
 		if (!_qpair.sq) {
 			err = -errno;
 			UPCIE_DEBUG("FAILED: cudamem_dma_alloc_array(sq); errno(%d)", err);
-			cuMemHostUnregister(_qpair.sqdb);
-			cuMemHostUnregister(_qpair.cqdb);
-			return err;
+			goto unregister_cqdb;
 		}
 
 		_qpair.cq = cudamem_dma_alloc_array(heap, 1, nbytes);
 		if (!_qpair.cq) {
 			err = -errno;
 			UPCIE_DEBUG("FAILED: cudamem_dma_alloc_array(cq); errno(%d)", err);
-			cuMemHostUnregister(_qpair.sqdb);
-			cuMemHostUnregister(_qpair.cqdb);
-			cudamem_heap_block_free(heap, _qpair.sq);
-			return err;
+			goto free_sq;
 		}
 
 		err = cuMemcpyHtoD((CUdeviceptr)qpair, &_qpair, sizeof(_qpair));
 		if (err) {
 			UPCIE_DEBUG("FAILED: cuMemcpyHtoD(host QP -> device QP); CUresult(%d)", err);
-			cuMemHostUnregister(_qpair.sqdb);
-			cuMemHostUnregister(_qpair.cqdb);
-			cudamem_heap_block_free(heap, _qpair.sq);
-			cudamem_heap_block_free(heap, _qpair.cq);
-			return err;
+			goto free_cq;
 		}
 	}
 
@@ -211,4 +201,15 @@ nvme_controller_cuda_create_io_qpair(struct nvme_controller *ctrlr,
 	}
 
 	return 0;
+
+free_cq:
+	cudamem_heap_block_free(heap, _qpair.cq);
+free_sq:
+	cudamem_heap_block_free(heap, _qpair.sq);
+unregister_cqdb:
+	cuMemHostUnregister(_qpair.cqdb);
+unregister_sqdb:
+	cuMemHostUnregister(_qpair.sqdb);
+
+	return err;
 }
