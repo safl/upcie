@@ -128,6 +128,26 @@ nvme_controller_open(struct nvme_controller *ctrlr, const char *bdf, struct host
 }
 
 /**
+ * Sends a Delete I/O Completion Queue admin command for `qid`
+ *
+ * @param ctrlr Pointer to a pre-allocated NVMe controller
+ * @param qid The identifier of the completion-queue to delete
+ *
+ * @return 0 on success, negative errno on error.
+ */
+static inline int
+nvme_controller_delete_io_cq(struct nvme_controller *ctrlr, uint16_t qid)
+{
+	struct nvme_command cmd = {0};
+	struct nvme_completion cpl = {0};
+
+	cmd.opc = 0x4; ///< Delete I/O Completion Queue
+	cmd.cdw10 = qid;
+
+	return nvme_qpair_submit_sync(&ctrlr->aq, &cmd, ctrlr->timeout_ms, &cpl);
+}
+
+/**
  * Deletes the submission-queue and completion-queue and frees host-side resources.
  *
  * Sends Delete I/O SQ and Delete I/O CQ admin commands to the controller, then

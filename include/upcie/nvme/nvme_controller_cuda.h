@@ -100,7 +100,7 @@ nvme_controller_cuda_create_io_qpair(struct nvme_controller *ctrlr,
 	 */
 	struct nvme_qpair_cuda _qpair = {0};
 	uint16_t qid;
-	int err;
+	int err, del_err, qid_orphaned = 0;
 
 	err = nvme_qid_find_free(ctrlr->qids);
 	if (err < 1) {
@@ -197,8 +197,8 @@ nvme_controller_cuda_create_io_qpair(struct nvme_controller *ctrlr,
 
 		err = nvme_qpair_submit_sync(&ctrlr->aq, &cmd, ctrlr->timeout_ms, &cpl);
 		if (err) {
-			UPCIE_DEBUG("FAILED: nvme_qpair_submit_sync(); err(%d)", err);
-			return err;
+			UPCIE_DEBUG("FAILED: nvme_qpair_submit_sync(Create CQ); err(%d)", err);
+			goto free_cq;
 		}
 	}
 
@@ -213,13 +213,23 @@ nvme_controller_cuda_create_io_qpair(struct nvme_controller *ctrlr,
 
 		err = nvme_qpair_submit_sync(&ctrlr->aq, &cmd, ctrlr->timeout_ms, &cpl);
 		if (err) {
-			UPCIE_DEBUG("FAILED: nvme_qpair_submit_sync(); err(%d)", err);
-			return err;
+			UPCIE_DEBUG("FAILED: nvme_qpair_submit_sync(Create SQ); err(%d)", err);
+			goto delete_cq;
 		}
 	}
 
 	return 0;
 
+delete_cq:
+	/* Kept out of err, which carries the failure being unwound. */
+	del_err = nvme_controller_delete_io_cq(ctrlr, qid);
+	if (del_err) {
+		UPCIE_DEBUG("FAILED: nvme_controller_delete_io_cq(); err(%d)", del_err);
+
+		/* The controller still holds a completion queue under this qid, so the
+		 * qid is retired instead of returned to the pool */
+		qid_orphaned = 1;
+	}
 free_cq:
 	cudamem_heap_block_free(heap, _qpair.cq);
 free_sq:
@@ -229,7 +239,9 @@ unregister_cqdb:
 unregister_sqdb:
 	cuMemHostUnregister(_qpair.sqdb);
 free_qid:
-	nvme_qid_free(ctrlr->qids, qid);
+	if (!qid_orphaned) {
+		nvme_qid_free(ctrlr->qids, qid);
+	}
 
 	return err;
 }
