@@ -36,7 +36,9 @@
 #ifndef UPCIE_H
 #define UPCIE_H
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 
 #ifdef __cplusplus
 extern "C" {
