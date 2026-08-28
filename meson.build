@@ -42,6 +42,7 @@ install_headers(
     'include/upcie/dmamem_heap.h',
     'include/upcie/dmamem_hip.h',
     'include/upcie/dmamem_hostmem.h',
+    'include/upcie/dmamem_iommu_map_pa.h',
     'include/upcie/dmamem_memfd.h',
     'include/upcie/dmamem_registry.h',
     'include/upcie/hostmem_config.h',
