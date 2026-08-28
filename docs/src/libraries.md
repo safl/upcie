@@ -78,8 +78,9 @@ The descriptions below follow the bottom-up layering.
 `dmamem.h`
 : A region a device can read and write, plus the translation from a pointer
   into it to the address the device puts on the bus. One translator serves
-  every flavour: arithmetic from a base where a mapping was installed, or a
-  registry lookup where the addresses were not ours to choose.
+  every flavour, and which applies follows the shape of the region: arithmetic
+  from a base where it resolves as one contiguous range, a registry lookup
+  where it resolves per granule.
 
 `dmamem_registry.h`
 : Resolves arbitrarily many registered regions through a granule-indexed
