@@ -41,13 +41,13 @@
  * @version 0.8.0
  */
 
-#ifndef __UPCIE_NVME_DELEGATE_H
-#define __UPCIE_NVME_DELEGATE_H
+#ifndef __UPCIE_NVME_CPLANE_H
+#define __UPCIE_NVME_CPLANE_H
 
 /**
  * Bumped when the message layout changes, or when anything it describes does
  */
-#define NVME_CPLANE_VERSION 1U
+#define NVME_CPLANE_VERSION 2U
 
 enum nvme_cplane_op {
 	NVME_CPLANE_OP_ATTACH = 1,        ///< Client asks for the runtime; descriptors follow
@@ -57,25 +57,7 @@ enum nvme_cplane_op {
 	NVME_CPLANE_OP_ALLOC_BUF = 5,     ///< Client asks for DMA memory it cannot allocate
 	NVME_CPLANE_OP_FREE_BUF = 6,      ///< Client hands that memory back
 	NVME_CPLANE_OP_STATUS = 7,        ///< Anybody asks what the server is holding
-
-	/** Anybody asks which controllers the server holds, and what each has */
-	NVME_CPLANE_OP_LIST = 8,
 };
-/**
- * Controllers one reply can name
- *
- * A cap rather than a promise: a server holding more says so in `nheld`, and a
- * caller wanting the rest asks the controllers it did learn about.
- */
-#define NVME_CPLANE_LIST_MAX 16
-
-/**
- * Controllers one reply can name
- *
- * A cap rather than a promise: a server holding more says so in `nheld`, and a
- * caller wanting the rest asks the controllers it did learn about.
- */
-#define NVME_CPLANE_LIST_MAX 16
 
 /**
  * One message in either direction, request and reply sharing a layout
@@ -122,19 +104,6 @@ struct nvme_cplane_msg {
 
 			char bdf[16]; ///< The controller being served
 		} status;
-		struct {
-			uint32_t nctrlrs; ///< Reply: entries below that are filled
-			uint32_t nheld;   ///< Reply: held in all; exceeds nctrlrs when truncated
-
-			/** What the server holds, `nctrlrs` of them */
-			struct {
-				char bdf[16];       ///< The controller
-				uint32_t nioqpairs; ///< I/O queue pairs allocated on it
-				uint32_t nsq_total; ///< What it has; 0 means it did not answer
-				uint32_t ncq_total;
-				uint32_t _rsvd;
-			} ctrlrs[NVME_CPLANE_LIST_MAX];
-		} list;
 		struct {
 			struct nvme_command cmd;    ///< Request: what to submit
 			struct nvme_completion cpl; ///< Reply: what came back
@@ -359,4 +328,4 @@ nvme_cplane_admin_permitted(const struct nvme_command *cmd)
 	return 1;
 }
 
-#endif /* __UPCIE_NVME_DELEGATE_H */
+#endif /* __UPCIE_NVME_CPLANE_H */
