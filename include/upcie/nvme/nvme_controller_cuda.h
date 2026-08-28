@@ -140,7 +140,7 @@ nvme_controller_cuda_create_io_qpair(struct nvme_controller *ctrlr,
 		err = cuMemHostRegister(_qpair.sqdb, sizeof(uint32_t), CU_MEMHOSTREGISTER_IOMEMORY);
 		if (err) {
 			UPCIE_DEBUG("FAILED: cuMemHostRegister(sqdb); CUresult(%d)", err);
-			return err;
+			goto free_qid;
 		}
 
 		err = cuMemHostRegister(_qpair.cqdb, sizeof(uint32_t), CU_MEMHOSTREGISTER_IOMEMORY);
@@ -228,6 +228,8 @@ unregister_cqdb:
 	cuMemHostUnregister(_qpair.cqdb);
 unregister_sqdb:
 	cuMemHostUnregister(_qpair.sqdb);
+free_qid:
+	nvme_qid_free(ctrlr->qids, qid);
 
 	return err;
 }
