@@ -86,6 +86,9 @@ jobs:
         meson setup builddir
         meson compile -C builddir
 
+    - name: Run the tests that need no hardware
+      run: meson test -C builddir --print-errorlogs
+
     - name: Build a translation unit through the umbrella header
       run: |
         gcc -std=c11 -Wall -Wextra -Iinclude -c tests/test_vfioctl.c -o /tmp/test_vfioctl.o
