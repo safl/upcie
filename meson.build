@@ -61,6 +61,7 @@ install_headers(
     'include/upcie/upcie.h',
     'include/upcie/upcie_cuda.h',
     'include/upcie/upcie_hip.h',
+    'include/upcie/upcie_versions.h',
     'include/upcie/vfioctl.h',
   ],
   subdir: 'upcie'

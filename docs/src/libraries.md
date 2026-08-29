@@ -17,6 +17,10 @@ The descriptions below follow the bottom-up layering.
 : Conditional debug logging behind a single `UPCIE_DEBUG` macro. Enabled for
   debug builds and compiled out otherwise.
 
+`upcie_versions.h`
+: The versions of the layouts one process hands another, such as the shared
+  heap's description, kept apart from the library version.
+
 `mmio.h`
 : Volatile 32-bit and 64-bit load and store helpers for MMIO access, suited to
   PCI BARs and device registers.

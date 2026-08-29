@@ -21,6 +21,11 @@ Doxygen and Breathe. For a narrative overview of what each header is for, see
 ```{doxygenfile} upcie/mmio.h
 ```
 
+### upcie_versions.h
+
+```{doxygenfile} upcie/upcie_versions.h
+```
+
 ## PCI and VFIO
 
 ### pci.h
@@ -48,6 +53,11 @@ Doxygen and Breathe. For a narrative overview of what each header is for, see
 ### hostmem_dma.h
 
 ```{doxygenfile} upcie/hostmem_dma.h
+```
+
+### dmamem_hostmem.h
+
+```{doxygenfile} upcie/dmamem_hostmem.h
 ```
 
 ## dma-buf
