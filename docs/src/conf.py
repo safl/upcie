@@ -19,6 +19,7 @@ extensions = [
     "myst_parser",
     "sphinx_copybutton",
     "breathe",
+    "sphinxcontrib.mermaid",
 ]
 
 myst_enable_extensions = [
