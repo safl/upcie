@@ -58,6 +58,7 @@ extern "C" {
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
@@ -108,6 +109,7 @@ extern "C" {
 #include <upcie/nvme/nvme_qpair.h>
 #include <upcie/nvme/nvme_controller.h>
 #include <upcie/nvme/nvme_runtime_record.h>
+#include <upcie/nvme/nvme_cplane.h>
 #include <upcie/nvme/nvme_controller_vfio_pci.h>
 #include <upcie/nvme/nvme_controller_vfio.h>
 #include <upcie/nvme/nvme_controller_dmamem_vfio.h>
