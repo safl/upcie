@@ -212,20 +212,35 @@ nvme_cplane_msg_recv(int sock, struct nvme_cplane_msg *msg, int *fds, uint32_t *
 			return -ENOTCONN;
 		}
 
-		if (!nread && fds && nfds) {
-			/* The kernel closes whatever did not fit, so a truncated
-			 * ancillary block is a short descriptor list that looks
-			 * like a complete one. Refuse it rather than proceed with
-			 * fewer descriptors than the peer sent. */
-			if (hdr.msg_flags & MSG_CTRUNC) {
-				UPCIE_DEBUG("FAILED: ancillary data truncated");
-				return -EPROTO;
-			}
+		if (!nread) {
+			int got[NVME_CPLANE_FDS_MAX];
+			uint32_t ngot = 0;
 
 			cmsg = CMSG_FIRSTHDR(&hdr);
 			if (cmsg && (cmsg->cmsg_type == SCM_RIGHTS)) {
-				*nfds = (uint32_t)((cmsg->cmsg_len - CMSG_LEN(0)) / sizeof(int));
-				memcpy(fds, CMSG_DATA(cmsg), sizeof(int) * (*nfds));
+				ngot = (uint32_t)((cmsg->cmsg_len - CMSG_LEN(0)) / sizeof(int));
+				if (ngot > NVME_CPLANE_FDS_MAX) {
+					ngot = NVME_CPLANE_FDS_MAX;
+				}
+				memcpy(got, CMSG_DATA(cmsg), sizeof(int) * ngot);
+			}
+
+			/* Whatever fit is installed in this process the moment
+			 * recvmsg returns, whether or not it was asked for, so a
+			 * caller wanting none still has to close them. A server
+			 * reading requests passes none and would otherwise leak a
+			 * descriptor per request a peer chose to attach. */
+			if (!fds || !nfds || (hdr.msg_flags & MSG_CTRUNC)) {
+				for (uint32_t i = 0; i < ngot; ++i) {
+					close(got[i]);
+				}
+				if (hdr.msg_flags & MSG_CTRUNC) {
+					UPCIE_DEBUG("FAILED: ancillary data truncated");
+					return -EPROTO;
+				}
+			} else {
+				*nfds = ngot;
+				memcpy(fds, got, sizeof(int) * ngot);
 			}
 		}
 
