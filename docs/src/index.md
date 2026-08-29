@@ -49,5 +49,6 @@ build-and-test
 :caption: Reference
 
 libraries
+cplane
 api
 ```
