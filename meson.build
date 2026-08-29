@@ -68,7 +68,7 @@ install_headers(
 # Separate call: install_headers() flattens its file list into one subdir, so
 # headers that must land in upcie/experimental/ cannot ride along with the list
 # above. upcie.h includes these, so leaving them out breaks every installed
-# consumer.
+# client.
 install_headers(
   [
     'include/upcie/experimental/dmabuf_import.h',
@@ -84,6 +84,7 @@ install_headers(
     'include/upcie/nvme/nvme_command.h',
     'include/upcie/nvme/nvme_controller.h',
     'include/upcie/nvme/nvme_runtime_record.h',
+    'include/upcie/nvme/nvme_cplane.h',
     'include/upcie/nvme/nvme_controller_dmamem_type1.h',
     'include/upcie/nvme/nvme_controller_dmamem_uio.h',
     'include/upcie/nvme/nvme_controller_dmamem_vfio.h',
