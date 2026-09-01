@@ -462,6 +462,21 @@ rollback_qpair:
 
 /**
  * Tear down an I/O queue pair created with the dmamem variant.
+ *
+ * The memory and the identifier are given back only when the controller has
+ * confirmed both deletes. A delete that failed leaves the queue live as far as
+ * the controller is concerned, so the memory behind it is still a DMA target
+ * and the identifier is still taken; both are kept, for the life of the
+ * runtime, rather than handed to the next allocation or the next create.
+ *
+ * @param ctrlr The controller the queue pair was created on
+ * @param qp The queue pair to delete
+ * @param heap The dmamem_heap its memory was carved from
+ * @param sq_offset Heap offset of the SQ, as returned at creation
+ * @param cq_offset Heap offset of the CQ, as returned at creation
+ * @param prp_offset Heap offset of the PRP scratch, as returned at creation
+ *
+ * @return 0 when the controller let go, the first delete's error otherwise
  */
 static inline int
 nvme_controller_delete_io_qpair_dmamem(struct nvme_controller *ctrlr, struct nvme_qpair *qp,
@@ -490,7 +505,15 @@ nvme_controller_delete_io_qpair_dmamem(struct nvme_controller *ctrlr, struct nvm
 		first_err = err;
 	}
 
+	if (first_err) {
+		UPCIE_DEBUG("FAILED: delete(qid=%u); err(%d), keeping its memory and its id",
+			    qid, first_err);
+
+		return first_err;
+	}
+
 	nvme_qpair_dmamem_term(qp, heap, sq_offset, cq_offset, prp_offset);
 	nvme_qid_free(ctrlr->qids, qid);
-	return first_err;
+
+	return 0;
 }
