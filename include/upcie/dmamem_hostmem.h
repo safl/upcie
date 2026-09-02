@@ -239,18 +239,24 @@ hostmem_shared_desc_fill_arithmetic(struct hostmem_shared_desc *desc, size_t nby
  * registry is populated for this process's own mapping, since the table is
  * indexed by address and one process's addresses are not another's. An
  * ARITHMETIC description indexes nothing: the device resolves the whole region
- * from one base, and this process's addresses do not enter into it.
+ * from one base, and this process's addresses do not enter into it. How the
+ * memory was obtained does not enter into it, so host memory from a hugepage
+ * and device memory from a GPU runtime arrive here the same way; what the
+ * caller has to say is which it is.
  *
  * @param dmem Pre-allocated dmamem to fill
  * @param base This process's mapping of the shared region
  * @param desc The server's description, found at the offset it named
  * @param va_bits Bounds the LUT reservation; 0 selects the default
+ * @param backing What the region actually is. Device memory gets no CPU
+ *        mapping recorded: base is where the device's addresses start, not
+ *        where a load or store would land
  *
  * @return 0 on success, negative errno on failure
  */
 static inline int
-dmamem_from_shared_hostmem(struct dmamem *dmem, void *base, const struct hostmem_shared_desc *desc,
-			   int va_bits)
+dmamem_from_shared(struct dmamem *dmem, void *base, const struct hostmem_shared_desc *desc,
+		   int va_bits, enum dmamem_backing backing)
 {
 	int err;
 
@@ -267,11 +273,11 @@ dmamem_from_shared_hostmem(struct dmamem *dmem, void *base, const struct hostmem
 
 	if (desc->kind == HOSTMEM_SHARED_ARITHMETIC) {
 		dmem->fd = -1;
-		dmem->cpu_va = base;
+		dmem->cpu_va = (backing == DMAMEM_BACKING_HOSTMEM) ? base : NULL;
 		dmem->base_va = base;
 		dmem->base_iova = desc->base_addr;
 		dmem->size = desc->nbytes;
-		dmem->backing = DMAMEM_BACKING_HOSTMEM;
+		dmem->backing = backing;
 		dmem->translator = DMAMEM_XLATE_ARITHMETIC;
 		dmem->owned = 0;
 
@@ -294,14 +300,31 @@ dmamem_from_shared_hostmem(struct dmamem *dmem, void *base, const struct hostmem
 	}
 
 	dmem->fd = -1;
-	dmem->cpu_va = base;
+	dmem->cpu_va = (backing == DMAMEM_BACKING_HOSTMEM) ? base : NULL;
 	dmem->base_va = base;
 	dmem->size = desc->nbytes;
-	dmem->backing = DMAMEM_BACKING_HOSTMEM;
+	dmem->backing = backing;
 	dmem->translator = DMAMEM_XLATE_LUT;
 	dmem->owned = 0;
 
 	return 0;
+}
+
+/**
+ * Build a dmamem over shared host memory; see dmamem_from_shared()
+ *
+ * @param dmem Pre-allocated dmamem to fill
+ * @param base This process's mapping of the shared region
+ * @param desc The server's description, found at the offset it named
+ * @param va_bits Bounds the LUT reservation; 0 selects the default
+ *
+ * @return 0 on success, negative errno on failure
+ */
+static inline int
+dmamem_from_shared_hostmem(struct dmamem *dmem, void *base, const struct hostmem_shared_desc *desc,
+			   int va_bits)
+{
+	return dmamem_from_shared(dmem, base, desc, va_bits, DMAMEM_BACKING_HOSTMEM);
 }
 
 /**
