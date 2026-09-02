@@ -32,6 +32,7 @@ main(void)
 	struct hostmem_hugepage hp = {0};
 	struct dmamem owned = {0};
 	struct dmamem shared = {0};
+	struct dmamem device = {0};
 	size_t probes[] = {0, 4096, NBYTES / 2, NBYTES - 4096};
 	void *second;
 	int err;
@@ -88,6 +89,36 @@ main(void)
 		}
 	}
 	printf("# LGTM: both mappings agree on where every probed offset lives\n");
+
+	/* The same description, read as device memory. What backs a region is
+	 * not what translates it, which is what lets a client register memory
+	 * the server never allocated and still be told where it lives. */
+	err = dmamem_from_shared(&device, second, desc, 0, DMAMEM_BACKING_CUDAMEM);
+	if (err) {
+		printf("# FAILED: dmamem_from_shared(cudamem); err(%d)\n", err);
+		return 1;
+	}
+	if (device.backing != DMAMEM_BACKING_CUDAMEM) {
+		printf("# FAILED: backing(%d) is not what was asked for\n", (int)device.backing);
+		return 1;
+	}
+	if (device.cpu_va) {
+		printf("# FAILED: device memory was given a CPU mapping\n");
+		return 1;
+	}
+	for (size_t i = 0; i < sizeof(probes) / sizeof(*probes); ++i) {
+		uint64_t a = dmamem_offset_to_iova(&owned, probes[i]);
+		uint64_t c = dmamem_offset_to_iova(&device, probes[i]);
+
+		if (a != c) {
+			printf("# FAILED: offset 0x%zx resolves to 0x%" PRIx64
+			       " as host and 0x%" PRIx64 " as device\n",
+			       probes[i], a, c);
+			return 1;
+		}
+	}
+	printf("# LGTM: the description resolves the same whatever backs it\n");
+	dmamem_destroy(&device);
 
 	/* And the memory really is the same memory. */
 	memset((char *)hp.virt + 8192, 0xA5, 4096);
