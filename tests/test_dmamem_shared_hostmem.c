@@ -120,6 +120,37 @@ main(void)
 	printf("# LGTM: the description resolves the same whatever backs it\n");
 	dmamem_destroy(&device);
 
+	/* Naming memory by offset is what a registering client does, so the
+	 * same description has to answer for a run rather than a byte. */
+	for (size_t i = 0; i < sizeof(probes) / sizeof(*probes); ++i) {
+		uint64_t want = dmamem_offset_to_iova(&owned, probes[i]);
+		uint64_t got = 0;
+
+		err = hostmem_shared_desc_addr(desc, probes[i], 4096, &got);
+		if (err || (got != want)) {
+			printf("# FAILED: desc_addr(0x%zx); err(%d) got(0x%" PRIx64
+			       ") want(0x%" PRIx64 ")\n",
+			       probes[i], err, got, want);
+			return 1;
+		}
+	}
+	{
+		uint64_t gran = (uint64_t)1 << desc->gran_shift;
+		uint64_t addr = 0;
+
+		/* A run straddling two granules has no single address, since
+		 * what follows a granule is wherever the next one landed. */
+		if (hostmem_shared_desc_addr(desc, gran - 2048, 4096, &addr) != -ERANGE) {
+			printf("# FAILED: a run across a granule boundary was answered\n");
+			return 1;
+		}
+		if (hostmem_shared_desc_addr(desc, desc->nbytes, 1, &addr) != -ERANGE) {
+			printf("# FAILED: an offset past the region was answered\n");
+			return 1;
+		}
+	}
+	printf("# LGTM: offsets resolve, and runs that no address covers are refused\n");
+
 	/* And the memory really is the same memory. */
 	memset((char *)hp.virt + 8192, 0xA5, 4096);
 	if (memcmp((char *)hp.virt + 8192, (char *)second + 8192, 4096)) {

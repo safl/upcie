@@ -47,15 +47,15 @@
 /**
  * Bumped when the message layout changes, or when anything it describes does
  *
- * Starts at three, not one. The layouts it skips exist in pre-release builds
+ * Starts at four, not one. The layouts it skips exist in pre-release builds
  * of this branch: one had no `index`, so the payload sat eight bytes earlier
- * and the whole message was shorter, and two lacked the registration
- * operations. The version field is at the same offset in all of them, so a
- * server built from one would read a version it recognises and then act on a
- * payload that has moved. Skipping the numbers is what makes it refuse
- * instead, and it costs nothing to do.
+ * and the whole message was shorter, two lacked the registration operations,
+ * and three could not build a queue on a client's own memory. The version field is at the same
+ * offset in all of them, so a server built from one would read a version it recognises and then
+ * act on a payload that has moved. Skipping the numbers is what makes it refuse instead, and it
+ * costs nothing to do.
  */
-#define NVME_CPLANE_VERSION 3U
+#define NVME_CPLANE_VERSION 4U
 
 enum nvme_cplane_op {
 	/**
@@ -96,6 +96,23 @@ enum nvme_cplane_op {
 	 */
 	NVME_CPLANE_OP_REGISTER_MEM = 8,
 	NVME_CPLANE_OP_UNREGISTER_MEM = 9, ///< Client hands a registration back
+
+	/**
+	 * Client asks for a queue built on memory it registered
+	 *
+	 * A queue the server allocates lives in the server's heap, which is
+	 * host memory. That is what a client submitting from the host wants,
+	 * and it is no use to a GPU issuing I/O itself: the kernel writing the
+	 * submission entries has to reach them, so the queue has to live where
+	 * the kernel runs.
+	 *
+	 * The client allocates the queue in its own memory and names it by
+	 * offset into a region it registered, so it can only ever name memory
+	 * of its own. What stays with the server is what only the server can
+	 * do: the identifier space, and the admin queue the Create I/O
+	 * Submission and Completion commands go on.
+	 */
+	NVME_CPLANE_OP_ALLOC_IOQPAIR_AT = 10,
 };
 
 /**
@@ -201,6 +218,14 @@ struct nvme_cplane_msg {
 			uint32_t page_size;
 			uint32_t _rsvd;
 		} reg;
+		struct {
+			uint64_t desc_offset; ///< Request: which registration it lives in
+			uint64_t sq_offset;   ///< Request: submission queue, from the region
+			uint64_t cq_offset;   ///< Request: completion queue, from the region
+			uint32_t qid;         ///< Reply: the identifier allocated
+			uint16_t depth;       ///< Request: entries wanted
+			uint16_t _rsvd;
+		} queue_at;
 	} u;
 };
 

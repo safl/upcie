@@ -169,6 +169,56 @@ struct hostmem_shared_desc {
 #define HOSTMEM_SHARED_DESC_VERSION 1U
 
 /**
+ * Where an offset into a described region lands, as the device sees it
+ *
+ * The server side of a registration: a client names memory by offset into a
+ * region it registered, never by address, so it can only ever name its own.
+ * Turning that into an address is this, and it is also where a run that no
+ * single address can cover is refused.
+ *
+ * @param desc The description, as the registering side left it
+ * @param offset Byte offset from the region's base
+ * @param nbytes How much has to be addressable in one run from there
+ * @param addr Set to the DMA address on success
+ *
+ * @return 0 on success, negative errno on failure
+ */
+static inline int
+hostmem_shared_desc_addr(const struct hostmem_shared_desc *desc, uint64_t offset, uint64_t nbytes,
+			 uint64_t *addr)
+{
+	uint64_t gran, within;
+
+	if (!desc || !addr || !nbytes) {
+		return -EINVAL;
+	}
+	if ((offset > desc->nbytes) || (nbytes > (desc->nbytes - offset))) {
+		return -ERANGE;
+	}
+
+	if (HOSTMEM_SHARED_ARITHMETIC == desc->kind) {
+		*addr = desc->base_addr + offset;
+		return 0;
+	}
+
+	gran = (uint64_t)1 << desc->gran_shift;
+	within = offset & (gran - 1);
+
+	/* A run leaving the granule it starts in is not one address to the
+	 * device, since the granule after it can sit anywhere. */
+	if ((within + nbytes) > gran) {
+		return -ERANGE;
+	}
+	if ((offset >> desc->gran_shift) >= desc->nphys) {
+		return -ERANGE;
+	}
+
+	*addr = desc->phys[offset >> desc->gran_shift] + within;
+
+	return 0;
+}
+
+/**
  * What to allocate for a description of a region with this many granules
  */
 static inline size_t
