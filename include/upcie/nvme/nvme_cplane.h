@@ -47,14 +47,15 @@
 /**
  * Bumped when the message layout changes, or when anything it describes does
  *
- * Starts at two rather than one. Layout one exists in pre-release builds of
- * this branch: it had no `index`, so the payload sat eight bytes earlier and
- * the whole message was eight bytes shorter. The version field is at the same
- * offset in both, so a server built from one of those would read a version it
- * recognises and then act on a payload that has moved. Skipping the number is
- * what makes it refuse instead, and it costs nothing to do once.
+ * Starts at three, not one. The layouts it skips exist in pre-release builds
+ * of this branch: one had no `index`, so the payload sat eight bytes earlier
+ * and the whole message was shorter, and two lacked the registration
+ * operations. The version field is at the same offset in all of them, so a
+ * server built from one would read a version it recognises and then act on a
+ * payload that has moved. Skipping the numbers is what makes it refuse
+ * instead, and it costs nothing to do.
  */
-#define NVME_CPLANE_VERSION 2U
+#define NVME_CPLANE_VERSION 3U
 
 enum nvme_cplane_op {
 	/**
@@ -78,6 +79,23 @@ enum nvme_cplane_op {
 	NVME_CPLANE_OP_ALLOC_BUF = 5,     ///< Client asks for DMA memory it cannot allocate
 	NVME_CPLANE_OP_FREE_BUF = 6,      ///< Client hands that memory back
 	NVME_CPLANE_OP_STATUS = 7,        ///< Anybody asks what the server is holding
+
+	/**
+	 * Client asks for memory of its own to be made reachable
+	 *
+	 * The heap a server hands out is host memory it owns. A client with
+	 * device memory has neither: it allocated the memory itself, and the
+	 * addresses it resolves through are its own, where the controller
+	 * consumes the server's. So it sends a dma-buf naming the region and
+	 * the server describes it in terms the controller can use.
+	 *
+	 * The reply is an offset rather than an address, because the answer is
+	 * a description and in the absence of an IOMMU that description is a
+	 * table with an entry per granule. It goes in the heap, which the
+	 * client has mapped, and the offset names it.
+	 */
+	NVME_CPLANE_OP_REGISTER_MEM = 8,
+	NVME_CPLANE_OP_UNREGISTER_MEM = 9, ///< Client hands a registration back
 };
 
 /**
@@ -169,8 +187,28 @@ struct nvme_cplane_msg {
 			struct nvme_command cmd;    ///< Request: what to submit
 			struct nvme_completion cpl; ///< Reply: what came back
 		} admin;
+		struct {
+			uint64_t nbytes;      ///< Request: how much the descriptor covers
+			uint64_t desc_offset; ///< Reply, and the request when releasing
+
+			/**
+			 * Request: the granule the region is addressed in
+			 *
+			 * The client's, not the server's: it allocated the
+			 * memory and knows what its runtime hands out, where
+			 * the server has only a descriptor and no way to ask.
+			 */
+			uint32_t page_size;
+			uint32_t _rsvd;
+		} reg;
 	} u;
 };
+
+/* The wire format is fixed, so a change to its size is a change every peer has
+ * to agree on. Catching that here is what makes the version discipline above
+ * enforceable rather than remembered. */
+UPCIE_STATIC_ASSERT(sizeof(struct nvme_cplane_msg) == 104,
+		    "nvme_cplane_msg changed size; bump NVME_CPLANE_VERSION")
 
 #define NVME_CPLANE_FDS_MAX 3 ///< device, iommufd, heap
 
@@ -405,14 +443,15 @@ nvme_cplane_msg_recv_some(int sock, struct nvme_cplane_msg *msg, size_t *nread, 
  * @return 0 on success, the peer's status when it refused, negative errno on error
  */
 static inline int
-nvme_cplane_request(int sock, struct nvme_cplane_msg *msg, int *fds, uint32_t *nfds)
+nvme_cplane_request_with(int sock, struct nvme_cplane_msg *msg, const int *send_fds,
+			 uint32_t send_nfds, int *fds, uint32_t *nfds)
 {
 	int err;
 
 	msg->version = NVME_CPLANE_VERSION;
 	msg->status = 0;
 
-	err = nvme_cplane_msg_send(sock, msg, NULL, 0);
+	err = nvme_cplane_msg_send(sock, msg, send_fds, send_nfds);
 	if (err) {
 		return err;
 	}
@@ -429,6 +468,15 @@ nvme_cplane_request(int sock, struct nvme_cplane_msg *msg, int *fds, uint32_t *n
 	}
 
 	return msg->status;
+}
+
+/**
+ * Ask a peer for something, sending nothing but the message
+ */
+static inline int
+nvme_cplane_request(int sock, struct nvme_cplane_msg *msg, int *fds, uint32_t *nfds)
+{
+	return nvme_cplane_request_with(sock, msg, NULL, 0, fds, nfds);
 }
 
 /**
