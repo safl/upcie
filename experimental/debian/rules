@@ -53,6 +53,11 @@ override_dh_install:
 		iommu_map_pa/README.md \
 		$(DKMS_TREE)/iommu_map_pa/
 
+	# systemd reads modules-load.d at boot. Shipped under /usr/lib so the admin
+	# keeps /etc for overriding it; see the file for how to mask it.
+	install -D -m0644 debian/modules-load.conf \
+		$(DESTDIR)/usr/lib/modules-load.d/upcie-experimental.conf
+
 	# Install the UAPI headers system-wide so consumers can build against the
 	# ioctls without vendoring: #include <linux/dmabuf_import.h>
 	#

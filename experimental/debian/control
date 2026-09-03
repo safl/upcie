@@ -37,5 +37,9 @@ Description: experimental out-of-tree modules used by upcie (DKMS)
  Both are experimental. iommu_map_pa in particular borrows a live IOMMU domain
  it does not own and bypasses VFIO and iommufd IOVA accounting; its device node
  is root-only because mapping arbitrary physical addresses for a DMA-capable
- device is equivalent to raw physical memory access. Neither module is loaded
- automatically; modprobe them when they are wanted.
+ device is equivalent to raw physical memory access.
+ .
+ Neither module has hardware to match on, so nothing would autoload them.
+ Installing the package therefore loads both and arranges for them to load on
+ boot, which is what makes the experimental paths work without further steps.
+ Mask /usr/lib/modules-load.d/upcie-experimental.conf to stop that.

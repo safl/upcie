@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+# DKMS builds and installs the modules from the fragment below, so the modprobe
+# has to come after it.
+#DEBHELPER#
+
+# systemd-modules-load.service reads modules-load.d at boot; load them now too,
+# so installing the package is enough. Never fail the install over it: a machine
+# with Secure Boot on and no enrolled MOK cannot load an unsigned module, and
+# that is a thing to report, not to abort on.
+if [ "$1" = "configure" ] && [ -d /run/systemd/system ]; then
+	for mod in dmabuf_import iommu_map_pa; do
+		modprobe "$mod" || echo "upcie-experimental-dkms: could not load $mod;" \
+			"check dmesg, and whether Secure Boot requires a signed module" >&2
+	done
+fi
