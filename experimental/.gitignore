@@ -1,0 +1,32 @@
+# Kernel module build artifacts
+*.o
+*.ko
+*.mod
+*.mod.c
+*.mod.o
+.*.cmd
+Module.symvers
+*.symvers
+modules.order
+*.order
+.tmp_versions/
+
+# Examples, probes and tests built by dmabuf_import/Makefile. Each binary takes
+# its source's basename without the extension, so ignore those and keep the
+# sources; that way a new target needs no edit here.
+dmabuf_import/dmabuf_import_*
+!dmabuf_import/dmabuf_import_*.c
+!dmabuf_import/dmabuf_import_*.h
+dmabuf_import/test/dmabuf_import_*
+!dmabuf_import/test/dmabuf_import_*.c
+
+# Debian packaging build output
+debian/.debhelper/
+debian/files
+debian/*.substvars
+debian/debhelper-build-stamp
+debian/upcie-experimental-dkms/
+# Note: *.debhelper covers the generated *.dkms.debhelper, but not the
+# hand-written debian/upcie-experimental-dkms.dkms that dh_dkms reads.
+debian/*.debhelper
+debian/*.debhelper.log

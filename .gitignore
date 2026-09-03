@@ -3,3 +3,9 @@ build
 docs/xml
 __pycache__
 cijoe-output/
+
+# Output of the experimental DKMS package build, which lands beside the
+# experimental/ source directory
+*.deb
+*.buildinfo
+*.changes

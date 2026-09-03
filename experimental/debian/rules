@@ -1,0 +1,69 @@
+#!/usr/bin/make -f
+# DKMS source package for the experimental out-of-tree modules.
+#
+# The modules are not compiled at package-build time; DKMS builds them on the
+# target against the running kernel. dh_dkms installs debian/*.dkms as the
+# dkms.conf and wires up the maintainer scripts (dkms add/build/install).
+#
+# One binary package ships both modules, because the experimental paths need
+# both. They keep separate subdirectories in the DKMS source tree so each stays
+# a module one can point at, with its own README, author and licence.
+#
+# Nothing here is built by debhelper: the dh_auto_* steps are neutralised so a
+# build system landing in this directory later cannot start running at package
+# build time.
+#
+# Version is a single source of truth: the (native) upstream version from the
+# changelog drives the module source path and the DKMS module version, so the
+# deb version, /usr/src/upcie-experimental-<ver> tree, and dkms.conf
+# PACKAGE_VERSION never drift. That version tracks upcie itself; `make bump`
+# writes the changelog entry and CI asserts the two agree.
+
+export DH_VERBOSE = 1
+
+VERSION := $(shell dpkg-parsechangelog -SVersion)
+PACKAGE := upcie-experimental
+DESTDIR := debian/$(PACKAGE)-dkms
+DKMS_TREE := $(DESTDIR)/usr/src/$(PACKAGE)-$(VERSION)
+
+%:
+	dh $@ --with dkms
+
+override_dh_auto_configure:
+override_dh_auto_build:
+override_dh_auto_test:
+override_dh_auto_install:
+override_dh_auto_clean:
+
+override_dh_install:
+	install -d $(DKMS_TREE)
+	install -m0644 dkms/Makefile $(DKMS_TREE)/Makefile
+
+	install -d $(DKMS_TREE)/dmabuf_import
+	install -m0644 dmabuf_import/module/dmabuf_import.c \
+		dmabuf_import/module/dmabuf_import.h \
+		dmabuf_import/module/Makefile \
+		dmabuf_import/README.rst \
+		$(DKMS_TREE)/dmabuf_import/
+
+	install -d $(DKMS_TREE)/iommu_map_pa
+	install -m0644 iommu_map_pa/module/iommu_map_pa.c \
+		iommu_map_pa/module/iommu_map_pa.h \
+		iommu_map_pa/module/Makefile \
+		iommu_map_pa/README.md \
+		$(DKMS_TREE)/iommu_map_pa/
+
+	# Install the UAPI headers system-wide so consumers can build against the
+	# ioctls without vendoring: #include <linux/dmabuf_import.h>
+	#
+	# /usr/include/linux/ is owned by linux-libc-dev, so this is a deliberate
+	# bet: if a future linux-libc-dev ever ships a file of either name the two
+	# collide and this package stops installing. Judged unlikely enough, and it
+	# is the path consumers expect a kernel UAPI to live at.
+	install -D -m0644 dmabuf_import/module/dmabuf_import.h \
+		$(DESTDIR)/usr/include/linux/dmabuf_import.h
+	install -D -m0644 iommu_map_pa/module/iommu_map_pa.h \
+		$(DESTDIR)/usr/include/linux/iommu_map_pa.h
+
+override_dh_dkms:
+	dh_dkms -V $(VERSION)

@@ -1,0 +1,41 @@
+Source: upcie-experimental
+Section: kernel
+Priority: optional
+Maintainer: Simon A. F. Lund <os@safl.dk>
+Uploaders: Jaeyoon Choi <j_yoon.choi@samsung.com>
+Build-Depends: debhelper-compat (= 13), dh-dkms | dkms
+Standards-Version: 4.7.0
+Homepage: https://github.com/safl/upcie
+Rules-Requires-Root: no
+
+Package: upcie-experimental-dkms
+Architecture: all
+Depends: ${misc:Depends}, dkms
+Provides: dmabuf-import-dkms, iommu-map-pa-dkms
+Conflicts: dmabuf-import-dkms, iommu-map-pa-dkms,
+ udmabuf-import-dkms, upcie-iommu-map-dkms
+Replaces: dmabuf-import-dkms, iommu-map-pa-dkms,
+ udmabuf-import-dkms, upcie-iommu-map-dkms
+Description: experimental out-of-tree modules used by upcie (DKMS)
+ Both out-of-tree kernel modules the experimental upcie paths need, built and
+ installed via DKMS so they rebuild automatically on kernel updates with no
+ custom kernel required. They are unlocked together because the paths that use
+ them need both; each remains a separate module with its own author, licence
+ and rationale, documented in /usr/src/upcie-experimental-<version>/.
+ .
+ dmabuf_import serves the dma-buf import ioctls (DMABUF_IMPORT_ATTACH /
+ DMABUF_IMPORT_DETACH / DMABUF_IMPORT_GET_MAP) on /dev/dmabuf_import. It imports
+ an external dma-buf, whoever exported it, and shares its DMA addresses with
+ userspace.
+ .
+ iommu_map_pa serves the IOMMU_MAP_PA / IOMMU_UNMAP_PA ioctls on
+ /dev/iommu_map_pa. Given a PCI BDF, an array of physical addresses and a
+ userspace-chosen IOVA base, it installs the addresses into the IOMMU domain
+ the device currently uses, which is what makes GPU memory reachable for P2P
+ DMA from a VFIO-controlled NVMe.
+ .
+ Both are experimental. iommu_map_pa in particular borrows a live IOMMU domain
+ it does not own and bypasses VFIO and iommufd IOVA accounting; its device node
+ is root-only because mapping arbitrary physical addresses for a DMA-capable
+ device is equivalent to raw physical memory access. Neither module is loaded
+ automatically; modprobe them when they are wanted.

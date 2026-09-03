@@ -1,12 +1,20 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: iommu-map-pa
+Upstream-Name: upcie-experimental
 Source: https://github.com/safl/upcie
 
 Files: *
+Copyright: 2026 Simon A. F. Lund <os@safl.dk>
+License: GPL-2.0
+
+Files: dmabuf_import/*
+Copyright: 2024 Karl Bonde Torp <k.torp@samsung.com>
+License: GPL-2.0
+
+Files: iommu_map_pa/*
 Copyright: 2026 Jaeyoon Choi <j_yoon.choi@samsung.com>
 License: BSD-3-Clause
 
-Files: module/* debian/*
+Files: iommu_map_pa/module/*
 Copyright: 2026 Jaeyoon Choi <j_yoon.choi@samsung.com>
 License: GPL-2.0
 

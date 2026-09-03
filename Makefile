@@ -6,7 +6,7 @@ VERSION ?= 0.8.0
 #   configs/ubuntu-2604-iommu_enabled.toml   IOMMU enabled, vfio-pci + iommufd
 CIJOE_CONFIG ?= configs/ubuntu-2604-iommu_disabled.toml
 
-.PHONY: all config build verify verify-iommu-disabled verify-iommu-enabled deploy test guest install uninstall clean docs
+.PHONY: all config build verify verify-iommu-disabled verify-iommu-enabled deploy test guest install uninstall clean docs dkms-deb dkms-version-check
 
 all: clean config build install verify
 
@@ -18,7 +18,33 @@ endif
 	@sed -i "s/^\(VERSION ?= \).*/\1$(NEW_VERSION)/" Makefile
 	@sed -i "s/^\([[:space:]]*version: '\)[^']*'/\1$(NEW_VERSION)'/" meson.build
 	@python3 -c "import sys, re, pathlib; [p.write_text(re.sub(r'(@version)\s+.*', rf'\1 {sys.argv[1]}', p.read_text()), encoding='utf-8') for p in pathlib.Path('.').rglob('*.h') if '@version' in p.read_text()]" $(NEW_VERSION)
+	@sed -i "s/MODULE_VERSION(\"[^\"]*\")/MODULE_VERSION(\"$(NEW_VERSION)\")/" experimental/*/module/*.c
+	@if ! head -1 experimental/debian/changelog | grep -q "^upcie-experimental ($(NEW_VERSION))"; then \
+		{ \
+			echo "upcie-experimental ($(NEW_VERSION)) unstable; urgency=medium"; \
+			echo ""; \
+			echo "  * Track upcie $(NEW_VERSION)."; \
+			echo ""; \
+			echo " -- Simon A. F. Lund <os@safl.dk>  $$(date -R)"; \
+			echo ""; \
+			cat experimental/debian/changelog; \
+		} > experimental/debian/changelog.bump && \
+		mv experimental/debian/changelog.bump experimental/debian/changelog; \
+	fi
 	@echo "Done"
+
+# The DKMS package is versioned as upcie, so the changelog it takes its version
+# from must not drift from VERSION above. CI runs this.
+dkms-version-check:
+	@ver=$$(sed -n '1s/^upcie-experimental (\(.*\)).*/\1/p' experimental/debian/changelog); \
+	if [ "$$ver" != "$(VERSION)" ]; then \
+		echo "experimental/debian/changelog is at $$ver, VERSION is $(VERSION); run 'make bump NEW_VERSION=$(VERSION)'"; \
+		exit 1; \
+	fi; \
+	echo "DKMS package version $$ver matches upcie $(VERSION)"
+
+dkms-deb: dkms-version-check
+	cd experimental && dpkg-buildpackage -us -uc -b
 
 config:
 	meson setup $(BUILD_DIR)

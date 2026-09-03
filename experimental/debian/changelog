@@ -1,0 +1,9 @@
+upcie-experimental (0.8.0) unstable; urgency=medium
+
+  * Ship dmabuf_import and iommu_map_pa in one binary package, since the
+    experimental paths need both; supersedes dmabuf-import-dkms (0.2.0) and
+    iommu-map-pa-dkms (0.2.0), which are conflicted, replaced and provided.
+  * Track the upcie version rather than versioning the modules separately, so
+    the deb, the DKMS tree, MODULE_VERSION and the upcie headers all agree.
+
+ -- Simon A. F. Lund <os@safl.dk>  Thu, 03 Sep 2026 10:00:00 +0200
