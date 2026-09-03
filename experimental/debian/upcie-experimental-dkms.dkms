@@ -1,0 +1,20 @@
+# PACKAGE_VERSION is substituted by dh_dkms from the packaging version
+# (dh_dkms -V), so it always matches the /usr/src/upcie-experimental-<ver>
+# tree. That version tracks upcie itself, so both modules are rebuilt on every
+# upcie release whether or not their sources moved.
+PACKAGE_NAME="upcie-experimental"
+PACKAGE_VERSION="#MODULE_VERSION#"
+AUTOINSTALL="yes"
+
+# Each module keeps its own subdirectory, so BUILT_MODULE_LOCATION says where
+# the .ko lands; the top-level Makefile recurses into both.
+BUILT_MODULE_NAME[0]="dmabuf_import"
+BUILT_MODULE_LOCATION[0]="dmabuf_import"
+DEST_MODULE_LOCATION[0]="/updates"
+
+BUILT_MODULE_NAME[1]="iommu_map_pa"
+BUILT_MODULE_LOCATION[1]="iommu_map_pa"
+DEST_MODULE_LOCATION[1]="/updates"
+
+MAKE[0]="make KDIR=${kernel_source_dir}"
+CLEAN="make clean"
