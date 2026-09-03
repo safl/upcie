@@ -115,8 +115,29 @@ attached to each uPCIe release and carrying the uPCIe version. Installing it
 unlocks every experimental path at once. The modules stay separate entities,
 each with its own author, licence and README under
 `/usr/src/upcie-experimental-<version>/`, so each can be discussed, and retired,
-on its own once an upstream facility supersedes it. Neither is loaded
-automatically; `modprobe dmabuf_import` and `modprobe iommu_map_pa` as needed.
+on its own once an upstream facility supersedes it.
+
+### Module auto-load
+
+Installing the package loads `dmabuf_import` and `iommu_map_pa`, and arranges
+for them to load on boot via
+`/usr/lib/modules-load.d/upcie-experimental.conf`. Both are misc devices with
+no hardware to match on, so nothing else would autoload them, and the package
+exists to make the experimental paths usable.
+
+A load can fail, most often because Secure Boot is enabled and the DKMS-built
+modules are unsigned with no enrolled MOK. That never fails the install; check
+`dmesg` and `systemctl status systemd-modules-load` for what happened, and sign
+the modules or disable Secure Boot to proceed.
+
+To stop the modules loading on boot, mask the file:
+
+```bash
+sudo ln -s /dev/null /etc/modules-load.d/upcie-experimental.conf
+```
+
+They can still be loaded by hand with `modprobe dmabuf_import` and
+`modprobe iommu_map_pa`.
 
 `experimental/iommu_map_pa.h`
 : **Experimental.** Maps an array of physical addresses into the IOMMU domain a
