@@ -433,7 +433,7 @@ module_exit(iommu_map_pa_module_exit);
 MODULE_AUTHOR("Jaeyoon Choi <j_yoon.choi@samsung.com>");
 MODULE_DESCRIPTION("Out-of-tree physical-address IOMMU mapper");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.8.0");
+MODULE_VERSION("0.8.1");
 
 /*
  * MODULE_IMPORT_NS() stringifies its argument before Linux 6.13, but expects
