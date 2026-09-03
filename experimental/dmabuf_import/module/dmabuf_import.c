@@ -19,13 +19,14 @@
 #include <linux/scatterlist.h>
 #include <linux/dma-buf.h>
 #include <linux/dma-mapping.h>
+#include <linux/dma-resv.h>
 
 #include "dmabuf_import.h"
 
 /* Forward decl: the ioctl handlers need the device for dma_buf_attach. */
 static struct miscdevice dmabuf_import_misc;
 
-/* ---- imported dma-buf tracking (verbatim from the original patch) ------- */
+/* ---- imported dma-buf tracking ----------------------------------------- */
 
 static struct rb_root dmabuf_import_tree = RB_ROOT;
 static DEFINE_RWLOCK(dmabuf_import_treelock);
@@ -36,7 +37,41 @@ struct dmabuf_import_desc {
 	struct dma_buf_attachment	*attach;
 	struct dma_buf			*dma_buf;
 	struct sg_table			*sgt;
+	bool				pinned;
+	bool				dying;
 	struct rb_node			node;
+};
+
+/*
+ * The addresses handed to userspace are programmed into a device, so the
+ * buffer must stay where it is; the attachment is pinned for its whole life.
+ * move_notify exists because a dynamic attachment requires one, and a dynamic
+ * attachment is what carries allow_peer2peer.
+ *
+ * Exporters also call this while an attachment is being set up, since pinning
+ * may itself migrate the buffer, and again while it is torn down. Neither is a
+ * move anybody needs to hear about, so only an import whose addresses have
+ * been handed out is reported.
+ */
+static void dmabuf_import_move_notify(struct dma_buf_attachment *attach)
+{
+	struct dmabuf_import_desc *desc = attach->importer_priv;
+
+	if (!desc || !desc->sgt || desc->dying)
+		return;
+
+	dev_warn_once(attach->dev, "exporter moved a pinned import; addresses are stale\n");
+}
+
+/*
+ * allow_peer2peer tells an exporter that this importer can address device
+ * memory over PCIe rather than only system memory. Without it a GPU exporter
+ * refuses to map its VRAM and the attach fails with -EOPNOTSUPP, which is
+ * exactly what device memory is wanted for here.
+ */
+static const struct dma_buf_attach_ops dmabuf_import_attach_ops = {
+	.allow_peer2peer	= true,
+	.move_notify		= dmabuf_import_move_notify,
 };
 
 static struct dmabuf_import_desc *dmabuf_import_tree_find(struct rb_root *root, int dma_buf_fd)
@@ -96,18 +131,26 @@ static struct dmabuf_import_desc *dmabuf_import_desc_lookup(int dma_buf_fd)
 
 /*
  * Tear down a desc's dma-buf attachment and free it. The dma-buf teardown
- * sleeps (dma_buf_unmap_attachment_unlocked() and dma_buf_detach() take
- * dma_resv_lock), so this must NOT be called under dmabuf_import_treelock; the
- * caller removes the node from the tree under the lock, then calls this after
- * dropping it. The desc must already be out of (or never in) the tree.
+ * sleeps and takes dma_resv_lock, so this must NOT be called under
+ * dmabuf_import_treelock; the caller removes the node from the tree under the
+ * lock, then calls this after dropping it. The desc must already be out of (or
+ * never in) the tree.
  */
 static void dmabuf_import_desc_destroy(struct dmabuf_import_desc *desc)
 {
 	if (!desc)
 		return;
 
-	if (desc->sgt)
-		dma_buf_unmap_attachment_unlocked(desc->attach, desc->sgt, desc->dir);
+	desc->dying = true;
+
+	if (desc->sgt || desc->pinned) {
+		dma_resv_lock(desc->dma_buf->resv, NULL);
+		if (desc->sgt)
+			dma_buf_unmap_attachment(desc->attach, desc->sgt, desc->dir);
+		if (desc->pinned)
+			dma_buf_unpin(desc->attach);
+		dma_resv_unlock(desc->dma_buf->resv);
+	}
 	if (desc->attach)
 		dma_buf_detach(desc->dma_buf, desc->attach);
 	if (desc->dma_buf)
@@ -146,19 +189,29 @@ static int dmabuf_import_attach_locked(struct dmabuf_import_desc **desc, int dma
 		goto err;
 	}
 
-	tmp->attach = dma_buf_attach(tmp->dma_buf, dev);
+	tmp->attach = dma_buf_dynamic_attach(tmp->dma_buf, dev, &dmabuf_import_attach_ops, tmp);
 	if (IS_ERR(tmp->attach)) {
 		ret = PTR_ERR(tmp->attach);
 		tmp->attach = NULL;
 		goto err;
 	}
 
-	tmp->sgt = dma_buf_map_attachment_unlocked(tmp->attach, dir);
-	if (IS_ERR(tmp->sgt)) {
-		ret = PTR_ERR(tmp->sgt);
-		tmp->sgt = NULL;
-		goto err;
+	/* Pinned before mapping and held pinned: the caller programs these
+	 * addresses into a device and cannot be told to re-read them. */
+	dma_resv_lock(tmp->dma_buf->resv, NULL);
+	ret = dma_buf_pin(tmp->attach);
+	if (!ret) {
+		tmp->pinned = true;
+
+		tmp->sgt = dma_buf_map_attachment(tmp->attach, dir);
+		if (IS_ERR(tmp->sgt)) {
+			ret = PTR_ERR(tmp->sgt);
+			tmp->sgt = NULL;
+		}
 	}
+	dma_resv_unlock(tmp->dma_buf->resv);
+	if (ret)
+		goto err;
 
 	tmp->dir = dir;
 	tmp->dma_buf_fd = dma_buf_fd;
