@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include "module/dmabuf_import.h"
+#include "dmabuf_import_placement.h"
 
 #include <cuda.h>
 
@@ -122,6 +123,9 @@ int main(int argc, char *argv[]) {
   }
 
   printf("dma-buf contains %u addresses\n", attach->count);
+
+  dmabuf_import_placement(import_fd, dmabuf_fd, argc > 1 ? argv[1] : NULL, "placement:");
+
 
   map_size = attach->count * sizeof(struct dmabuf_import_dma_map);
 
