@@ -526,6 +526,8 @@ static struct miscdevice dmabuf_import_misc = {
 	.minor	= MISC_DYNAMIC_MINOR,
 	.name	= "dmabuf_import",
 	.fops	= &dmabuf_import_fops,
+	/* Root-only: it hands out DMA addresses; do not rely on the default. */
+	.mode	= 0600,
 };
 
 static int __init dmabuf_import_init(void)
