@@ -1,11 +1,12 @@
-name: iommu-map-pa-dkms
+name: upcie-experimental-dkms
 
-# Build the experimental iommu_map_pa DKMS deb and make it available as a
-# prerequisite. On a PR touching the module it builds the deb, installs it, and
-# builds a upcie consumer against it. On a upcie release tag (v*) it also
-# attaches the deb -- at its own version, from experimental/iommu_map_pa/
-# debian/ -- to the upcie GitHub Release. The module is not released on its own;
-# it rides the upcie release as an asset.
+# Build the experimental DKMS deb and make it available as a prerequisite. It
+# ships both out-of-tree modules, dmabuf_import and iommu_map_pa, because the
+# experimental upcie paths need both. On a PR touching them it builds the deb,
+# installs it, and builds a upcie consumer against each UAPI. On a upcie release
+# tag (v*) it also attaches the deb to the upcie GitHub Release. The package is
+# not released on its own; it rides the upcie release as an asset, and carries
+# the upcie version.
 #
 # NOTE: PR builds are path-filtered. Pushes -- to main (post-merge) and to v*
 # tags (release) -- carry no paths filter, because a paths filter on push would
@@ -15,8 +16,10 @@ name: iommu-map-pa-dkms
 on:
   pull_request:
     paths:
-      - 'experimental/iommu_map_pa/**'
-      - '.github/workflows/iommu-map-pa-dkms.yml'
+      - 'experimental/**'
+      - 'include/upcie/experimental/**'
+      - 'Makefile'
+      - '.github/workflows/upcie-experimental-dkms.yml'
   push:
     branches: [main]
     tags:
@@ -47,20 +50,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.0
 
+      # The package takes its version from debian/changelog and is meant to
+      # carry the upcie version; `make bump` writes both, this catches a bump
+      # that missed one.
+      - name: Check the package version tracks upcie
+        run: make dkms-version-check
+
       - name: Build the DKMS .deb
-        working-directory: experimental/iommu_map_pa
-        run: dpkg-buildpackage -us -uc -b
+        run: make dkms-deb
 
       - name: Upload the deb
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: iommu-map-pa-dkms
-          path: experimental/iommu-map-pa-dkms_*_all.deb
+          name: upcie-experimental-dkms
+          path: upcie-experimental-dkms_*_all.deb
           if-no-files-found: error
 
   # Prerequisite made available: download the deb and install it on each
-  # supported release, then build a consumer against the installed
-  # <linux/iommu_map_pa.h> to prove the helper wrappers build from it.
+  # supported release, then build a upcie consumer against each installed UAPI.
   install:
     needs: build-deb
     runs-on: ubuntu-latest
@@ -84,27 +91,75 @@ jobs:
       - name: Download the deb
         uses: actions/download-artifact@v8.0.1
         with:
-          name: iommu-map-pa-dkms
+          name: upcie-experimental-dkms
           path: dl
 
       - name: Install the deb (prerequisite)
         run: |
           set -euo pipefail
           export DEBIAN_FRONTEND=noninteractive
-          deb=$(ls dl/iommu-map-pa-dkms_*_all.deb)
+          deb=$(ls dl/upcie-experimental-dkms_*_all.deb)
           apt-get install -y "./$deb"
+          test -f /usr/include/linux/dmabuf_import.h
           test -f /usr/include/linux/iommu_map_pa.h
 
           # `uname -r` in a container is the host kernel, so DKMS skips it and
           # targets the kernel whose headers this image ships. That leaves the
-          # module at "built" or "installed" depending on how far autoinstall
+          # modules at "built" or "installed" depending on how far autoinstall
           # got, and either state proves the source package compiles.
-          ver=$(dpkg-query -W -f='${Version}' iommu-map-pa-dkms)
+          ver=$(dpkg-query -W -f='${Version}' upcie-experimental-dkms)
           kver=$(basename /usr/src/linux-headers-*-generic | sed 's/^linux-headers-//')
-          dkms build -m iommu-map-pa -v "$ver" -k "$kver"
-          dkms status -m iommu-map-pa -v "$ver" -k "$kver" | grep -qE ': (built|installed)'
+          dkms build -m upcie-experimental -v "$ver" -k "$kver"
+          dkms status -m upcie-experimental -v "$ver" -k "$kver" | grep -qE ': (built|installed)'
 
-      - name: Build a consumer against the prerequisite
+          # One package, two modules: assert both .ko were produced, since a
+          # dkms.conf that lost an entry would still report success.
+          tree=/var/lib/dkms/upcie-experimental/$ver/$kver/$(uname -m)/module
+          test -f "$tree/dmabuf_import.ko"
+          test -f "$tree/iommu_map_pa.ko"
+
+      # Asserting on the UAPI's own macros would only prove the header is
+      # findable, which stays true even if dmabuf.h guards on a name the module
+      # no longer defines and quietly compiles its ENOTSUP stubs instead. So
+      # call dmabuf_import_attach() and require anything but ENOTSUP: the module
+      # is not loaded here, so the real path gets as far as failing to open the
+      # node.
+      - name: Build a upcie dma-buf consumer against the prerequisite
+        run: |
+          cat > consumer.c <<'EOF'
+          #define _GNU_SOURCE
+          #include <stdio.h>
+          #include <stdint.h>
+          #include <stdlib.h>
+          #include <string.h>
+          #include <errno.h>
+          #include <fcntl.h>
+          #include <sys/ioctl.h>
+          #include <unistd.h>
+          #include <inttypes.h>
+          #define UPCIE_DEBUG(...) do { } while (0)
+          #include <upcie/dmabuf.h>
+          #include <upcie/experimental/dmabuf_import.h>
+          #if !UPCIE_HAVE_DMABUF_IMPORT
+          #error "the installed prerequisite did not provide the UAPI"
+          #endif
+          int main(void) {
+                  struct dmabuf d = {0};
+                  int err = dmabuf_import_attach(-1, &d);
+
+                  (void)DMABUF_IMPORT_DEVPATH;
+                  if (err == -ENOTSUP) {
+                          fprintf(stderr, "the import path compiled its stubs\n");
+                          return 1;
+                  }
+                  return 0;
+          }
+          EOF
+          gcc -Wall -Iinclude -o consumer consumer.c
+          ./consumer
+          echo "upcie dma-buf consumer builds against the installed prerequisite"
+
+      - name: Build a upcie iommu-map consumer against the prerequisite
         run: |
           # Staged outside the checkout so nothing in the tree can satisfy the
           # UAPI; only the deb's header can, which is what the assertion below
@@ -112,7 +167,7 @@ jobs:
           install -D -m0644 \
             include/upcie/experimental/iommu_map_pa.h \
             staged/upcie/experimental/iommu_map_pa.h
-          cat > consumer.c <<'EOF'
+          cat > consumer_map.c <<'EOF'
           #include <stdint.h>
           #include <upcie/experimental/iommu_map_pa.h>
           #if !UPCIE_HAVE_IOMMU_MAP_PA
@@ -129,16 +184,17 @@ jobs:
                   return 0;
           }
           EOF
-          gcc -Wall -Istaged -o consumer consumer.c
+          gcc -Wall -Istaged -o consumer_map consumer_map.c
           echo "helper wrappers build against the installed prerequisite"
 
-  # Independent out-of-tree link check (modpost); needs no deb.
+  # Independent out-of-tree link check (modpost) per module; needs no deb.
   module:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         release: ["24.04", "26.04"]
+        module: [dmabuf_import, iommu_map_pa]
     container:
       image: ubuntu:${{ matrix.release }}
     steps:
@@ -153,15 +209,15 @@ jobs:
         uses: actions/checkout@v7.0.0
 
       - name: Build the module (out-of-tree link check)
-        working-directory: experimental/iommu_map_pa
+        working-directory: experimental/${{ matrix.module }}
         run: |
           hdr=$(ls -d /usr/src/linux-headers-*-generic | head -1)
           make -C module KDIR="$hdr"
-          test -f module/iommu_map_pa.ko
-          modinfo module/iommu_map_pa.ko | grep -E 'name|vermagic|depends'
+          test -f module/${{ matrix.module }}.ko
+          modinfo module/${{ matrix.module }}.ko | grep -E 'name|vermagic|import_ns|depends'
 
   # On a upcie release tag (v*), attach the built deb to the upcie Release as an
-  # asset. The deb keeps its own version; it does not get its own release.
+  # asset. The deb carries the upcie version; it does not get its own release.
   release:
     needs: build-deb
     if: startsWith(github.ref, 'refs/tags/v')
@@ -172,7 +228,7 @@ jobs:
       - name: Download the deb
         uses: actions/download-artifact@v8.0.1
         with:
-          name: iommu-map-pa-dkms
+          name: upcie-experimental-dkms
           path: dl
 
       - name: Attach the deb to the upcie release
@@ -180,7 +236,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="$GITHUB_REF_NAME"
-          deb=$(ls dl/iommu-map-pa-dkms_*_all.deb)
+          deb=$(ls dl/upcie-experimental-dkms_*_all.deb)
           # The upcie Release is normally created by the upcie release process;
           # create it if it does not exist yet, then attach the deb.
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
