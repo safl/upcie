@@ -8,8 +8,9 @@
  * addresses against the exporter's BAR is not a sound check either: with an
  * IOMMU in the path they are IOVAs, and the comparison silently means nothing.
  *
- * The kernel already knows which it did. A segment reached over the bus carries
- * a bus address, which is what DMABUF_IMPORT_GET_INFO reports.
+ * What settles it is that host memory always has a struct page behind it and
+ * device memory does not, which DMABUF_IMPORT_DESCRIBE reports and which holds
+ * whether or not the addresses can be read.
  *
  * Run it with a GPU allocator to see whether that GPU's memory is reachable
  * peer-to-peer; the udmabuf case below is the negative control, since host

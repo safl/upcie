@@ -40,13 +40,20 @@ static struct device *dmabuf_import_dev(const char *bdf, struct pci_dev **pdev_o
 {
 	unsigned int dom, bus, slot, func;
 	struct pci_dev *pdev;
+	int consumed = 0;
 
 	*pdev_out = NULL;
 
 	if (!bdf || !bdf[0])
 		return dmabuf_import_misc.this_device;
 
-	if (sscanf(bdf, "%x:%x:%x.%x", &dom, &bus, &slot, &func) != 4)
+	/* Bounded and fully consumed: PCI_DEVFN() silently folds an out-of-range
+	 * function into another device's devfn, so "0000:01:00.8" would attach
+	 * to 01:01.0 rather than fail. */
+	if (sscanf(bdf, "%x:%x:%x.%x%n", &dom, &bus, &slot, &func, &consumed) != 4)
+		return ERR_PTR(-EINVAL);
+	if ((consumed != (int)strlen(bdf)) || (dom > 0xffff) || (bus > 0xff) || (slot > 31) ||
+	    (func > 7))
 		return ERR_PTR(-EINVAL);
 
 	pdev = pci_get_domain_bus_and_slot(dom, bus, PCI_DEVFN(slot, func));
@@ -72,6 +79,7 @@ struct dmabuf_import_desc {
 	bool				pinned;
 	bool				dying;
 	struct pci_dev			*pdev; ///< Held while attached as that device
+	char				importer[DMABUF_IMPORT_BDF_LEN];
 	struct rb_node			node;
 };
 
@@ -205,7 +213,16 @@ static int dmabuf_import_attach_locked(struct dmabuf_import_desc **desc, int dma
 	tmp = dmabuf_import_tree_find(&dmabuf_import_tree, dma_buf_fd);
 	read_unlock(&dmabuf_import_treelock);
 	if (tmp) {
-		/* Don't fail if dma-buf is already attached. */
+		/* Attaching again is fine, but only as the same device: the
+		 * importer decides what the exporter hands back, so returning
+		 * the existing attachment for a different one would answer a
+		 * question nobody asked. */
+		if (strcmp(tmp->importer, bdf && bdf[0] ? bdf : "misc")) {
+			pr_warn("dmabuf_import: attached as %s, cannot re-attach as %s\n",
+				tmp->importer, bdf && bdf[0] ? bdf : "misc");
+			return -EBUSY;
+		}
+
 		*desc = tmp;
 		return 0;
 	}
@@ -227,6 +244,9 @@ static int dmabuf_import_attach_locked(struct dmabuf_import_desc **desc, int dma
 		ret = PTR_ERR(dev);
 		goto err;
 	}
+
+	snprintf(tmp->importer, sizeof(tmp->importer), "%s",
+		 tmp->pdev ? pci_name(tmp->pdev) : "misc");
 
 	tmp->attach = dma_buf_dynamic_attach(tmp->dma_buf, dev, &dmabuf_import_attach_ops, tmp);
 	if (IS_ERR(tmp->attach)) {
@@ -379,10 +399,10 @@ static long dmabuf_import_ioctl_get_map(struct file *filp, unsigned long arg)
 }
 
 /*
- * Report where the imported memory ended up. An exporter may satisfy an import
- * by migrating the buffer to system memory, which succeeds while quietly not
- * being peer-to-peer; the scatterlist says which happened, since a segment
- * reached over the bus carries a bus address rather than a host one.
+ * Report how the mapping was made: how many segments the kernel's P2PDMA
+ * framework handled, which it marks with a bus address. That is not the same
+ * question as where the memory is, and does not answer it; see
+ * dmabuf_import_ioctl_describe().
  */
 static long dmabuf_import_ioctl_get_info(struct file *filp, unsigned long arg)
 {
@@ -394,6 +414,11 @@ static long dmabuf_import_ioctl_get_info(struct file *filp, unsigned long arg)
 
 	if (copy_from_user(&info, uinfo, sizeof(info)))
 		return -EFAULT;
+
+	/* Rejected rather than ignored, so the field stays usable for a later
+	 * extension: a caller that set it meant something by it. */
+	if (info.pad)
+		return -EINVAL;
 
 	desc = dmabuf_import_desc_lookup(info.fd);
 	if (IS_ERR(desc))
@@ -415,6 +440,61 @@ static long dmabuf_import_ioctl_get_info(struct file *filp, unsigned long arg)
 	return 0;
 }
 
+/*
+ * Describe what the import turned into. Each field is a different way of asking
+ * where the memory is, because none of them answers on its own: the bus-address
+ * flag is set only where the kernel's P2PDMA framework did the mapping, and
+ * segments with no struct page behind them are never host memory. Which device
+ * the attachment was made as belongs here too, since the exporter's answer
+ * depends on it.
+ */
+static long dmabuf_import_ioctl_describe(struct file *filp, unsigned long arg)
+{
+	struct dmabuf_import_describe __user *udesc = (void __user *)arg;
+	struct dmabuf_import_describe out;
+	struct dmabuf_import_desc *desc;
+	struct scatterlist *sg;
+	int i;
+
+	if (copy_from_user(&out, udesc, sizeof(out)))
+		return -EFAULT;
+
+	desc = dmabuf_import_desc_lookup(out.fd);
+	if (IS_ERR(desc))
+		return PTR_ERR(desc);
+
+	memset(&out.exporter, 0, sizeof(out.exporter));
+	out.count = 0;
+	out.nbus = 0;
+	out.nopage = 0;
+	out.npages = 0;
+	out.nbytes = 0;
+	out.pinned = desc->pinned;
+	for_each_sgtable_dma_sg(desc->sgt, sg, i) {
+		out.count++;
+		out.nbytes += sg_dma_len(sg);
+		if (sg_dma_is_bus_address(sg))
+			out.nbus++;
+	}
+
+	/* Pages come off the CPU-side list: mapping may coalesce, and then a DMA
+	 * entry does not correspond to one entry here. */
+	for_each_sgtable_sg(desc->sgt, sg, i) {
+		out.npages++;
+		if (!sg_page(sg))
+			out.nopage++;
+	}
+
+	if (desc->dma_buf->exp_name)
+		strscpy(out.exporter, desc->dma_buf->exp_name, sizeof(out.exporter));
+	strscpy(out.importer, desc->importer, sizeof(out.importer));
+
+	if (copy_to_user(udesc, &out, sizeof(out)))
+		return -EFAULT;
+
+	return 0;
+}
+
 static long dmabuf_import_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	switch (cmd) {
@@ -428,6 +508,8 @@ static long dmabuf_import_ioctl(struct file *filp, unsigned int cmd, unsigned lo
 		return dmabuf_import_ioctl_get_info(filp, arg);
 	case DMABUF_IMPORT_ATTACH_BDF:
 		return dmabuf_import_ioctl_attach_bdf(filp, arg);
+	case DMABUF_IMPORT_DESCRIBE:
+		return dmabuf_import_ioctl_describe(filp, arg);
 	default:
 		return -ENOTTY;
 	}
