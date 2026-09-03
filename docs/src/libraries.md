@@ -63,8 +63,8 @@ The descriptions below follow the bottom-up layering.
 : **Experimental.** Resolves the DMA addresses behind a dma-buf
   (`dmabuf_import_attach`/`dmabuf_import_detach`), which is what populates the
   structure above. It imports the dma-buf through the out-of-tree
-  `dmabuf_import` module, shipped as the `dmabuf-import` DKMS package (see
-  `experimental/dmabuf_import`). When its UAPI header
+  `dmabuf_import` module, shipped in the `upcie-experimental` DKMS package
+  (see `experimental/dmabuf_import`). When its UAPI header
   `<linux/dmabuf_import.h>` is absent these helpers compile as stubs returning
   `ENOTSUP` and `UPCIE_HAVE_DMABUF_IMPORT` is 0, so uPCIe still builds without
   it; the module must also be loaded at runtime for the import to succeed.
@@ -110,12 +110,21 @@ The descriptions below follow the bottom-up layering.
 
 ## Experimental
 
+Both out-of-tree modules ship in one binary package, `upcie-experimental-dkms`,
+attached to each uPCIe release and carrying the uPCIe version. Installing it
+unlocks every experimental path at once. The modules stay separate entities,
+each with its own author, licence and README under
+`/usr/src/upcie-experimental-<version>/`, so each can be discussed, and retired,
+on its own once an upstream facility supersedes it. Neither is loaded
+automatically; `modprobe dmabuf_import` and `modprobe iommu_map_pa` as needed.
+
 `experimental/iommu_map_pa.h`
 : **Experimental.** Maps an array of physical addresses into the IOMMU domain a
   VFIO-controlled device already uses (`iommu_map_pa_add`/`_del`),
   returning an IOVA base to address that memory through, e.g. from NVMe PRPs.
-  Needs the out-of-tree `iommu-map-pa` DKMS package (see
-  `experimental/iommu_map_pa`). When its UAPI header
+  Needs the out-of-tree `iommu_map_pa` module, shipped in the same
+  `upcie-experimental` DKMS package (see `experimental/iommu_map_pa`). When its
+  UAPI header
   `<linux/iommu_map_pa.h>` is absent these helpers compile as stubs returning
   `ENOTSUP` and `UPCIE_HAVE_IOMMU_MAP_PA` is 0, so uPCIe still builds without
   it; the module must also be loaded at runtime for the ioctls to succeed.
