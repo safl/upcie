@@ -126,7 +126,6 @@ int main(int argc, char *argv[]) {
 
   dmabuf_import_placement(import_fd, dmabuf_fd, argc > 1 ? argv[1] : NULL, "placement:");
 
-
   map_size = attach->count * sizeof(struct dmabuf_import_dma_map);
 
   map = malloc(sizeof(struct dmabuf_import_get_map) + map_size);

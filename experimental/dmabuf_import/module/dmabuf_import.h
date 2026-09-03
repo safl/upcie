@@ -92,13 +92,13 @@ struct dmabuf_import_attach_bdf {
 /**
  * struct dmabuf_import_info - Where the imported memory actually lives
  *
- * A dma-buf exporter may satisfy an import by migrating the buffer to system
- * memory instead of handing out the device's own, which succeeds while quietly
- * not being peer-to-peer at all. The kernel knows which it did: a segment
- * carrying a PCI bus address is the device's memory, reached over the bus.
- *
- * @nbus == @count is an import that stayed on the device; @nbus == 0 is one
- * that did not. Anything between is a partial migration.
+ * @nbus counts segments the kernel's own P2PDMA framework mapped, which it
+ * records by giving them a PCI bus address rather than a host one. That is
+ * narrower than "this is device memory": the framework only engages for a PCI
+ * importer, and an exporter reaching its own BAR by other means sets nothing,
+ * so @nbus reads zero for memory that is plainly on the device. It says how
+ * the mapping was made, not where the memory is; DMABUF_IMPORT_DESCRIBE
+ * answers the latter.
  */
 struct dmabuf_import_info {
 	/** @fd: dma-buf file descriptor (in) */
@@ -111,10 +111,45 @@ struct dmabuf_import_info {
 	__u32 pad;
 };
 
+/**
+ * struct dmabuf_import_describe - What an import actually turned into
+ *
+ * Everything here is a separate way of asking the same question, because no
+ * one of them answers it on its own. @nbus is set only where the kernel's own
+ * P2PDMA framework did the mapping, so it reads zero for device memory reached
+ * any other way. @nopage counts segments with no struct page behind them,
+ * which host memory never is. @exporter and @importer say who was asked and on
+ * whose behalf, since the answer depends on both.
+ *
+ * Added alongside DMABUF_IMPORT_GET_INFO rather than replacing it: an ioctl
+ * that changes what it reports is worse than a second one that reports more.
+ */
+struct dmabuf_import_describe {
+	/** @fd: dma-buf file descriptor (in) */
+	__s32 fd;
+	/** @count: Segments in the mapping (out) */
+	__u32 count;
+	/** @nbus: Segments whose DMA address is a PCI bus address (out) */
+	__u32 nbus;
+	/** @nopage: Entries with no struct page behind them (out) */
+	__u32 nopage;
+	/** @npages: Entries on the CPU-side list, which @nopage counts against (out) */
+	__u32 npages;
+	/** @pinned: Whether the attachment is pinned (out) */
+	__u32 pinned;
+	/** @nbytes: Total bytes mapped (out) */
+	__u64 nbytes;
+	/** @exporter: The exporting driver, e.g. "amdgpu" (out) */
+	char exporter[32];
+	/** @importer: Device the attachment was made as, or "misc" (out) */
+	char importer[DMABUF_IMPORT_BDF_LEN];
+};
+
 #define DMABUF_IMPORT_ATTACH  _IOWR('u', 0x47, struct dmabuf_import_attach)
 #define DMABUF_IMPORT_DETACH  _IOW('u', 0x48, int)
 #define DMABUF_IMPORT_GET_MAP _IOWR('u', 0x49, struct dmabuf_import_get_map)
 #define DMABUF_IMPORT_GET_INFO _IOWR('u', 0x4a, struct dmabuf_import_info)
 #define DMABUF_IMPORT_ATTACH_BDF _IOWR('u', 0x4b, struct dmabuf_import_attach_bdf)
+#define DMABUF_IMPORT_DESCRIBE _IOWR('u', 0x4c, struct dmabuf_import_describe)
 
 #endif /* _UAPI_LINUX_DMABUF_IMPORT_H */

@@ -12,7 +12,7 @@
  * memory that migrated must still hold its contents; a probe that only watched
  * counters could not tell a migration from a free.
  *
- *   ./dmabuf_import_probe_hip <gpu-bdf> [size-MiB]
+ *   ./dmabuf_import_probe_hip <gpu-bdf> [size-MiB] [importer-bdf]
  */
 #define _GNU_SOURCE
 
@@ -118,7 +118,12 @@ main(int argc, char *argv[])
 	/* Memory that moved must still hold what was written, or the counters
 	 * above described a free rather than a migration. */
 	check = malloc(nbytes);
-	if (check) {
+	if (!check) {
+		/* Not a pass: the counters above cannot tell a migration from a
+		 * free, which is the whole reason for reading it back. */
+		printf("contents:        NOT CHECKED, could not allocate %zu bytes\n", nbytes);
+		err = 1;
+	} else {
 		size_t bad = 0;
 
 		memset(check, 0, nbytes);

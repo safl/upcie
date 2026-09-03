@@ -53,7 +53,7 @@ struct dmabuf_range {
 /**
  * The exporter's memory BARs, from sysfs
  *
- * @return How many ranges were collected, negative errno on failure
+ * @return How many ranges were collected, or -1 when they cannot be read
  */
 static inline int
 dmabuf_bar_ranges(const char *bdf, struct dmabuf_range *out, int max)
@@ -156,8 +156,9 @@ dmabuf_import_placement(int import_fd, int dmabuf_fd, const char *bdf, const cha
 {
 	struct dmabuf_range bars[DMABUF_RANGES_MAX], ram[DMABUF_RANGES_MAX];
 	struct dmabuf_import_get_map *map;
+	struct dmabuf_import_describe desc;
 	struct dmabuf_import_info info;
-	int nbars = 0, nram, ndev = 0, nhost = 0;
+	int nbars = 0, nram, ndev = 0, nhost = 0, desc_ok = 0;
 	enum dmabuf_placement verdict;
 
 	memset(&info, 0, sizeof(info));
@@ -167,11 +168,33 @@ dmabuf_import_placement(int import_fd, int dmabuf_fd, const char *bdf, const cha
 		return DMABUF_PLACEMENT_ERROR;
 	}
 
+	/* Every signal at once: no single one of them decides, and seeing them
+	 * disagree is how an assumption gets caught. */
+	{
+		memset(&desc, 0, sizeof(desc));
+		desc.fd = dmabuf_fd;
+		desc_ok = !ioctl(import_fd, DMABUF_IMPORT_DESCRIBE, &desc);
+		if (desc_ok) {
+			printf("%-16s exporter %s, importer %s, %u segments, %.1f MiB,"
+			       " %u on the bus, %u without a page, pinned %u\n",
+			       what, desc.exporter, desc.importer, desc.count,
+			       desc.nbytes / (1024.0 * 1024.0), desc.nbus, desc.nopage,
+			       desc.pinned);
+		}
+	}
+
 	nram = dmabuf_ram_ranges(ram, DMABUF_RANGES_MAX);
 	if (bdf) {
 		nbars = dmabuf_bar_ranges(bdf, bars, DMABUF_RANGES_MAX);
 	}
 	if ((nram <= 0) || (bdf && (nbars <= 0))) {
+		/* The page count needs no ranges, so it can still answer. */
+		if (desc_ok && desc.count && (desc.nopage == desc.count)) {
+			printf("%-16s device memory: no page behind any of %u segments"
+			       " (addresses not checked)\n",
+			       what, desc.count);
+			return DMABUF_PLACEMENT_DEVICE;
+		}
 		printf("%-16s no verdict: need /proc/iomem and the exporter's BARs\n", what);
 		return DMABUF_PLACEMENT_UNKNOWN;
 	}
@@ -198,19 +221,30 @@ dmabuf_import_placement(int import_fd, int dmabuf_fd, const char *bdf, const cha
 		}
 	}
 
-	if (ndev == (int)map->count) {
+	/* Segments with no struct page behind them are never host memory, and
+	 * that holds where the addresses cannot be read: behind an IOMMU they
+	 * are IOVAs and belong to no range worth comparing against. So this
+	 * decides, and the addresses corroborate when they can. */
+	if (desc_ok && desc.count && (desc.nopage == desc.count)) {
 		verdict = DMABUF_PLACEMENT_DEVICE;
-		printf("%-16s device memory: %u/%u in the exporter's BAR, %u/%u on the bus\n",
-		       what, ndev, map->count, info.nbus, info.count);
+		printf("%-16s device memory: no page behind any of %u segments%s\n", what,
+		       desc.count,
+		       ndev == (int)map->count ? ", and every address is in the exporter's BAR"
+					       : "");
 	} else if (nhost == (int)map->count) {
 		verdict = DMABUF_PLACEMENT_HOST;
-		printf("%-16s host memory: %u/%u in system RAM, %u/%u on the bus\n", what, nhost,
-		       map->count, info.nbus, info.count);
+		printf("%-16s host memory: %u/%u segments in system RAM\n", what, nhost,
+		       map->count);
+	} else if (ndev == (int)map->count) {
+		verdict = DMABUF_PLACEMENT_DEVICE;
+		printf("%-16s device memory: %u/%u segments in the exporter's BAR\n", what, ndev,
+		       map->count);
 	} else {
 		verdict = DMABUF_PLACEMENT_UNKNOWN;
-		printf("%-16s no verdict by address: %u/%u in the BAR, %u/%u in system RAM;"
-		       " %u/%u on the bus\n",
-		       what, ndev, map->count, nhost, map->count, info.nbus, info.count);
+		printf("%-16s no verdict: %u/%u in the BAR, %u/%u in system RAM, %u/%u without"
+		       " a page\n",
+		       what, ndev, map->count, nhost, map->count, desc_ok ? desc.nopage : 0,
+		       desc_ok ? desc.count : 0);
 	}
 
 	free(map);

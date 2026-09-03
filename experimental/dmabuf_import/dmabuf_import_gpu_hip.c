@@ -75,7 +75,6 @@ int main(int argc, char *argv[]) {
   int import_fd, dmabuf_fd, err;
   long map_size;
 
-
   import_fd = open(DMABUF_IMPORT_DEVPATH, O_RDWR);
   if (import_fd < 0) {
     err = errno;
@@ -111,7 +110,6 @@ int main(int argc, char *argv[]) {
   printf("dma-buf contains %u addresses\n", attach->count);
 
   dmabuf_import_placement(import_fd, dmabuf_fd, argc > 1 ? argv[1] : NULL, "placement:");
-
 
   map_size = attach->count * sizeof(struct dmabuf_import_dma_map);
 
