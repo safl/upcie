@@ -821,8 +821,13 @@ static int __init dmabuf_import_init(void)
 	if (ret)
 		return ret;
 
-	/* dma_buf_map_attachment needs a DMA mask; a misc device has none. */
-	dma_coerce_mask_and_coherent(dmabuf_import_misc.this_device, DMA_BIT_MASK(64));
+	/* dma_buf_map_attachment needs a DMA mask; a misc device has none, and
+	 * without one every attach would fail, so neither does the load. */
+	ret = dma_coerce_mask_and_coherent(dmabuf_import_misc.this_device, DMA_BIT_MASK(64));
+	if (ret) {
+		misc_deregister(&dmabuf_import_misc);
+		return ret;
+	}
 
 	return 0;
 }
