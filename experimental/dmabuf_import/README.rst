@@ -2,18 +2,17 @@ dma-buf Import
 ==============
 
 A *dma-buf* importer: it imports an external *dma-buf* and shares its
-DMA/physical addresses with userspace. Import with ``DMABUF_IMPORT_ATTACH_BDF``,
-naming the PCI device that will read the memory, and give the addresses back
-with ``DMABUF_IMPORT_DETACH``; ``DMABUF_IMPORT_GET_MAP``,
-``DMABUF_IMPORT_GET_INFO`` and ``DMABUF_IMPORT_DESCRIBE`` read back what an
-import holds. Any *dma-buf* can be imported, whoever exported it. Two examples
-import one and print its addresses: ``dmabuf_import_cpu`` (a *memfd* via
-*udmabuf*) and ``dmabuf_import_gpu`` (GPU memory via the NVIDIA driver).
+DMA/physical addresses with userspace. Any *dma-buf* will do, whoever exported
+it. Import with ``DMABUF_IMPORT_ATTACH_BDF``, naming the PCI device that will
+read the memory, and give it back with ``DMABUF_IMPORT_DETACH``;
+``DMABUF_IMPORT_GET_MAP``, ``DMABUF_IMPORT_GET_INFO`` and
+``DMABUF_IMPORT_DESCRIBE`` read back what an import holds. Two examples import
+one and print its addresses: ``dmabuf_import_cpu`` (a *memfd* via *udmabuf*) and
+``dmabuf_import_gpu`` (GPU memory via the NVIDIA driver).
 
 An import belongs to the open ``/dev/dmabuf_import`` it was made on, so keep
-that descriptor open for as long as the addresses are used. Closing it gives
-the import back, which the kernel does on exit however the exit happens, so a
-process that is killed leaves nothing pinned.
+that descriptor open for as long as the addresses are used. Closing it gives the
+import back, which the kernel does however a process exits.
 
 ``DMABUF_IMPORT_ATTACH`` is the older form, kept for callers that have not
 moved. It imports for the module's own device rather than a PCI one, which an
@@ -38,21 +37,26 @@ Install the DKMS module
 Stock ``/dev/udmabuf`` keeps serving ``UDMABUF_CREATE``; the module adds
 ``/dev/dmabuf_import`` for the import ioctls.
 
-* Install the ``.deb`` (CI builds it for Ubuntu 24.04 and 26.04)::
+One package, ``upcie-experimental-dkms``, ships this module and
+``iommu_map_pa`` together, because the experimental *upcie* paths need both.
 
-	  apt install ./dmabuf-import-dkms_*.deb
+* Install the ``.deb`` (CI builds it and installs it on Ubuntu 24.04 and
+  26.04)::
+
+	  apt install ./upcie-experimental-dkms_*_all.deb
 
 * Or build the ``.deb`` from this repo::
 
 	  apt install build-essential debhelper dh-dkms
-	  dpkg-buildpackage -us -uc -b
+	  make dkms-deb
 
-DKMS rebuilds the module automatically on kernel updates. Load it now with
-``modprobe dmabuf_import`` (installing the ``.deb`` does not auto-load it). To
-load it on every boot, create a ``.conf`` under ``/etc/modules-load.d/`` that
-names the module, which ``systemd-modules-load`` reads at boot::
+DKMS rebuilds the modules automatically on kernel updates. Neither module has
+hardware to match on, so nothing would autoload them; the package therefore
+loads both when it is installed and ships
+``/usr/lib/modules-load.d/upcie-experimental.conf`` so they load on every boot.
+To stop that, mask it::
 
-	  echo dmabuf_import > /etc/modules-load.d/dmabuf_import.conf
+	  ln -s /dev/null /etc/modules-load.d/upcie-experimental.conf
 
 The package also installs the UAPI header at
 ``/usr/include/linux/dmabuf_import.h``, so userspace can build against the
