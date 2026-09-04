@@ -7,7 +7,8 @@
 
 /*
  * UAPI for the out-of-tree dma-buf importer (/dev/dmabuf_import), installed
- * system-wide by the dmabuf-import-dkms package.
+ * system-wide at /usr/include/linux/dmabuf_import.h by the
+ * upcie-experimental-dkms package.
  *
  * The magic ('u') and numbers come from the udmabuf patch these ioctls were
  * first delivered as, which is the only reason they look the way they do.
