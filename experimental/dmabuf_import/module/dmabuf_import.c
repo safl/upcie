@@ -15,7 +15,8 @@
 #include <linux/err.h>
 #include <linux/uaccess.h>
 #include <linux/rbtree.h>
-#include <linux/spinlock.h>
+#include <linux/sched.h>
+#include <linux/mutex.h>
 #include <linux/scatterlist.h>
 #include <linux/dma-buf.h>
 #include <linux/dma-mapping.h>
@@ -67,8 +68,46 @@ static struct device *dmabuf_import_dev(const char *bdf, struct pci_dev **pdev_o
 
 /* ---- imported dma-buf tracking ----------------------------------------- */
 
+/*
+ * The shared table, which DMABUF_IMPORT_ATTACH still uses. Keyed by a dma-buf
+ * descriptor number, which means something only inside the process that holds
+ * it, and holding what it is given until a DETACH arrives.
+ */
 static struct rb_root dmabuf_import_tree = RB_ROOT;
-static DEFINE_RWLOCK(dmabuf_import_treelock);
+static DEFINE_MUTEX(dmabuf_import_treelock);
+
+/*
+ * What one open of the device owns, for DMABUF_IMPORT_ATTACH_BDF
+ *
+ * An import is a kernel reference to a buffer somebody else allocated, so it
+ * needs an owner the kernel reclaims on its own: a process that is killed
+ * sends no ioctl. A file descriptor is that, and every process has one of its
+ * own, which is also what keeps two of them from naming each other's imports.
+ */
+struct dmabuf_import_file {
+	struct rb_root	tree;
+	struct mutex	lock;
+};
+
+/* Where a lookup found a desc, so DETACH removes it from the right place. */
+struct dmabuf_import_where {
+	struct rb_root	*tree;
+	struct mutex	*lock;
+};
+
+static void dmabuf_import_where(struct file *filp, bool owned,
+				struct dmabuf_import_where *out)
+{
+	struct dmabuf_import_file *owner = filp->private_data;
+
+	if (owned) {
+		out->tree = &owner->tree;
+		out->lock = &owner->lock;
+	} else {
+		out->tree = &dmabuf_import_tree;
+		out->lock = &dmabuf_import_treelock;
+	}
+}
 
 struct dmabuf_import_desc {
 	int				dma_buf_fd;
@@ -157,25 +196,123 @@ static int dmabuf_import_tree_insert(struct rb_root *root, struct dmabuf_import_
 	return 0;
 }
 
-static struct dmabuf_import_desc *dmabuf_import_desc_lookup(int dma_buf_fd)
+/*
+ * Whether `fd` still names the buffer `desc` was made for.
+ *
+ * A descriptor closed without a DETACH leaves its import behind, which is
+ * allowed: the import holds its own reference and the addresses stay good, so
+ * a closed descriptor is not an error here. The number is then free to be
+ * given to another buffer, and answering for that one with this import would
+ * hand out the wrong addresses.
+ *
+ * Nothing is torn down on a mismatch. An import whose descriptor is gone may
+ * still have its addresses in a device, and the module cannot tell that from
+ * one nobody wants, so the caller is told to sort it out with an explicit
+ * DETACH.
+ */
+static int dmabuf_import_desc_verify(struct dmabuf_import_desc *desc, int dma_buf_fd,
+				     bool require_live)
 {
-	struct dmabuf_import_desc *desc;
+	struct dma_buf *now = dma_buf_get(dma_buf_fd);
+	int ret = 0;
 
-	read_lock(&dmabuf_import_treelock);
-	desc = dmabuf_import_tree_find(&dmabuf_import_tree, dma_buf_fd);
-	read_unlock(&dmabuf_import_treelock);
-	if (!desc)
-		return ERR_PTR(-EINVAL);
+	if (IS_ERR(now)) {
+		/* The number names no dma-buf: either nothing at all, or a
+		 * file of some other kind that ordinary descriptor reuse put
+		 * there. Neither can be a buffer some import answers for, so
+		 * for a lookup the import is still the one that was meant.
+		 * An attach wants a buffer to attach and has none. */
+		return require_live ? -ESTALE : 0;
+	}
 
-	return desc;
+	if (now != desc->dma_buf)
+		ret = -ESTALE;
+
+	dma_buf_put(now);
+
+	return ret;
 }
 
 /*
- * Tear down a desc's dma-buf attachment and free it. The dma-buf teardown
- * sleeps and takes dma_resv_lock, so this must NOT be called under
- * dmabuf_import_treelock; the caller removes the node from the tree under the
- * lock, then calls this after dropping it. The desc must already be out of (or
- * never in) the tree.
+ * An import made either way, the caller's own first. A descriptor number can
+ * name one import in this file and a different one in the shared table, and
+ * the caller's own is the one it meant.
+ *
+ * `verify` rejects an import whose descriptor number has since been given to
+ * another buffer. DETACH passes false: it has to work on an import whose
+ * descriptor is gone, which is the whole reason it exists.
+ *
+ * Returns with `where->lock` held, which the caller drops once it has finished
+ * with the desc: what a desc points at is torn down by DETACH under that same
+ * lock, so reading it after dropping the lock is reading freed memory.
+ */
+static struct dmabuf_import_desc *dmabuf_import_desc_get(struct file *filp, int dma_buf_fd,
+							 struct dmabuf_import_where *where,
+							 bool verify)
+{
+	struct dmabuf_import_file *owner = filp->private_data;
+	struct dmabuf_import_desc *desc;
+
+	if (mutex_lock_killable(&owner->lock)) {
+		where->tree = NULL;
+		where->lock = NULL;
+		return ERR_PTR(-EINTR);
+	}
+	desc = dmabuf_import_tree_find(&owner->tree, dma_buf_fd);
+	if (desc) {
+		int ret = verify ? dmabuf_import_desc_verify(desc, dma_buf_fd, false) : 0;
+
+		if (ret) {
+			mutex_unlock(&owner->lock);
+			where->tree = NULL;
+			where->lock = NULL;
+			return ERR_PTR(ret);
+		}
+
+		where->tree = &owner->tree;
+		where->lock = &owner->lock;
+		return desc;
+	}
+	mutex_unlock(&owner->lock);
+
+	if (mutex_lock_killable(&dmabuf_import_treelock)) {
+		where->tree = NULL;
+		where->lock = NULL;
+		return ERR_PTR(-EINTR);
+	}
+	desc = dmabuf_import_tree_find(&dmabuf_import_tree, dma_buf_fd);
+	if (desc) {
+		int ret = verify ? dmabuf_import_desc_verify(desc, dma_buf_fd, false) : 0;
+
+		if (ret) {
+			mutex_unlock(&dmabuf_import_treelock);
+			where->tree = NULL;
+			where->lock = NULL;
+			return ERR_PTR(ret);
+		}
+
+		where->tree = &dmabuf_import_tree;
+		where->lock = &dmabuf_import_treelock;
+		return desc;
+	}
+	mutex_unlock(&dmabuf_import_treelock);
+
+	where->tree = NULL;
+	where->lock = NULL;
+
+	return ERR_PTR(-EINVAL);
+}
+
+/*
+ * Tear down a desc's dma-buf attachment and free it. The desc must already be
+ * out of, or never have been in, a tree.
+ *
+ * The dma-buf teardown sleeps and takes dma_resv_lock, which is why the trees
+ * are guarded by mutexes rather than rwlocks. DETACH calls this while still
+ * holding the lock the desc was found under, so no reader holding that lock
+ * can be left looking at freed memory. The attach error path and
+ * dmabuf_import_release() call it without a lock, on a desc nothing else can
+ * reach.
  */
 static void dmabuf_import_desc_destroy(struct dmabuf_import_desc *desc)
 {
@@ -202,23 +339,77 @@ static void dmabuf_import_desc_destroy(struct dmabuf_import_desc *desc)
 	kfree(desc);
 }
 
-static int dmabuf_import_attach_locked(struct dmabuf_import_desc **desc, int dma_buf_fd,
-			  const char *bdf, enum dma_data_direction dir)
+/*
+ * Returns holding `where->lock` on success, as dmabuf_import_desc_get() does
+ * and for the same reason: what `*desc` points at is torn down by DETACH under
+ * that lock, so the caller reads it before dropping the lock, not after.
+ */
+static int dmabuf_import_attach_locked(struct file *filp, bool owned,
+			  struct dmabuf_import_desc **desc, int dma_buf_fd,
+			  const char *bdf, enum dma_data_direction dir,
+			  struct dmabuf_import_where *where_out)
 {
+	struct dmabuf_import_where where;
 	struct dmabuf_import_desc *tmp;
 	struct device *dev;
 	int ret;
 
-	read_lock(&dmabuf_import_treelock);
-	tmp = dmabuf_import_tree_find(&dmabuf_import_tree, dma_buf_fd);
-	read_unlock(&dmabuf_import_treelock);
+	dmabuf_import_where(filp, owned, &where);
+	*where_out = where;
+
+	/* Held across the build below as well as the lookup: an attach that
+	 * found nothing must be the one that inserts, and the teardown it may
+	 * have to do sleeps, which is why this is a mutex. Killable, because an
+	 * attach ahead of us can sit in the exporter for as long as it likes. */
+	if (mutex_lock_killable(where.lock))
+		return -EINTR;
+
+	tmp = dmabuf_import_tree_find(where.tree, dma_buf_fd);
 	if (tmp) {
+		struct pci_dev *pdev = NULL;
+		struct device *dev_want;
+		int mismatch;
+
+		/* Both tables, the shared one included: the shared table is
+		 * where two processes' numbers meet, and answering the second
+		 * with the first's import is how the old form handed out the
+		 * wrong buffer's addresses. Refusing is a change to that form,
+		 * and a deliberate one: an error can be handled, wrong DMA
+		 * addresses cannot. */
+		ret = dmabuf_import_desc_verify(tmp, dma_buf_fd, true);
+		if (ret) {
+			mutex_unlock(where.lock);
+			pr_warn_ratelimited(
+				"dmabuf_import: descriptor %d no longer names the buffer it "
+				"was imported for; detach it first\n",
+				dma_buf_fd);
+			return ret;
+		}
+
+		/* Compared as the device rather than as the string that names
+		 * it: dmabuf_import_dev() takes spellings that pci_name() does
+		 * not produce, and the same device written two ways is still
+		 * the same device. */
+		dev_want = dmabuf_import_dev(bdf, &pdev);
+		if (IS_ERR(dev_want)) {
+			mutex_unlock(where.lock);
+			return PTR_ERR(dev_want);
+		}
+
 		/* Attaching again is fine, but only as the same device: the
 		 * importer decides what the exporter hands back, so returning
 		 * the existing attachment for a different one would answer a
 		 * question nobody asked. */
-		if (strcmp(tmp->importer, bdf && bdf[0] ? bdf : "misc")) {
-			pr_warn("dmabuf_import: attached as %s, cannot re-attach as %s\n",
+		mismatch = strcmp(tmp->importer, pdev ? pci_name(pdev) : "misc");
+		if (pdev)
+			pci_dev_put(pdev);
+
+		if (mismatch) {
+			/* Not through err: that one is already in the tree and
+			 * is somebody's, so it must not be torn down here. */
+			mutex_unlock(where.lock);
+			pr_warn_ratelimited(
+				"dmabuf_import: attached as %s, cannot re-attach as %s\n",
 				tmp->importer, bdf && bdf[0] ? bdf : "misc");
 			return -EBUSY;
 		}
@@ -228,8 +419,10 @@ static int dmabuf_import_attach_locked(struct dmabuf_import_desc **desc, int dma
 	}
 
 	tmp = kzalloc(sizeof(*tmp), GFP_KERNEL);
-	if (!tmp)
+	if (!tmp) {
+		mutex_unlock(where.lock);
 		return -ENOMEM;
+	}
 
 	tmp->dir = dir;
 	tmp->dma_buf = dma_buf_get(dma_buf_fd);
@@ -275,15 +468,17 @@ static int dmabuf_import_attach_locked(struct dmabuf_import_desc **desc, int dma
 	tmp->dir = dir;
 	tmp->dma_buf_fd = dma_buf_fd;
 
-	write_lock(&dmabuf_import_treelock);
-	ret = dmabuf_import_tree_insert(&dmabuf_import_tree, tmp);
-	write_unlock(&dmabuf_import_treelock);
+	ret = dmabuf_import_tree_insert(where.tree, tmp);
 	if (ret)
 		goto err;
 
 	*desc = tmp;
 	return 0;
 err:
+	/* Every goto here comes from the build path, which holds the lock and
+	 * owns tmp; the earlier returns unlock for themselves and own nothing
+	 * to tear down. */
+	mutex_unlock(where.lock);
 	dmabuf_import_desc_destroy(tmp);
 	return ret;
 }
@@ -295,6 +490,7 @@ static long dmabuf_import_ioctl_attach(struct file *filp, unsigned long arg)
 	struct dmabuf_import_attach __user *uattach;
 	struct dmabuf_import_attach attach;
 	struct dmabuf_import_desc *desc;
+	struct dmabuf_import_where where;
 	int ret;
 
 	uattach = (void __user *)arg;
@@ -302,11 +498,24 @@ static long dmabuf_import_ioctl_attach(struct file *filp, unsigned long arg)
 	if (copy_from_user(&attach, uattach, sizeof(attach)))
 		return -EFAULT;
 
-	ret = dmabuf_import_attach_locked(&desc, attach.fd, NULL, DMA_BIDIRECTIONAL);
+	/* Ratelimited rather than once, so a caller that starts using this
+	 * later is still named. The limit is per callsite rather than per
+	 * process, so one chatty caller can suppress the line that would have
+	 * named another. */
+	pr_warn_ratelimited(
+		"dmabuf_import: %s[%d] used DMABUF_IMPORT_ATTACH; its imports are keyed by "
+		"descriptor number and are not given back when the process exits. Use "
+		"DMABUF_IMPORT_ATTACH_BDF, with an empty bdf for the misc device\n",
+		current->comm, task_tgid_nr(current));
+
+	ret = dmabuf_import_attach_locked(filp, false, &desc, attach.fd, NULL,
+					  DMA_BIDIRECTIONAL, &where);
 	if (ret)
 		return ret;
 
 	attach.count = desc->sgt->nents;
+
+	mutex_unlock(where.lock);
 
 	if (copy_to_user(uattach, &attach, sizeof(attach)))
 		return -EFAULT;
@@ -319,6 +528,7 @@ static long dmabuf_import_ioctl_attach_bdf(struct file *filp, unsigned long arg)
 	struct dmabuf_import_attach_bdf __user *uattach;
 	struct dmabuf_import_attach_bdf attach;
 	struct dmabuf_import_desc *desc;
+	struct dmabuf_import_where where;
 	int ret;
 
 	uattach = (void __user *)arg;
@@ -328,11 +538,14 @@ static long dmabuf_import_ioctl_attach_bdf(struct file *filp, unsigned long arg)
 
 	attach.bdf[sizeof(attach.bdf) - 1] = '\0';
 
-	ret = dmabuf_import_attach_locked(&desc, attach.fd, attach.bdf, DMA_BIDIRECTIONAL);
+	ret = dmabuf_import_attach_locked(filp, true, &desc, attach.fd, attach.bdf,
+					  DMA_BIDIRECTIONAL, &where);
 	if (ret)
 		return ret;
 
 	attach.count = desc->sgt->nents;
+
+	mutex_unlock(where.lock);
 
 	if (copy_to_user(uattach, &attach, sizeof(attach)))
 		return -EFAULT;
@@ -342,24 +555,25 @@ static long dmabuf_import_ioctl_attach_bdf(struct file *filp, unsigned long arg)
 
 static long dmabuf_import_ioctl_detach(struct file *filp, unsigned long arg)
 {
+	struct dmabuf_import_where where;
 	struct dmabuf_import_desc *desc;
 	int fd;
 
 	if (copy_from_user(&fd, (void __user *)arg, sizeof(fd)))
 		return -EFAULT;
 
-	/* Remove the node from the tree under the lock (pointer work only), then
-	 * do the sleeping dma-buf teardown after dropping it. */
-	write_lock(&dmabuf_import_treelock);
-	desc = dmabuf_import_tree_find(&dmabuf_import_tree, fd);
-	if (desc)
-		rb_erase(&desc->node, &dmabuf_import_tree);
-	write_unlock(&dmabuf_import_treelock);
+	/* Either kind, the caller's own first. The teardown runs under the lock
+	 * the desc was found with, so a reader that has it cannot be left
+	 * pointing at freed memory; it sleeps, which is why these are mutexes. */
+	desc = dmabuf_import_desc_get(filp, fd, &where, false);
+	if (IS_ERR(desc))
+		return PTR_ERR(desc);
 
-	if (!desc)
-		return -EINVAL;
-
+	rb_erase(&desc->node, where.tree);
 	dmabuf_import_desc_destroy(desc);
+
+	mutex_unlock(where.lock);
+
 	return 0;
 }
 
@@ -367,6 +581,7 @@ static long dmabuf_import_ioctl_get_map(struct file *filp, unsigned long arg)
 {
 	struct dmabuf_import_desc *desc;
 	struct dmabuf_import_get_map __user *uget_map;
+	struct dmabuf_import_where where;
 	struct dmabuf_import_get_map get_map;
 	struct dmabuf_import_dma_map map;
 	struct dmabuf_import_dma_map __user *umap;
@@ -378,7 +593,7 @@ static long dmabuf_import_ioctl_get_map(struct file *filp, unsigned long arg)
 	if (copy_from_user(&get_map, uget_map, sizeof(get_map)))
 		return -EFAULT;
 
-	desc = dmabuf_import_desc_lookup(get_map.fd);
+	desc = dmabuf_import_desc_get(filp, get_map.fd, &where, true);
 	if (IS_ERR(desc))
 		return PTR_ERR(desc);
 
@@ -391,9 +606,13 @@ static long dmabuf_import_ioctl_get_map(struct file *filp, unsigned long arg)
 
 		map.dma_addr = sg_dma_address(sg);
 		map.dma_len = sg_dma_len(sg);
-		if (copy_to_user(umap + i, &map, sizeof(map)))
+		if (copy_to_user(umap + i, &map, sizeof(map))) {
+			mutex_unlock(where.lock);
 			return -EFAULT;
+		}
 	}
+
+	mutex_unlock(where.lock);
 
 	return 0;
 }
@@ -409,6 +628,7 @@ static long dmabuf_import_ioctl_get_info(struct file *filp, unsigned long arg)
 	struct dmabuf_import_info __user *uinfo = (void __user *)arg;
 	struct dmabuf_import_info info;
 	struct dmabuf_import_desc *desc;
+	struct dmabuf_import_where where;
 	struct scatterlist *sg;
 	int i;
 
@@ -420,7 +640,7 @@ static long dmabuf_import_ioctl_get_info(struct file *filp, unsigned long arg)
 	if (info.pad)
 		return -EINVAL;
 
-	desc = dmabuf_import_desc_lookup(info.fd);
+	desc = dmabuf_import_desc_get(filp, info.fd, &where, true);
 	if (IS_ERR(desc))
 		return PTR_ERR(desc);
 
@@ -433,6 +653,8 @@ static long dmabuf_import_ioctl_get_info(struct file *filp, unsigned long arg)
 		if (sg_dma_is_bus_address(sg))
 			info.nbus++;
 	}
+
+	mutex_unlock(where.lock);
 
 	if (copy_to_user(uinfo, &info, sizeof(info)))
 		return -EFAULT;
@@ -453,13 +675,14 @@ static long dmabuf_import_ioctl_describe(struct file *filp, unsigned long arg)
 	struct dmabuf_import_describe __user *udesc = (void __user *)arg;
 	struct dmabuf_import_describe out;
 	struct dmabuf_import_desc *desc;
+	struct dmabuf_import_where where;
 	struct scatterlist *sg;
 	int i;
 
 	if (copy_from_user(&out, udesc, sizeof(out)))
 		return -EFAULT;
 
-	desc = dmabuf_import_desc_lookup(out.fd);
+	desc = dmabuf_import_desc_get(filp, out.fd, &where, true);
 	if (IS_ERR(desc))
 		return PTR_ERR(desc);
 
@@ -489,6 +712,8 @@ static long dmabuf_import_ioctl_describe(struct file *filp, unsigned long arg)
 		strscpy(out.exporter, desc->dma_buf->exp_name, sizeof(out.exporter));
 	strscpy(out.importer, desc->importer, sizeof(out.importer));
 
+	mutex_unlock(where.lock);
+
 	if (copy_to_user(udesc, &out, sizeof(out)))
 		return -EFAULT;
 
@@ -515,8 +740,49 @@ static long dmabuf_import_ioctl(struct file *filp, unsigned int cmd, unsigned lo
 	}
 }
 
+/*
+ * What DMABUF_IMPORT_ATTACH_BDF made on this file goes back here. The kernel
+ * closes a process's descriptors however it exits, so this is what gives the
+ * exporter its memory back when nobody sent a DETACH.
+ */
+static int dmabuf_import_open(struct inode *inode, struct file *filp)
+{
+	struct dmabuf_import_file *owner;
+
+	owner = kzalloc(sizeof(*owner), GFP_KERNEL);
+	if (!owner)
+		return -ENOMEM;
+
+	owner->tree = RB_ROOT;
+	mutex_init(&owner->lock);
+	filp->private_data = owner;
+
+	return 0;
+}
+
+static int dmabuf_import_release(struct inode *inode, struct file *filp)
+{
+	struct dmabuf_import_file *owner = filp->private_data;
+	struct dmabuf_import_desc *desc;
+	struct rb_node *node;
+
+	/* Nothing else can reach this file now, so the tree is walked without
+	 * taking its lock. */
+	while ((node = rb_first(&owner->tree))) {
+		desc = container_of(node, struct dmabuf_import_desc, node);
+		rb_erase(node, &owner->tree);
+		dmabuf_import_desc_destroy(desc);
+	}
+
+	kfree(owner);
+
+	return 0;
+}
+
 static const struct file_operations dmabuf_import_fops = {
 	.owner		= THIS_MODULE,
+	.open		= dmabuf_import_open,
+	.release	= dmabuf_import_release,
 	.unlocked_ioctl	= dmabuf_import_ioctl,
 	.compat_ioctl	= compat_ptr_ioctl,
 	.llseek		= noop_llseek,
@@ -546,9 +812,28 @@ static int __init dmabuf_import_init(void)
 
 static void __exit dmabuf_import_exit(void)
 {
+	struct dmabuf_import_desc *desc;
+	struct rb_node *node;
+
+	/* Imports made with the legacy DMABUF_IMPORT_ATTACH outlive the file
+	 * they were made on, so this tree can still hold some. Their
+	 * attachments carry importer_ops pointing into this module's text, and
+	 * nothing holds a reference on the module, so leaving them is a
+	 * use-after-free the next time an exporter moves a buffer.
+	 *
+	 * Drained before misc_deregister(), which frees this_device: these
+	 * imports were attached as that device, and tearing one down hands
+	 * attach->dev back to the exporter to unmap with. Nothing can insert
+	 * while this runs: exit only runs once the refcount is zero, so no
+	 * file is open, and opening anew fails in fops_get() against a going
+	 * module. */
+	while ((node = rb_first(&dmabuf_import_tree))) {
+		desc = container_of(node, struct dmabuf_import_desc, node);
+		rb_erase(node, &dmabuf_import_tree);
+		dmabuf_import_desc_destroy(desc);
+	}
+
 	misc_deregister(&dmabuf_import_misc);
-	/* NB: descriptors still in the tree at unload are leaked; add a
-	 * drain here if the module is meant to be unloaded while in use. */
 }
 
 module_init(dmabuf_import_init);

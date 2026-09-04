@@ -19,10 +19,16 @@ gpu-hip:
 # Target-side validation programs. They compile standalone against the system
 # headers, but running them needs the stock /dev/udmabuf (for UDMABUF_CREATE)
 # and the loaded module at /dev/dmabuf_import.
-tests: bounds placement
+tests: bounds placement owner unload
 
 bounds:
 	gcc -o test/dmabuf_import_bounds test/dmabuf_import_bounds.c
 
 placement:
 	gcc -o test/dmabuf_import_placement test/dmabuf_import_placement.c
+
+owner:
+	gcc -o test/dmabuf_import_owner test/dmabuf_import_owner.c
+
+unload:
+	gcc -o test/dmabuf_import_unload test/dmabuf_import_unload.c

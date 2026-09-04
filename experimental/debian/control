@@ -23,10 +23,12 @@ Description: experimental out-of-tree modules used by upcie (DKMS)
  them need both; each remains a separate module with its own author, licence
  and rationale, documented in /usr/src/upcie-experimental-<version>/.
  .
- dmabuf_import serves the dma-buf import ioctls (DMABUF_IMPORT_ATTACH /
- DMABUF_IMPORT_DETACH / DMABUF_IMPORT_GET_MAP) on /dev/dmabuf_import. It imports
- an external dma-buf, whoever exported it, and shares its DMA addresses with
- userspace.
+ dmabuf_import serves the dma-buf import ioctls on /dev/dmabuf_import. It
+ imports an external dma-buf, whoever exported it, for a PCI device named by
+ its BDF, and shares the DMA addresses that device reaches it at. An import
+ belongs to the open device file it was made on, so a caller keeps that open
+ for as long as it uses the addresses, and a process that exits or is killed
+ leaves nothing pinned.
  .
  iommu_map_pa serves the IOMMU_MAP_PA / IOMMU_UNMAP_PA ioctls on
  /dev/iommu_map_pa. Given a PCI BDF, an array of physical addresses and a

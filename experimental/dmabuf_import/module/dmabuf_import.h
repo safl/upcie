@@ -14,9 +14,9 @@
  * They are issued on a separate fd, so they never clash with the stock
  * /dev/udmabuf ioctls.
  *
- * Attachments are owned by the descriptor that created them: GET_MAP and
- * DETACH must be issued on the same one as the ATTACH, and closing it tears
- * the attachment down. Keep it open while the DMA addresses are in use.
+ * Attachments made with DMABUF_IMPORT_ATTACH_BDF are owned by the descriptor
+ * that created them: issue GET_MAP and DETACH on that same one, and closing it
+ * tears the attachment down. Keep it open while the DMA addresses are in use.
  */
 
 /* Override with -DDMABUF_IMPORT_DEVPATH=... */
@@ -47,8 +47,10 @@ struct dmabuf_import_dma_map {
 /**
  * struct dmabuf_import_get_map - Get DMA mappings from the provided dma-buf fd
  *
- * The dma-buf fd must match one previously passed to DMABUF_IMPORT_ATTACH on
- * this same descriptor. The dma_arr array is allocated by userspace.
+ * The dma-buf fd must name an import made with either attach ioctl: one made
+ * with DMABUF_IMPORT_ATTACH_BDF is found only on the descriptor it was made
+ * on, one made with DMABUF_IMPORT_ATTACH on any descriptor. The dma_arr array
+ * is allocated by userspace.
  */
 struct dmabuf_import_get_map {
 	/** @fd: dma-buf file descriptor (in) */
@@ -145,6 +147,33 @@ struct dmabuf_import_describe {
 	char importer[DMABUF_IMPORT_BDF_LEN];
 };
 
+/*
+ * DMABUF_IMPORT_ATTACH is kept for callers that have not moved, and is the one
+ * to move off. It keys its imports by the dma-buf descriptor number in a table
+ * shared by every user of the device, and holds them until a DETACH arrives. A
+ * descriptor number means something only inside the process that holds it, so
+ * two processes naming different buffers with the same number collide. Such a
+ * collision used to be answered with whichever buffer got there first; it is
+ * now refused with -ESTALE, a change made knowingly: an error can be handled
+ * where wrong DMA addresses cannot, and the only attach refused is one whose
+ * number no longer names the buffer the standing import holds. A DETACH of
+ * that import frees the number. A process that is killed still sends no
+ * DETACH, so its import holds the exporter's memory until the module is
+ * unloaded. Taking this ioctl says so in the kernel log.
+ *
+ * DMABUF_IMPORT_ATTACH_BDF hands the import to the file it was made on. Each
+ * open of the device has its own, so the numbers cannot meet, and closing the
+ * file gives the imports back, which the kernel does on exit however the exit
+ * happens. The caller therefore keeps the device open for as long as it uses
+ * the addresses. An empty bdf attaches as the misc device, which is what
+ * ATTACH does, so it is the whole of what ATTACH offered and none of what it
+ * got wrong.
+ *
+ * The lookups take an import made either way: they consult the calling file's
+ * imports before the shared table. An import whose descriptor number has since
+ * come to name a different dma-buf is refused with -ESTALE wherever it is
+ * found; only DETACH still takes it, which is how the number is freed.
+ */
 #define DMABUF_IMPORT_ATTACH  _IOWR('u', 0x47, struct dmabuf_import_attach)
 #define DMABUF_IMPORT_DETACH  _IOW('u', 0x48, int)
 #define DMABUF_IMPORT_GET_MAP _IOWR('u', 0x49, struct dmabuf_import_get_map)
