@@ -583,9 +583,10 @@ static long dmabuf_import_ioctl_get_map(struct file *filp, unsigned long arg)
 	struct dmabuf_import_get_map __user *uget_map;
 	struct dmabuf_import_where where;
 	struct dmabuf_import_get_map get_map;
-	struct dmabuf_import_dma_map map;
-	struct dmabuf_import_dma_map __user *umap;
+	struct dmabuf_import_dma_map *maps;
 	struct scatterlist *sg;
+	unsigned int count;
+	long ret = 0;
 	int i;
 
 	uget_map = (void __user *)arg;
@@ -597,24 +598,40 @@ static long dmabuf_import_ioctl_get_map(struct file *filp, unsigned long arg)
 	if (IS_ERR(desc))
 		return PTR_ERR(desc);
 
-	umap = uget_map->dma_arr;
+	/* Gathered into a kernel array under the lock and copied out after
+	 * dropping it: a fault on the destination can sleep for as long as
+	 * userspace makes it, and must not hold up every other ioctl on this
+	 * tree while it does. Sized by what the mapping has, capped by what
+	 * userspace allocated (entries 0..count-1), so a bogus count cannot
+	 * inflate the allocation and index `count` is never written. */
+	count = min_t(unsigned int, desc->sgt->nents, get_map.count);
+	if (!count) {
+		mutex_unlock(where.lock);
+		return 0;
+	}
+
+	maps = kvmalloc_array(count, sizeof(*maps), GFP_KERNEL);
+	if (!maps) {
+		mutex_unlock(where.lock);
+		return -ENOMEM;
+	}
+
 	for_each_sgtable_dma_sg(desc->sgt, sg, i) {
-		/* Userspace allocated get_map.count entries (0..count-1); stop
-		 * before writing umap[count] to avoid a one-past-the-end write. */
-		if (i >= get_map.count)
+		if ((unsigned int)i >= count)
 			break;
 
-		map.dma_addr = sg_dma_address(sg);
-		map.dma_len = sg_dma_len(sg);
-		if (copy_to_user(umap + i, &map, sizeof(map))) {
-			mutex_unlock(where.lock);
-			return -EFAULT;
-		}
+		maps[i].dma_addr = sg_dma_address(sg);
+		maps[i].dma_len = sg_dma_len(sg);
 	}
 
 	mutex_unlock(where.lock);
 
-	return 0;
+	if (copy_to_user(uget_map->dma_arr, maps, array_size(count, sizeof(*maps))))
+		ret = -EFAULT;
+
+	kvfree(maps);
+
+	return ret;
 }
 
 /*
