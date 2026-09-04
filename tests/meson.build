@@ -16,9 +16,21 @@ test_sources = files(
   'test_dmamem_heap.c',
   'test_dmamem_registry.c',
   'test_nvme_qid.c',
+  'test_nvme_runtime_record.c',
+  'test_nvme_cplane.c',
+  'test_dmamem_shared_hostmem.c',
 )
 
 incdir = include_directories('../include')
+
+# Tests that need no device, no hugepages and no elevated privilege, so they
+# can run anywhere 'meson test' runs. Everything else here is a program to be
+# pointed at hardware, driven by the tasks under cijoe/.
+hwfree_tests = [
+  'test_dmamem_heap',
+  'test_dmamem_registry',
+  'test_nvme_qid',
+]
 
 foreach src : test_sources
   bin_name = fs.stem(src)
@@ -28,6 +40,9 @@ foreach src : test_sources
     include_directories: incdir,
     install: true,
   )
+  if hwfree_tests.contains(bin_name)
+    test(bin_name, exe)
+  endif
 endforeach
 
 # Tests depending on linking with CUDA
