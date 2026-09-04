@@ -2,11 +2,27 @@ dma-buf Import
 ==============
 
 A *dma-buf* importer: it imports an external *dma-buf* and shares its
-DMA/physical addresses with userspace over three ioctls
-(``DMABUF_IMPORT_ATTACH``, ``DMABUF_IMPORT_DETACH``, ``DMABUF_IMPORT_GET_MAP``).
-Any *dma-buf* can be imported, whoever exported it. Two examples import one and
-print its addresses: ``dmabuf_import_cpu`` (a *memfd* via *udmabuf*) and
-``dmabuf_import_gpu`` (GPU memory via the NVIDIA driver).
+DMA/physical addresses with userspace. Import with ``DMABUF_IMPORT_ATTACH_BDF``,
+naming the PCI device that will read the memory, and give the addresses back
+with ``DMABUF_IMPORT_DETACH``; ``DMABUF_IMPORT_GET_MAP``,
+``DMABUF_IMPORT_GET_INFO`` and ``DMABUF_IMPORT_DESCRIBE`` read back what an
+import holds. Any *dma-buf* can be imported, whoever exported it. Two examples
+import one and print its addresses: ``dmabuf_import_cpu`` (a *memfd* via
+*udmabuf*) and ``dmabuf_import_gpu`` (GPU memory via the NVIDIA driver).
+
+An import belongs to the open ``/dev/dmabuf_import`` it was made on, so keep
+that descriptor open for as long as the addresses are used. Closing it gives
+the import back, which the kernel does on exit however the exit happens, so a
+process that is killed leaves nothing pinned.
+
+``DMABUF_IMPORT_ATTACH`` is the older form, kept for callers that have not
+moved. It imports for the module's own device rather than a PCI one, which an
+exporter reads as no peer-to-peer path: amdgpu answers by migrating the buffer
+to system memory. It also corrupts and leaks: its imports are keyed by
+descriptor number in one table shared by every user of the device, so two
+processes at the same number are handed each other's addresses, and an import
+outlives the process that made it. An empty ``bdf`` given to
+``DMABUF_IMPORT_ATTACH_BDF`` reaches the same device without any of that.
 
 Why DKMS: as a standalone out-of-tree module it iterates fast
 (``rmmod``/``insmod``, or a DKMS rebuild, to try a change), and it works in
@@ -20,7 +36,7 @@ Install the DKMS module
 -----------------------
 
 Stock ``/dev/udmabuf`` keeps serving ``UDMABUF_CREATE``; the module adds
-``/dev/dmabuf_import`` for ``DMABUF_IMPORT_ATTACH`` / ``DETACH`` / ``GET_MAP``.
+``/dev/dmabuf_import`` for the import ioctls.
 
 * Install the ``.deb`` (CI builds it for Ubuntu 24.04 and 26.04)::
 
@@ -44,7 +60,7 @@ import ioctls without vendoring::
 
 	  #include <linux/dmabuf_import.h>
 
-It provides the attach/detach/get-map structs and ioctls plus an overridable
+It provides the import structs and ioctls plus an overridable
 ``DMABUF_IMPORT_DEVPATH`` (the device to open for the import ioctls).
 
 Build and run the examples
