@@ -1,5 +1,5 @@
 project('upcie', 'c',
-  version: '0.9.0',
+  version: '0.10.0',
   license: 'BSD-3-Clause',
   meson_version: '>=0.59',
   default_options: [
