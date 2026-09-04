@@ -15,7 +15,7 @@
  * process must have IPC_LOCK / adequate memlock limits.
  *
  * @file dmamem_memfd.h
- * @version 0.8.1
+ * @version 0.9.0
  */
 
 #ifndef MFD_HUGE_2MB

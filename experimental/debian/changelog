@@ -1,3 +1,17 @@
+upcie-experimental (0.9.0) unstable; urgency=medium
+
+  * Track upcie 0.9.0.
+  * dmabuf_import: DMABUF_IMPORT_ATTACH_BDF imports now belong to the open
+    device file and are freed when it is closed. Callers must keep the device
+    open for as long as they use the addresses.
+  * dmabuf_import: attach and the lookups refuse a descriptor number that has
+    come to name a different buffer with ESTALE, where they used to answer
+    with the standing import's addresses; DETACH still takes it. Unloading the
+    module now releases the imports the DMABUF_IMPORT_ATTACH table still
+    holds, and that ioctl logs a deprecation warning naming the caller.
+
+ -- Simon A. F. Lund <os@safl.dk>  Fri, 04 Sep 2026 18:04:59 +0200
+
 upcie-experimental (0.8.1) unstable; urgency=medium
 
   * Initial release of the merged package: ship dmabuf_import and iommu_map_pa
