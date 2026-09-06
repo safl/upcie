@@ -1,20 +1,57 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
+/**
+ * NVMe write and read through uio_pci_generic, with the buffers in host memory
+ * ============================================================================
+ *
+ * The controller is opened through sysfs and DMAs against physical addresses, which is the
+ * arrangement for iommu=pt or no IOMMU at all. The hugepage behind the heap is wrapped by
+ * dmamem_from_hostmem_registry(), so the PRPs are physical. Writes LBA 0 of namespace 1.
+ *
+ * Usage:
+ *   test_hostmem_nvme_readwrite <PCI-BDF>
+ */
+
 #define _UPCIE_WITH_NVME
 #include <upcie/upcie.h>
 
+#define HEAP_NBYTES (16ULL * 1024 * 1024)
+
 struct rte {
 	struct hostmem_config config;
-	struct hostmem_heap heap;
-};
-
-struct nvme {
+	struct hostmem_hugepage hp;
+	struct dmamem dmem;
+	struct dmamem_heap heap;
 	struct nvme_controller ctrlr;
+	struct nvme_dmamem_uio_ctx ctx;
 	struct nvme_qpair ioq;
+	size_t ioq_sq, ioq_cq, ioq_prp;
+	int hp_alive, dmem_alive, heap_alive, ctrlr_alive, ioq_alive;
 };
 
-int
-rte_init(struct rte *rte)
+static void
+rte_term(struct rte *rte)
+{
+	if (rte->ioq_alive) {
+		nvme_controller_delete_io_qpair_dmamem(&rte->ctrlr, &rte->ioq, &rte->heap,
+						       rte->ioq_sq, rte->ioq_cq, rte->ioq_prp);
+	}
+	if (rte->ctrlr_alive) {
+		nvme_controller_close_dmamem_uio(&rte->ctrlr, &rte->ctx, &rte->heap);
+	}
+	if (rte->heap_alive) {
+		dmamem_heap_term(&rte->heap);
+	}
+	if (rte->dmem_alive) {
+		dmamem_destroy(&rte->dmem);
+	}
+	if (rte->hp_alive) {
+		hostmem_hugepage_free(&rte->hp);
+	}
+}
+
+static int
+rte_init(struct rte *rte, const char *bdf)
 {
 	int err;
 
@@ -24,17 +61,50 @@ rte_init(struct rte *rte)
 		return err;
 	}
 
-	err = hostmem_heap_init(&rte->heap, 1024 * 1024 * 128ULL, &rte->config);
+	err = hostmem_hugepage_alloc(HEAP_NBYTES, &rte->hp, &rte->config);
 	if (err) {
-		printf("FAILED: hostmem_heap_init(); err(%d)\n", err);
+		printf("FAILED: hostmem_hugepage_alloc(); err(%d); are hugepages reserved?\n",
+		       err);
 		return err;
 	}
+	rte->hp_alive = 1;
+
+	err = dmamem_from_hostmem_registry(&rte->dmem, &rte->hp, 0);
+	if (err) {
+		printf("FAILED: dmamem_from_hostmem_registry(); err(%d); missing CAP_SYS_ADMIN?\n",
+		       err);
+		return err;
+	}
+	rte->dmem_alive = 1;
+
+	err = dmamem_heap_init(&rte->heap, &rte->dmem, 4096);
+	if (err) {
+		printf("FAILED: dmamem_heap_init(); err(%d)\n", err);
+		return err;
+	}
+	rte->heap_alive = 1;
+
+	nvme_dmamem_uio_ctx_init(&rte->ctx);
+	err = nvme_controller_open_dmamem_uio(&rte->ctrlr, &rte->ctx, &rte->heap, bdf);
+	if (err) {
+		printf("FAILED: nvme_controller_open_dmamem_uio(%s); err(%d)\n", bdf, err);
+		return err;
+	}
+	rte->ctrlr_alive = 1;
+
+	err = nvme_controller_create_io_qpair_dmamem(&rte->ctrlr, &rte->ioq, 32, &rte->heap,
+						     &rte->ioq_sq, &rte->ioq_cq, &rte->ioq_prp);
+	if (err) {
+		printf("FAILED: nvme_controller_create_io_qpair_dmamem(); err(%d)\n", err);
+		return err;
+	}
+	rte->ioq_alive = 1;
 
 	return 0;
 }
 
-int
-nvme_io(struct nvme *nvme, uint8_t opc, void *buffer, size_t buffer_size)
+static int
+nvme_io(struct rte *rte, uint8_t opc, void *buffer, size_t buffer_size)
 {
 	struct nvme_completion cpl = {0};
 	struct nvme_command cmd = {0};
@@ -42,11 +112,10 @@ nvme_io(struct nvme *nvme, uint8_t opc, void *buffer, size_t buffer_size)
 	uint8_t sc, sct;
 	int err;
 
-	req = nvme_request_alloc(nvme->ioq.rpool);
+	req = nvme_request_alloc(rte->ioq.rpool);
 	if (!req) {
-		err = errno;
-		printf("FAILED: nvme_request_alloc(); err(%d)\n", err);
-		return err;
+		printf("FAILED: nvme_request_alloc(); errno(%d)\n", errno);
+		return -errno;
 	}
 	cmd.cid = req->cid;
 	cmd.nsid = 1;
@@ -54,63 +123,37 @@ nvme_io(struct nvme *nvme, uint8_t opc, void *buffer, size_t buffer_size)
 	cmd.cdw10 = 0; ///< SLBA == 0
 	cmd.cdw12 = 0; ///< NLB == 0
 
-	nvme_request_prep_command_prps_contig(req, nvme->ctrlr.heap, buffer, buffer_size, &cmd);
-
-	err = nvme_qpair_enqueue(&nvme->ioq, &cmd);
+	err = nvme_request_prep_command_prps_contig_dmamem(req, &rte->dmem, buffer, buffer_size,
+							   &cmd);
 	if (err) {
-		printf("FAILED: nvme_qpair_enqueue(); err(%d)\n", err);
+		printf("FAILED: nvme_request_prep_command_prps_contig_dmamem(); err(%d)\n", err);
+		nvme_request_free(rte->ioq.rpool, req->cid);
 		return err;
 	}
 
-	nvme_qpair_sqdb_update(&nvme->ioq);
-
-	err = nvme_qpair_reap_cpl(&nvme->ioq, nvme->ctrlr.timeout_ms, &cpl);
+	err = nvme_qpair_enqueue(&rte->ioq, &cmd);
 	if (err) {
+		printf("FAILED: nvme_qpair_enqueue(); err(%d)\n", err);
+		nvme_request_free(rte->ioq.rpool, req->cid);
+		return err;
+	}
+
+	nvme_qpair_sqdb_update(&rte->ioq);
+
+	err = nvme_qpair_reap_cpl(&rte->ioq, rte->ctrlr.timeout_ms, &cpl);
+	if (err) {
+		/* Submitted and unreaped: the controller still owns this cid. */
 		printf("FAILED: nvme_qpair_reap_cpl(); err(%d)\n", err);
 		return err;
 	}
 
-	nvme_request_free(nvme->ioq.rpool, cpl.cid);
+	nvme_request_free(rte->ioq.rpool, cpl.cid);
 
 	sc = (cpl.status & 0x1FE) >> 1;
-	sct = (cpl.status & 0xE00) >> 8;
+	sct = (cpl.status & 0xE00) >> 9;
 	if (sc) {
 		printf("FAILED: Status Code Type(0x%x), Status Code(0x%x)\n", sct, sc);
-		err = EIO;
-	}
-
-	return err;
-}
-
-int
-nvme_init(struct nvme *nvme, const char *bdf, struct rte *rte)
-{
-	struct nvme_completion cpl = {0};
-	struct nvme_command cmd = {0};
-	int err;
-
-	err = nvme_controller_open(&nvme->ctrlr, bdf, &rte->heap);
-	if (err) {
-		printf("FAILED: nvme_device_open(); err(%d)\n", err);
-		return err;
-	}
-
-	cmd.opc = 0x6; ///< IDENTIFY
-	cmd.cdw10 = 1; // CNS=1: Identify Controller
-
-	err = nvme_qpair_submit_sync_contig_prps(&nvme->ctrlr.aq, nvme->ctrlr.heap,
-						 nvme->ctrlr.buf, 4096, &cmd,
-						 nvme->ctrlr.timeout_ms, &cpl);
-	if (err) {
-		printf("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
-		nvme_controller_close(&nvme->ctrlr);
-		return err;
-	}
-
-	err = nvme_controller_create_io_qpair(&nvme->ctrlr, &nvme->ioq, 32);
-	if (err) {
-		printf("FAILED: nvme_device_create_io_qpair(); err(%d)\n", err);
-		return err;
+		return -EIO;
 	}
 
 	return 0;
@@ -119,10 +162,10 @@ nvme_init(struct nvme *nvme, const char *bdf, struct rte *rte)
 int
 main(int argc, char **argv)
 {
-	struct nvme nvme = {0};
 	struct rte rte = {0};
 	const size_t buffer_size = 82 * sizeof(char);
-	char *write_buf = NULL, *read_buf = NULL;
+	size_t write_off = 0, read_off = 0;
+	char *write_buf, *read_buf;
 	int err;
 
 	if (argc != 2) {
@@ -130,31 +173,24 @@ main(int argc, char **argv)
 		return 1;
 	}
 
-	err = rte_init(&rte);
+	err = rte_init(&rte, argv[1]);
 	if (err) {
 		printf("FAILED: rte_init(); err(%d)\n", err);
-		return err;
+		goto exit;
 	}
 
-	err = nvme_init(&nvme, argv[1], &rte);
+	err = dmamem_heap_alloc(&rte.heap, buffer_size, &write_off);
 	if (err) {
-		printf("FAILED: nvme_init(); err(%d)\n", err);
-		return err;
-	}
-
-	write_buf = hostmem_dma_malloc(&rte.heap, buffer_size);
-	if (!write_buf) {
-		err = errno;
-		printf("FAILED: hostmem_dma_malloc(write_buf); err(%d)\n", err);
+		printf("FAILED: dmamem_heap_alloc(write_buf); err(%d)\n", err);
 		goto exit;
 	}
-
-	read_buf = hostmem_dma_malloc(&rte.heap, buffer_size);
-	if (!read_buf) {
-		err = errno;
-		printf("FAILED: hostmem_dma_malloc(read_buf); err(%d)\n", err);
+	err = dmamem_heap_alloc(&rte.heap, buffer_size, &read_off);
+	if (err) {
+		printf("FAILED: dmamem_heap_alloc(read_buf); err(%d)\n", err);
 		goto exit;
 	}
+	write_buf = dmamem_heap_at_va(&rte.heap, write_off);
+	read_buf = dmamem_heap_at_va(&rte.heap, read_off);
 
 	// Fill write buffer with ascii characters
 	for (size_t i = 0; i < buffer_size; i++) {
@@ -163,13 +199,13 @@ main(int argc, char **argv)
 
 	memset(read_buf, 0, buffer_size);
 
-	err = nvme_io(&nvme, 0x1, (void *)write_buf, buffer_size);
+	err = nvme_io(&rte, 0x1, write_buf, buffer_size);
 	if (err) {
 		printf("FAILED: nvme_io(write); err(%d)\n", err);
 		goto exit;
 	}
 
-	err = nvme_io(&nvme, 0x2, (void *)read_buf, buffer_size);
+	err = nvme_io(&rte, 0x2, read_buf, buffer_size);
 	if (err) {
 		printf("FAILED: nvme_io(read); err(%d)\n", err);
 		goto exit;
@@ -178,18 +214,16 @@ main(int argc, char **argv)
 	for (size_t i = 0; i < buffer_size; i++) {
 		if (write_buf[i] != read_buf[i]) {
 			printf("FAILED: written data != read data\n");
-			printf("Wrote: %s\n", write_buf);
-			printf("Read: %s\n", read_buf);
+			printf("Wrote: %.*s\n", (int)buffer_size, write_buf);
+			printf("Read: %.*s\n", (int)buffer_size, read_buf);
+			err = -EIO;
 			goto exit;
 		}
 	}
-	printf("SUCCES: written data == read data\n");
+	printf("SUCCESS: written data == read data\n");
 
 exit:
-	hostmem_dma_free(&rte.heap, write_buf);
-	hostmem_dma_free(&rte.heap, read_buf);
-	nvme_controller_close(&nvme.ctrlr);
-	hostmem_heap_term(&rte.heap);
+	rte_term(&rte);
 
-	return err;
+	return err ? 1 : 0;
 }

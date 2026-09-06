@@ -12,13 +12,22 @@
  * and compare. Needs the dmabuf-import module (for dmabuf_import_attach's
  * physical LUT) and an IOMMU in passthrough (iommu=pt) so the NVMe DMAs to the
  * GPU's physical/P2P addresses directly.
+ *
+ * The controller is opened through uio_pci_generic with its queues on a
+ * hugepage wrapped by dmamem_from_hostmem_registry(); the data buffers come
+ * through dmamem_from_hip_registry(). Both hand the same PRP builder addresses
+ * the controller can use.
  */
 #define _UPCIE_WITH_NVME
 #include <upcie/upcie_hip.h>
 
+#define HEAP_NBYTES (16ULL * 1024 * 1024)
+
 struct rte {
 	struct hostmem_config config;
-	struct hostmem_heap heap;
+	struct hostmem_hugepage hp;
+	struct dmamem host_dmem;
+	struct dmamem_heap host_heap;
 	struct hipmem_config hip_config;
 	struct hipmem_heap hip_heap;
 	struct dmamem dmem;
@@ -26,7 +35,10 @@ struct rte {
 
 struct nvme {
 	struct nvme_controller ctrlr;
+	struct nvme_dmamem_uio_ctx ctx;
 	struct nvme_qpair ioq;
+	size_t ioq_sq, ioq_cq, ioq_prp;
+	int ioq_alive;
 };
 
 int
@@ -40,9 +52,21 @@ rte_init(struct rte *rte)
 		return err;
 	}
 
-	err = hostmem_heap_init(&rte->heap, 1024 * 1024 * 128ULL, &rte->config);
+	err = hostmem_hugepage_alloc(HEAP_NBYTES, &rte->hp, &rte->config);
 	if (err) {
-		printf("FAILED: hostmem_heap_init(); err(%d)\n", err);
+		printf("FAILED: hostmem_hugepage_alloc(); err(%d)\n", err);
+		return err;
+	}
+
+	err = dmamem_from_hostmem_registry(&rte->host_dmem, &rte->hp, 0);
+	if (err) {
+		printf("FAILED: dmamem_from_hostmem_registry(); err(%d)\n", err);
+		return err;
+	}
+
+	err = dmamem_heap_init(&rte->host_heap, &rte->host_dmem, 4096);
+	if (err) {
+		printf("FAILED: dmamem_heap_init(); err(%d)\n", err);
 		return err;
 	}
 
@@ -135,34 +159,35 @@ nvme_io(struct nvme *nvme, struct dmamem *dmem, uint8_t opc, void *buffer, size_
 int
 nvme_init(struct nvme *nvme, const char *bdf, struct rte *rte)
 {
-	struct nvme_completion cpl = {0};
-	struct nvme_command cmd = {0};
 	int err;
 
-	err = nvme_controller_open(&nvme->ctrlr, bdf, &rte->heap);
+	nvme_dmamem_uio_ctx_init(&nvme->ctx);
+	err = nvme_controller_open_dmamem_uio(&nvme->ctrlr, &nvme->ctx, &rte->host_heap, bdf);
 	if (err) {
-		printf("FAILED: nvme_controller_open(); err(%d)\n", err);
+		printf("FAILED: nvme_controller_open_dmamem_uio(); err(%d)\n", err);
 		return err;
 	}
 
-	cmd.opc = 0x6; ///< IDENTIFY
-	cmd.cdw10 = 1; ///< CNS=1: Identify Controller
-
-	err = nvme_qpair_submit_sync_contig_prps(&nvme->ctrlr.aq, nvme->ctrlr.heap, nvme->ctrlr.buf,
-						 4096, &cmd, nvme->ctrlr.timeout_ms, &cpl);
+	err = nvme_controller_create_io_qpair_dmamem(&nvme->ctrlr, &nvme->ioq, 32, &rte->host_heap,
+						     &nvme->ioq_sq, &nvme->ioq_cq, &nvme->ioq_prp);
 	if (err) {
-		printf("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
-		nvme_controller_close(&nvme->ctrlr);
+		printf("FAILED: nvme_controller_create_io_qpair_dmamem(); err(%d)\n", err);
+		nvme_controller_close_dmamem_uio(&nvme->ctrlr, &nvme->ctx, &rte->host_heap);
 		return err;
 	}
-
-	err = nvme_controller_create_io_qpair(&nvme->ctrlr, &nvme->ioq, 32);
-	if (err) {
-		printf("FAILED: nvme_controller_create_io_qpair(); err(%d)\n", err);
-		return err;
-	}
+	nvme->ioq_alive = 1;
 
 	return 0;
+}
+
+void
+nvme_term(struct nvme *nvme, struct rte *rte)
+{
+	if (nvme->ioq_alive) {
+		nvme_controller_delete_io_qpair_dmamem(&nvme->ctrlr, &nvme->ioq, &rte->host_heap,
+						       nvme->ioq_sq, nvme->ioq_cq, nvme->ioq_prp);
+	}
+	nvme_controller_close_dmamem_uio(&nvme->ctrlr, &nvme->ctx, &rte->host_heap);
 }
 
 int
@@ -171,8 +196,8 @@ main(int argc, char **argv)
 	struct nvme nvme = {0};
 	struct rte rte = {0};
 	const size_t buffer_size = 82 * sizeof(char);
-	void *write_buf = NULL, *read_buf = NULL; ///< GPU IO buffers
-	char *expected = NULL, *actual = NULL;    ///< host buffers for comparison
+	void *write_buf = NULL, *read_buf = NULL; ///< HIP IO buffers
+	char *expected = NULL, *actual = NULL;    ///< HOST buffers for comparison
 	int err;
 
 	if (argc != 2) {
@@ -207,16 +232,24 @@ main(int argc, char **argv)
 	}
 
 	expected = malloc(buffer_size);
-	actual = malloc(buffer_size);
-	if (!expected || !actual) {
+	if (!expected) {
 		err = errno;
-		printf("FAILED: malloc(host buffers); err(%d)\n", err);
+		printf("FAILED: malloc(expected); err(%d)\n", err);
 		goto exit;
 	}
 
+	actual = malloc(buffer_size);
+	if (!actual) {
+		err = errno;
+		printf("FAILED: malloc(actual); err(%d)\n", err);
+		goto exit;
+	}
+
+	// Fill buffer with ascii characters
 	for (size_t i = 0; i < buffer_size; i++) {
 		expected[i] = (i % 26) + 65;
 	}
+
 	memset(actual, 0, buffer_size);
 
 	err = hipMemcpyHtoD((hipDeviceptr_t)write_buf, expected, buffer_size);
@@ -231,13 +264,13 @@ main(int argc, char **argv)
 		goto exit;
 	}
 
-	err = nvme_io(&nvme, &rte.dmem, 0x1, write_buf, buffer_size); ///< WRITE
+	err = nvme_io(&nvme, &rte.dmem, 0x1, write_buf, buffer_size);
 	if (err) {
 		printf("FAILED: nvme_io(write); err(%d)\n", err);
 		goto exit;
 	}
 
-	err = nvme_io(&nvme, &rte.dmem, 0x2, read_buf, buffer_size); ///< READ
+	err = nvme_io(&nvme, &rte.dmem, 0x2, read_buf, buffer_size);
 	if (err) {
 		printf("FAILED: nvme_io(read); err(%d)\n", err);
 		goto exit;
@@ -252,18 +285,23 @@ main(int argc, char **argv)
 	for (size_t i = 0; i < buffer_size; i++) {
 		if (expected[i] != actual[i]) {
 			printf("FAILED: written data != read data\n");
+			printf("Wrote: %s\n", expected);
+			printf("Read: %s\n", actual);
+			err = EIO;
 			goto exit;
 		}
 	}
-	printf("PASS: NVMe round-tripped data through AMD GPU memory\n");
+	printf("SUCCESS: written data == read data\n");
 
 exit:
 	hipmem_dma_free(&rte.hip_heap, write_buf);
 	hipmem_dma_free(&rte.hip_heap, read_buf);
 	free(expected);
 	free(actual);
-	nvme_controller_close(&nvme.ctrlr);
-	hostmem_heap_term(&rte.heap);
+	nvme_term(&nvme, &rte);
+	dmamem_heap_term(&rte.host_heap);
+	dmamem_destroy(&rte.host_dmem);
+	hostmem_hugepage_free(&rte.hp);
 	dmamem_destroy(&rte.dmem);
 	hipmem_heap_term(&rte.hip_heap);
 

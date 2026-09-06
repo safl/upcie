@@ -88,9 +88,8 @@ nvme_dmamem_vfio_ctx_close(struct nvme_dmamem_vfio_ctx *ctx)
  * for a queue pair from a dmamem_heap, and populate the nvme_qpair
  * fields the submit/reap primitives read.
  *
- * The heap stays with the caller; qp->heap is left NULL to signal that
- * qp is not managed by hostmem_dma_free. Use nvme_qpair_dmamem_term to
- * free, passing back the same offsets returned here.
+ * The heap stays with the caller. Use nvme_qpair_dmamem_term to free,
+ * passing back the same offsets returned here.
  *
  * @param qp             Queue pair to populate; fully memset before use.
  * @param qid            NVMe queue identifier (0 for the admin queue).
