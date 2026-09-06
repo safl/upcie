@@ -873,4 +873,4 @@ MODULE_IMPORT_NS(DMA_BUF);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Karl Bonde Torp <k.torp@samsung.com>");
 MODULE_DESCRIPTION("Out-of-tree dma-buf importer");
-MODULE_VERSION("0.9.0");
+MODULE_VERSION("0.10.0");
