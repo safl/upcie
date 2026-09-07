@@ -113,6 +113,25 @@ enum nvme_cplane_op {
 	 * Submission and Completion commands go on.
 	 */
 	NVME_CPLANE_OP_ALLOC_IOQPAIR_AT = 10,
+
+	/**
+	 * Client asks for a queue whose completion queue alone is memory it
+	 * registered
+	 *
+	 * A host-driven client with device memory wants the controller's
+	 * completions to land beside its data, since a drive doing P2P into
+	 * that memory otherwise alternates between two destinations and its
+	 * posted writes queue behind each other. The submission queue and the
+	 * PRP scratch stay in the server's heap as for ALLOC_IOQPAIR, so the
+	 * host submits as before; only the completion queue is named, by offset
+	 * into a region the client registered.
+	 *
+	 * The reply is the same allocation ALLOC_IOQPAIR gives, and its
+	 * completion-queue offset is a queue in the server's heap that the
+	 * controller never writes: the client keeps it a copy of the one it
+	 * placed, so that completions are read the way they always are.
+	 */
+	NVME_CPLANE_OP_ALLOC_IOQPAIR_CQ_AT = 11,
 };
 
 /**
@@ -226,6 +245,13 @@ struct nvme_cplane_msg {
 			uint16_t depth;       ///< Request: entries wanted
 			uint16_t _rsvd;
 		} queue_at;
+		struct {
+			struct nvme_ioqpair allocation; ///< Reply: the queue allocated
+			uint64_t desc_offset; ///< Request: the registration the CQ lives in
+			uint64_t cq_offset;   ///< Request: completion queue, from the region
+			uint16_t depth;       ///< Request: entries wanted
+			uint16_t _rsvd[3];
+		} queue_cq_at;
 	} u;
 };
 
