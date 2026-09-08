@@ -51,6 +51,9 @@ struct hostmem_heap_block {
 
 /**
  * A pre-allocated heap providing memory for a buffer-allocator
+ *
+ * Not thread-safe: a caller sharing the heap between threads serialises alloc
+ * and free.
  */
 struct hostmem_heap {
 	struct hostmem_hugepage memory; ///< A hugepage-allocation; can span multiple hugepages
