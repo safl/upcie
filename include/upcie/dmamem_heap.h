@@ -13,6 +13,11 @@
  * Convenience accessors return the CPU VA of an allocation when
  * available (memfd backing) and always return the IOVA (all backings).
  *
+ * The heap takes no lock. The free list is a chain that alloc splits and free
+ * coalesces, so calls from two threads at once corrupt it; a caller that
+ * shares one heap between threads serialises alloc, free and pp itself, the
+ * way it would any other single-threaded object it shares.
+ *
  * @file dmamem_heap.h
  * @version 0.9.0
  */
