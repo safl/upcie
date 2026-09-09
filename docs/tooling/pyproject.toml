@@ -13,6 +13,7 @@ dependencies = [
     "sphinx-autobuild>=2024.10",
     "furo>=2024.8",
     "breathe>=4.35",
+    "sphinxcontrib-mermaid>=1.0",
 ]
 
 [project.scripts]
