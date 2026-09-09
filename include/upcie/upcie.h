@@ -108,7 +108,6 @@ extern "C" {
 #include <upcie/nvme/nvme_qpair.h>
 #include <upcie/nvme/nvme_controller.h>
 #include <upcie/nvme/nvme_controller_vfio_pci.h>
-#include <upcie/nvme/nvme_controller_vfio.h>
 #include <upcie/nvme/nvme_controller_dmamem_vfio.h>
 #include <upcie/nvme/nvme_controller_dmamem_uio.h>
 #include <upcie/nvme/nvme_controller_dmamem_type1.h>

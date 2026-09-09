@@ -166,25 +166,34 @@ basic NVMe over PCIe.
   CSTS, AQA, DB).
 
 `nvme_controller.h`
-: A `struct nvme_controller` wrapping BAR access, admin queue setup, and reset
-  logic. The high-level entry point for interacting with a controller.
+: The `struct nvme_controller` the driver is built around: the PCIe function
+  and its mapped BAR0, the admin queue pair, the queue-identifier bitmap and
+  the register values read at open.
 
-`nvme_controller_vfio.h`
-: A VFIO-backed variant of the controller setup. Acquires the device through a
-  VFIO container and group and maps its DMA buffers into the IOMMU, instead of
-  the raw-physical sysfs path. A CUDA variant exists for GPU-direct DMA.
+`nvme_controller_dmamem_vfio.h`, `nvme_controller_dmamem_uio.h`,
+`nvme_controller_dmamem_type1.h`
+: Opening and closing a controller with its queues on a `dmamem_heap`, one per
+  way of reaching the device: a vfio device file with iommufd, `resource0`
+  under `uio_pci_generic` with physical addresses, and a vfio type1 container.
+  The first also holds what all three share once BAR0 is mapped: the admin
+  queue, `nvme_admin_sync_dmamem()`, and creating and deleting I/O queue pairs.
+
+`nvme_controller_vfio_pci.h`
+: The bring-up the vfio paths share once they have a device descriptor:
+  acquiring BAR0, and the CC.EN and CSTS.RDY sequence that every path runs.
 
 `nvme_qpair.h`
-: A `struct nvme_qpair` for submission and completion queues, with allocation,
-  doorbell management, and teardown.
+: A `struct nvme_qpair` for a submission and completion queue pair: enqueue,
+  doorbell update, reaping completions and synchronous submission. Its memory
+  comes from `nvme_qpair_dmamem_init()`.
 
 `nvme_command.h`
 : The NVMe command format and helpers for initializing common admin and I/O
   commands.
 
 `nvme_request.h`
-: A `struct nvme_request` tracking the lifecycle of a single command: metadata,
-  payload, and completion.
+: A `struct nvme_request` tracking the lifecycle of a single command, and the
+  PRP builders that describe a payload in a `dmamem` to the controller.
 
 `nvme_qid.h`
 : An abstraction for queue identifiers, tracking queue type, index, and role.
