@@ -46,6 +46,33 @@ struct nvme_request_pool {
 };
 
 /**
+ * Allocate a zeroed request-pool on cache lines of its own
+ *
+ * The pool's top is written per submission and completion. From calloc() it can
+ * share a line with the next queue's hot state, which another thread writes, and
+ * the line bounces between cores. Release with free().
+ *
+ * @return The pool on success, NULL with errno set on failure
+ */
+static inline struct nvme_request_pool *
+nvme_request_pool_alloc(void)
+{
+	const size_t line = 64;
+	const size_t nbytes = (sizeof(struct nvme_request_pool) + line - 1) & ~(line - 1);
+	void *pool = NULL;
+	int err;
+
+	err = posix_memalign(&pool, line, nbytes);
+	if (err) {
+		errno = err;
+		return NULL;
+	}
+	memset(pool, 0, nbytes);
+
+	return pool;
+}
+
+/**
  * Initialize a request-pool
  *
  * When intending to use PRPs associated with the commands, then also use:
