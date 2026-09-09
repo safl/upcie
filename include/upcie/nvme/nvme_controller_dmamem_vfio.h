@@ -142,9 +142,9 @@ nvme_qpair_dmamem_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, uint
 		return err;
 	}
 
-	qp->rpool = calloc(1, sizeof(*qp->rpool));
+	qp->rpool = nvme_request_pool_alloc();
 	if (!qp->rpool) {
-		UPCIE_DEBUG("FAILED: calloc(rpool); errno(%d)", errno);
+		UPCIE_DEBUG("FAILED: nvme_request_pool_alloc(); errno(%d)", errno);
 		dmamem_heap_free(heap, cq_offset);
 		dmamem_heap_free(heap, sq_offset);
 		return -errno;
