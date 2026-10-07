@@ -12,7 +12,7 @@ dependencies = [
     "sphinx-copybutton>=0.5",
     "sphinx-autobuild>=2024.10",
     "furo>=2024.8",
-    "breathe>=4.35",
+    "breathe>=4.35,<5",
 ]
 
 [project.scripts]
