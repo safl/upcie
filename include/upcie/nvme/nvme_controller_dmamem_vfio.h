@@ -92,6 +92,11 @@ nvme_dmamem_vfio_ctx_close(struct nvme_dmamem_vfio_ctx *ctx)
  * qp is not managed by hostmem_dma_free. Use nvme_qpair_dmamem_term to
  * free, passing back the same offsets returned here.
  *
+ * A queue holds depth - 1 commands in flight, each with an identifier from
+ * the request pool, and CAP.MQES is the most entries the controller creates
+ * an I/O queue with, less one; the admin queue is bounded by AQA instead. A
+ * depth past either bound is refused here rather than failing at first use.
+ *
  * @param qp             Queue pair to populate; fully memset before use.
  * @param qid            NVMe queue identifier (0 for the admin queue).
  * @param depth          Queue depth in entries.
@@ -108,17 +113,27 @@ nvme_dmamem_vfio_ctx_close(struct nvme_dmamem_vfio_ctx *ctx)
  * @param cq_iova_out    On success, IOVA of the CQ (for AQA/ACQ or
  *                       CREATE_IO_CQ).
  *
- * @return 0 on success; negative errno on allocation failure.
+ * @return 0 on success; -ERANGE for a depth the request pool or the controller
+ *         cannot hold; another negative errno on allocation failure.
  */
 static inline int
 nvme_qpair_dmamem_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, uint8_t *bar0,
 		       struct dmamem_heap *heap, size_t *sq_offset_out, size_t *cq_offset_out,
 		       size_t *prp_offset_out, uint64_t *sq_iova_out, uint64_t *cq_iova_out)
 {
-	int dstrd = nvme_reg_cap_get_dstrd(nvme_mmio_cap_read(bar0));
-	size_t queue_bytes = 1024 * 64;
+	uint64_t cap = nvme_mmio_cap_read(bar0);
+	int dstrd = nvme_reg_cap_get_dstrd(cap);
+	size_t sq_bytes = (size_t)depth * sizeof(struct nvme_command);
+	size_t cq_bytes = (size_t)depth * sizeof(struct nvme_completion);
 	size_t sq_offset = 0, cq_offset = 0, prp_offset = 0;
 	int err;
+
+	if (!depth || depth - 1 > NVME_REQUEST_POOL_LEN ||
+	    (qid && depth - 1 > nvme_reg_cap_get_mqes(cap))) {
+		UPCIE_DEBUG("FAILED: depth(%u) > pool(%u) + 1 or > MQES(%u) + 1", depth,
+			    NVME_REQUEST_POOL_LEN, nvme_reg_cap_get_mqes(cap));
+		return -ERANGE;
+	}
 
 	memset(qp, 0, sizeof(*qp));
 	qp->qid = qid;
@@ -129,13 +144,13 @@ nvme_qpair_dmamem_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, uint
 	qp->cqdb = bar0 + 0x1000 + ((2 * qid + 1) << (2 + dstrd));
 
 	/* One element: the controller walks the queue from a single base. */
-	err = dmamem_heap_alloc_array_aligned(heap, 1, queue_bytes, 4096, &sq_offset);
+	err = dmamem_heap_alloc_array_aligned(heap, 1, sq_bytes, 4096, &sq_offset);
 	if (err) {
 		UPCIE_DEBUG("FAILED: dmamem_heap_alloc_array_aligned(sq); err(%d)", err);
 		return err;
 	}
 
-	err = dmamem_heap_alloc_array_aligned(heap, 1, queue_bytes, 4096, &cq_offset);
+	err = dmamem_heap_alloc_array_aligned(heap, 1, cq_bytes, 4096, &cq_offset);
 	if (err) {
 		UPCIE_DEBUG("FAILED: dmamem_heap_alloc_array_aligned(cq); err(%d)", err);
 		dmamem_heap_free(heap, sq_offset);
@@ -163,8 +178,8 @@ nvme_qpair_dmamem_init(struct nvme_qpair *qp, uint32_t qid, uint16_t depth, uint
 
 	qp->sq = dmamem_heap_at_va(heap, sq_offset);
 	qp->cq = dmamem_heap_at_va(heap, cq_offset);
-	memset(qp->sq, 0, queue_bytes);
-	memset(qp->cq, 0, queue_bytes);
+	memset(qp->sq, 0, sq_bytes);
+	memset(qp->cq, 0, cq_bytes);
 
 	*sq_offset_out = sq_offset;
 	*cq_offset_out = cq_offset;
