@@ -88,9 +88,8 @@ nvme_dmamem_vfio_ctx_close(struct nvme_dmamem_vfio_ctx *ctx)
  * for a queue pair from a dmamem_heap, and populate the nvme_qpair
  * fields the submit/reap primitives read.
  *
- * The heap stays with the caller; qp->heap is left NULL to signal that
- * qp is not managed by hostmem_dma_free. Use nvme_qpair_dmamem_term to
- * free, passing back the same offsets returned here.
+ * The heap stays with the caller. Use nvme_qpair_dmamem_term to free,
+ * passing back the same offsets returned here.
  *
  * A queue holds depth - 1 commands in flight, each with an identifier from
  * the request pool, and CAP.MQES is the most entries the controller creates
