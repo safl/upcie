@@ -5,6 +5,7 @@ test_sources = files(
   'test_hostmem_dma.c',
   'test_pci_bars.c',
   'test_pci_bar_resize.c',
+  'test_pci_bus_master.c',
   'test_vfio_bus_master.c',
   'test_pci_scan.c',
   'test_hostmem_dmabuf.c',

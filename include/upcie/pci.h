@@ -13,6 +13,9 @@
  *
  * - Does BAR region mapping via /sys/bus/pci/devices/<PCI_ADDR>/resourceX
  *
+ * - Sets bits of the PCI command register, bus mastering among them, via
+ *   /sys/bus/pci/devices/<PCI_ADDR>/config, whichever driver the function is bound to
+ *
  * - Resizes a BAR via /sys/bus/pci/devices/<PCI_ADDR>/resourceX_resize, for functions with the
  *   Resizable BAR capability whose firmware left a BAR smaller than the device offers
  *
@@ -322,6 +325,61 @@ pci_bar_largest_size(const char *bdf, size_t *size)
 
 	*size = largest;
 	return 0;
+}
+
+/**
+ * Set and clear bits of the PCI command register of the function at `bdf`, through sysfs config,
+ * which needs root and works whichever driver is bound, uio_pci_generic or none among them.
+ *
+ * For a function a process holds through vfio, use vfio_device_pci_command() instead, since
+ * vfio-pci mediates that function's config space.
+ *
+ * @param set Bits to set, e.g. PCI_COMMAND_MEMORY | PCI_COMMAND_MASTER
+ * @param clear Bits to clear; a bit in both is set
+ *
+ * @return 0 on success, negative errno on failure.
+ */
+static inline int
+pci_func_command(const char *bdf, uint16_t set, uint16_t clear)
+{
+	char path[256] = {0};
+	uint16_t cmd, want;
+	int fd, err = 0;
+
+	if (!bdf) {
+		return -EINVAL;
+	}
+
+	snprintf(path, sizeof(path), "/sys/bus/pci/devices/%.*s/config", PCI_BDF_LEN, bdf);
+
+	fd = open(path, O_RDWR);
+	if (fd < 0) {
+		return -errno;
+	}
+	if (pread(fd, &cmd, sizeof(cmd), PCI_COMMAND) != (ssize_t)sizeof(cmd)) {
+		err = errno ? -errno : -EIO;
+		goto out;
+	}
+	want = (cmd & ~clear) | set;
+	if (want != cmd && pwrite(fd, &want, sizeof(want), PCI_COMMAND) != (ssize_t)sizeof(want)) {
+		err = errno ? -errno : -EIO;
+	}
+out:
+	close(fd);
+	return err;
+}
+
+/**
+ * Enable or disable bus mastering, which the function at `bdf` needs to DMA; see
+ * pci_func_command() for when to use it and when vfio_device_bus_master()
+ *
+ * @return 0 on success, negative errno on failure.
+ */
+static inline int
+pci_func_bus_master(const char *bdf, int enable)
+{
+	return pci_func_command(bdf, enable ? PCI_COMMAND_MASTER : 0,
+				enable ? 0 : PCI_COMMAND_MASTER);
 }
 
 /**
