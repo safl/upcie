@@ -222,6 +222,63 @@ vfio_device_get_region_info(int device_fd, struct vfio_region_info *region)
 	return ioctl(device_fd, VFIO_DEVICE_GET_REGION_INFO, region);
 }
 
+/**
+ * Set and clear bits of a vfio PCI device's command register, through its config region
+ *
+ * @param device_fd File descriptor of a vfio device, from a group or a cdev
+ * @param set Bits to set, e.g. PCI_COMMAND_MEMORY | PCI_COMMAND_MASTER
+ * @param clear Bits to clear; a bit in both is set
+ *
+ * @return On success, 0 is returned. On error, negative errno is returned.
+ */
+static inline int
+vfio_device_pci_command(int device_fd, uint16_t set, uint16_t clear)
+{
+	struct vfio_region_info config = {0};
+	uint16_t cmd, want;
+	ssize_t ret;
+
+	config.index = VFIO_PCI_CONFIG_REGION_INDEX;
+	if (vfio_device_get_region_info(device_fd, &config) < 0) {
+		return -errno;
+	}
+
+	ret = pread(device_fd, &cmd, sizeof(cmd), config.offset + PCI_COMMAND);
+	if (ret != (ssize_t)sizeof(cmd)) {
+		return ret < 0 ? -errno : -EIO;
+	}
+
+	want = (cmd & ~clear) | set;
+	if (want == cmd) {
+		return 0;
+	}
+
+	ret = pwrite(device_fd, &want, sizeof(want), config.offset + PCI_COMMAND);
+	if (ret != (ssize_t)sizeof(want)) {
+		return ret < 0 ? -errno : -EIO;
+	}
+
+	return 0;
+}
+
+/**
+ * Enable or disable bus mastering, which a device needs to DMA, for a vfio PCI device
+ *
+ * vfio-pci may clear bus mastering when the device is opened; MMIO still works without it, but
+ * nothing the device writes to memory arrives.
+ *
+ * @param device_fd File descriptor of a vfio device, from a group or a cdev
+ * @param enable Non-zero to enable, zero to disable
+ *
+ * @return On success, 0 is returned. On error, negative errno is returned.
+ */
+static inline int
+vfio_device_bus_master(int device_fd, int enable)
+{
+	return vfio_device_pci_command(device_fd, enable ? PCI_COMMAND_MASTER : 0,
+				       enable ? 0 : PCI_COMMAND_MASTER);
+}
+
 static inline void *
 vfio_map_region(int device_fd, size_t size, off_t offset)
 {

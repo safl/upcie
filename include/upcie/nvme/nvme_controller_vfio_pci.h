@@ -24,31 +24,7 @@
 static inline int
 nvme_vfio_pci_bus_master_enable(int device_fd)
 {
-	struct vfio_region_info config = {0};
-	uint16_t cmd;
-	ssize_t ret;
-	int err;
-
-	config.index = VFIO_PCI_CONFIG_REGION_INDEX;
-	err = vfio_device_get_region_info(device_fd, &config);
-	if (err < 0) {
-		return -errno;
-	}
-
-	ret = pread(device_fd, &cmd, sizeof(cmd), config.offset + PCI_COMMAND);
-	if (ret != (ssize_t)sizeof(cmd)) {
-		return ret < 0 ? -errno : -EIO;
-	}
-
-	if (!(cmd & PCI_COMMAND_MASTER)) {
-		cmd |= PCI_COMMAND_MASTER;
-		ret = pwrite(device_fd, &cmd, sizeof(cmd), config.offset + PCI_COMMAND);
-		if (ret != (ssize_t)sizeof(cmd)) {
-			return ret < 0 ? -errno : -EIO;
-		}
-	}
-
-	return 0;
+	return vfio_device_bus_master(device_fd, 1);
 }
 
 /**
