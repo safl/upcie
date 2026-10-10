@@ -13,6 +13,9 @@
  *
  * - Does BAR region mapping via /sys/bus/pci/devices/<PCI_ADDR>/resourceX
  *
+ * - Resizes a BAR via /sys/bus/pci/devices/<PCI_ADDR>/resourceX_resize, for functions with the
+ *   Resizable BAR capability whose firmware left a BAR smaller than the device offers
+ *
  * - Provides MMIO accessor functions: pci_region_read32, pci_region_read64, pci_region_write32,
  *   and pci_region_write64
  *
@@ -318,6 +321,134 @@ pci_bar_largest_size(const char *bdf, size_t *size)
 	}
 
 	*size = largest;
+	return 0;
+}
+
+/**
+ * Read the sizes PCI BAR `id` of the function at `bdf` can be resized to, from sysfs
+ * resourceN_resize, which the kernel provides for functions with the Resizable BAR capability.
+ *
+ * Bit n of *sizes set means a size of 2^n MiB is supported.
+ *
+ * @return 0 on success with *sizes set, -ENOENT when the BAR is not resizable, negative errno on
+ * other failures.
+ */
+static inline int
+pci_bar_resize_sizes(const char *bdf, uint8_t id, uint64_t *sizes)
+{
+	char path[256] = {0}, buf[32] = {0};
+	ssize_t len;
+	int fd;
+
+	if (!bdf || !sizes) {
+		return -EINVAL;
+	}
+
+	snprintf(path, sizeof(path), "/sys/bus/pci/devices/%.*s/resource%" PRIu8 "_resize",
+		 PCI_BDF_LEN, bdf, id);
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0) {
+		return -errno;
+	}
+	len = read(fd, buf, sizeof(buf) - 1);
+	close(fd);
+	if (len <= 0) {
+		return len < 0 ? -errno : -EIO;
+	}
+
+	*sizes = strtoull(buf, NULL, 16);
+	return 0;
+}
+
+/**
+ * Resize PCI BAR `id` of the function at `bdf` to `size` bytes, a power of two from 1 MiB that
+ * pci_bar_resize_sizes() lists.
+ *
+ * The kernel resizes a BAR only while no driver is bound to the function, and reassigns the
+ * bridge windows above it; this fails when they cannot hold the new size, which on many systems
+ * needs "Above 4G Decoding" in the firmware. The function keeps the size until the next reset of
+ * the system, and drivers bound afterwards see the new size.
+ *
+ * @return 0 on success, -EINVAL for a size the BAR does not offer, -EBUSY while a driver is bound,
+ * negative errno on other failures.
+ */
+static inline int
+pci_bar_resize(const char *bdf, uint8_t id, size_t size)
+{
+	char path[256] = {0}, buf[8] = {0};
+	uint64_t sizes = 0;
+	int bit, fd, len, err;
+
+	if (!bdf || size < (1ULL << 20) || (size & (size - 1))) {
+		return -EINVAL;
+	}
+	bit = __builtin_ctzll(size) - 20;
+
+	err = pci_bar_resize_sizes(bdf, id, &sizes);
+	if (err) {
+		return err;
+	}
+	if (!(sizes & (1ULL << bit))) {
+		return -EINVAL;
+	}
+
+	snprintf(path, sizeof(path), "/sys/bus/pci/devices/%.*s/resource%" PRIu8 "_resize",
+		 PCI_BDF_LEN, bdf, id);
+	len = snprintf(buf, sizeof(buf), "%d", bit);
+
+	fd = open(path, O_WRONLY);
+	if (fd < 0) {
+		return -errno;
+	}
+	if (write(fd, buf, len) != len) {
+		err = -errno;
+		close(fd);
+		return err;
+	}
+	close(fd);
+
+	return 0;
+}
+
+/**
+ * Resize PCI BAR `id` of the function at `bdf` to the largest size it offers, unless it already
+ * has that size; see pci_bar_resize() for when the kernel allows it.
+ *
+ * @return 0 on success with *size, when given, set to the BAR's size afterwards, -ENOENT when the
+ * BAR is not resizable, negative errno on other failures.
+ */
+static inline int
+pci_bar_resize_largest(const char *bdf, uint8_t id, size_t *size)
+{
+	uint64_t sizes = 0;
+	size_t now = 0, largest;
+	int err;
+
+	err = pci_bar_resize_sizes(bdf, id, &sizes);
+	if (err) {
+		return err;
+	}
+	if (!sizes) {
+		return -ENOENT;
+	}
+	largest = (size_t)1 << (63 - __builtin_clzll(sizes) + 20);
+
+	err = pci_bar_size(bdf, id, &now);
+	if (err) {
+		return err;
+	}
+	if (now != largest) {
+		err = pci_bar_resize(bdf, id, largest);
+		if (err) {
+			return err;
+		}
+		now = largest;
+	}
+
+	if (size) {
+		*size = now;
+	}
 	return 0;
 }
 
