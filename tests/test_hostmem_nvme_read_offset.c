@@ -76,7 +76,7 @@ nvme_init(struct nvme *nvme, const char *bdf, struct hostmem_heap *heap)
 	cmd.opc = 0x6; // IDENTIFY, CNS=1: brings up the controller
 	cmd.cdw10 = 1;
 	if (nvme_qpair_submit_sync_contig_prps(&nvme->ctrlr.aq, nvme->ctrlr.heap, nvme->ctrlr.buf,
-					       4096, &cmd, nvme->ctrlr.timeout_ms, &cpl) ||
+					       4096, &cmd, nvme->ctrlr.admin_timeout_ms, &cpl) ||
 	    nvme_controller_create_io_qpair(&nvme->ctrlr, &nvme->ioq, 32)) {
 		nvme_controller_close(&nvme->ctrlr);
 		return EIO;

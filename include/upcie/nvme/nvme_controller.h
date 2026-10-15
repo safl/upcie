@@ -13,6 +13,11 @@
  */
 
 /**
+ * Admin command timeout in milliseconds, the default admin_timeout of the Linux NVMe driver
+ */
+#define NVME_ADMIN_TIMEOUT_MS 60000
+
+/**
  * This is one way of combining the various components needed
  */
 struct nvme_controller {
@@ -27,7 +32,8 @@ struct nvme_controller {
 	uint32_t cap;  ///< Controller Capabilities Register Value
 	uint32_t cc;   ///< Controller configuration Register Value
 
-	int timeout_ms; ///< Command timeout in milliseconds (derived from cap.to)
+	int timeout_ms;       ///< CSTS.RDY transition timeout in milliseconds, from CAP.TO
+	int admin_timeout_ms; ///< Admin command timeout in milliseconds, NVME_ADMIN_TIMEOUT_MS
 };
 
 static inline void
@@ -85,6 +91,7 @@ nvme_controller_open(struct nvme_controller *ctrlr, const char *bdf, struct host
 	cap = nvme_mmio_cap_read(bar0);
 	// CAP.TO is encoded in units of 500 ms.
 	ctrlr->timeout_ms = nvme_reg_cap_get_to(cap) * 500;
+	ctrlr->admin_timeout_ms = NVME_ADMIN_TIMEOUT_MS;
 
 	nvme_mmio_cc_disable(bar0);
 
@@ -144,7 +151,7 @@ nvme_controller_delete_io_cq(struct nvme_controller *ctrlr, uint16_t qid)
 	cmd.opc = 0x4; ///< Delete I/O Completion Queue
 	cmd.cdw10 = qid;
 
-	return nvme_qpair_submit_sync(&ctrlr->aq, &cmd, ctrlr->timeout_ms, &cpl);
+	return nvme_qpair_submit_sync(&ctrlr->aq, &cmd, ctrlr->admin_timeout_ms, &cpl);
 }
 
 /**
@@ -171,7 +178,7 @@ nvme_controller_delete_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair
 		cmd.opc = 0x0; ///< Delete I/O Submission Queue
 		cmd.cdw10 = qid;
 
-		err = nvme_qpair_submit_sync(&ctrlr->aq, &cmd, ctrlr->timeout_ms, &cpl);
+		err = nvme_qpair_submit_sync(&ctrlr->aq, &cmd, ctrlr->admin_timeout_ms, &cpl);
 		if (err) {
 			UPCIE_DEBUG("FAILED: nvme_qpair_submit_sync(Delete SQ); err(%d)", err);
 		}
@@ -184,7 +191,7 @@ nvme_controller_delete_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair
 		cmd.opc = 0x4; ///< Delete I/O Completion Queue
 		cmd.cdw10 = qid;
 
-		err = nvme_qpair_submit_sync(&ctrlr->aq, &cmd, ctrlr->timeout_ms, &cpl);
+		err = nvme_qpair_submit_sync(&ctrlr->aq, &cmd, ctrlr->admin_timeout_ms, &cpl);
 		if (err) {
 			UPCIE_DEBUG("FAILED: nvme_qpair_submit_sync(Delete CQ); err(%d)", err);
 		}
@@ -233,7 +240,7 @@ nvme_controller_create_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair
 		cmd.cdw10 = ((depth - 1) << 16) | qid;
 		cmd.cdw11 = 0x1; ///< Physically contigous
 
-		err = nvme_qpair_submit_sync(&ctrlr->aq, &cmd, ctrlr->timeout_ms, &cpl);
+		err = nvme_qpair_submit_sync(&ctrlr->aq, &cmd, ctrlr->admin_timeout_ms, &cpl);
 		if (err) {
 			UPCIE_DEBUG("FAILED: nvme_qpair_submit_sync(Create CQ); err(%d)", err);
 			goto term_qpair;
@@ -249,7 +256,7 @@ nvme_controller_create_io_qpair(struct nvme_controller *ctrlr, struct nvme_qpair
 		cmd.cdw10 = ((depth - 1) << 16) | qid;
 		cmd.cdw11 = (qid << 16) | 0x1; ///< CQID and Physically contigous
 
-		err = nvme_qpair_submit_sync(&ctrlr->aq, &cmd, ctrlr->timeout_ms, &cpl);
+		err = nvme_qpair_submit_sync(&ctrlr->aq, &cmd, ctrlr->admin_timeout_ms, &cpl);
 		if (err) {
 			UPCIE_DEBUG("FAILED: nvme_qpair_submit_sync(Create SQ); err(%d)", err);
 			goto delete_cq;

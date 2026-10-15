@@ -238,7 +238,7 @@ read_lba_bytes(struct rte *rte, uint32_t *lba_bytes)
 	}
 	nvme_qpair_sqdb_update(&rte->ctrlr.aq);
 
-	err = nvme_qpair_reap_cpl(&rte->ctrlr.aq, rte->ctrlr.timeout_ms, &cpl);
+	err = nvme_qpair_reap_cpl(&rte->ctrlr.aq, rte->ctrlr.admin_timeout_ms, &cpl);
 	if (err) {
 		/* Submitted and unreaped: the controller may still write here, so it
 		 * cannot go back to the heap for another allocation to take. */
