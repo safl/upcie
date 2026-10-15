@@ -100,7 +100,7 @@ nvme_init(struct nvme *nvme, const char *bdf, struct rte *rte)
 
 	err = nvme_qpair_submit_sync_contig_prps(&nvme->ctrlr.aq, nvme->ctrlr.heap,
 						 nvme->ctrlr.buf, 4096, &cmd,
-						 nvme->ctrlr.timeout_ms, &cpl);
+						 nvme->ctrlr.admin_timeout_ms, &cpl);
 	if (err) {
 		printf("FAILED: nvme_qpair_submit_sync(); err(%d)\n", err);
 		nvme_controller_close(&nvme->ctrlr);

@@ -367,7 +367,7 @@ nvme_admin_sync_dmamem(struct nvme_controller *ctrlr, struct nvme_command *cmd, 
 	}
 	nvme_qpair_sqdb_update(&ctrlr->aq);
 
-	err = nvme_qpair_reap_cpl(&ctrlr->aq, ctrlr->timeout_ms, cpl);
+	err = nvme_qpair_reap_cpl(&ctrlr->aq, ctrlr->admin_timeout_ms, cpl);
 	if (err) {
 		return err;
 	}

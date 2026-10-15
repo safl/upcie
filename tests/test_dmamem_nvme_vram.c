@@ -190,7 +190,7 @@ main(int argc, char *argv[])
 	}
 	nvme_qpair_sqdb_update(&ctrlr.aq);
 
-	err = nvme_qpair_reap_cpl(&ctrlr.aq, ctrlr.timeout_ms, &cpl);
+	err = nvme_qpair_reap_cpl(&ctrlr.aq, ctrlr.admin_timeout_ms, &cpl);
 	if (err) {
 		fprintf(stderr, "FAIL: nvme_qpair_reap_cpl err(%d)\n", err);
 		goto out_ctrlr;

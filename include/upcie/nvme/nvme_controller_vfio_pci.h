@@ -108,7 +108,7 @@ nvme_vfio_pci_acquire_bar0(int device_fd, struct nvme_controller *ctrlr, void **
 }
 
 /**
- * Read CAP, derive controller timeout, disable the controller, wait
+ * Read CAP, derive the controller's timeouts, disable the controller, wait
  * for CSTS.RDY=0.
  *
  * The caller uses *cap_out when programming CC on enable.
@@ -120,6 +120,7 @@ nvme_controller_reset_via_bar0(struct nvme_controller *ctrlr, uint8_t *bar0, uin
 	int err;
 
 	ctrlr->timeout_ms = nvme_reg_cap_get_to(cap) * 500;
+	ctrlr->admin_timeout_ms = NVME_ADMIN_TIMEOUT_MS;
 
 	nvme_mmio_cc_disable(bar0);
 

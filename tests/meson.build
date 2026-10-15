@@ -30,6 +30,20 @@ foreach src : test_sources
   )
 endforeach
 
+# Pure host-memory tests needing threads
+thread_test_sources = files(
+  'test_nvme_admin_timeout.c',
+)
+foreach src : thread_test_sources
+  executable(
+    fs.stem(src),
+    src,
+    include_directories: incdir,
+    dependencies: dependency('threads'),
+    install: true,
+  )
+endforeach
+
 # Tests depending on linking with CUDA
 cutest_sources = files(
   'test_cudamem_heap.c',
