@@ -13,6 +13,11 @@
  * exact errno so the block (kernel-side, exporter-side, or IOAS
  * configuration) resolves to a concrete signal.
  *
+ * Without an iommufd handle nothing is mapped: the dmamem only holds the
+ * dma-buf, so one owner keeps the fd and the size together, and hands out
+ * the fd for others to map into address spaces of their own. Such a dmamem
+ * has no IOVA; base_iova is 0 and translating through it means nothing.
+ *
  * The dmamem takes ownership of the dma-buf fd on success and closes it
  * as part of dmamem_destroy. On failure the caller retains ownership and
  * must close the fd itself.
@@ -27,10 +32,12 @@
  */
 
 /**
- * Import an existing dma-buf fd into the handle's IOAS as a dmamem.
+ * Make a dmamem of an existing dma-buf fd, imported into the handle's IOAS
+ * when one is given.
  *
  * @param dmem       Pre-allocated dmamem descriptor to fill.
- * @param iommufd    Open iommufd handle with an allocated IOAS (caller-owned).
+ * @param iommufd    Open iommufd handle with an allocated IOAS (caller-owned),
+ *                   or NULL to hold the dma-buf without mapping it.
  * @param dmabuf_fd  Open dma-buf fd from any exporter.
  * @param size       Size of the range to map.
  *
@@ -44,7 +51,7 @@ dmamem_from_dmabuf(struct dmamem *dmem, struct iommufd *iommufd, int dmabuf_fd, 
 	void *cpu_va;
 	int err;
 
-	if (!dmem || !iommufd || iommufd->fd < 0 || dmabuf_fd < 0 || !size) {
+	if (!dmem || (iommufd && iommufd->fd < 0) || dmabuf_fd < 0 || !size) {
 		return -EINVAL;
 	}
 
@@ -64,6 +71,10 @@ dmamem_from_dmabuf(struct dmamem *dmem, struct iommufd *iommufd, int dmabuf_fd, 
 	if (cpu_va != MAP_FAILED) {
 		dmem->cpu_va = cpu_va;
 		dmem->base_va = cpu_va;
+	}
+
+	if (!iommufd) {
+		return 0;
 	}
 
 	err = iommufd_ioas_map_file(iommufd, dmabuf_fd, 0, size,
