@@ -5,7 +5,7 @@ SKIP = 77
 
 def run_nodev(cijoe, binary, iommu=True):
     """
-    Run a dmamem test that needs no device.
+    Run a test that needs no device.
 
     Those that map do so into an IOAS with no device attached, which needs
     /dev/iommu and nothing else, so they skip where the target has no iommufd
@@ -43,3 +43,9 @@ def test_dmamem_dmabuf_unmapped(cijoe):
     """A dma-buf held by a dmamem without an iommufd, mapping nothing"""
 
     run_nodev(cijoe, "test_dmamem_dmabuf_unmapped", iommu=False)
+
+
+def test_vfio_map_region_at(cijoe):
+    """A mapping placed over a reservation, a memfd standing in for the device"""
+
+    run_nodev(cijoe, "test_vfio_map_region_at", iommu=False)

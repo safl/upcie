@@ -1,5 +1,6 @@
 test_sources = files(
   'test_vfioctl.c',
+  'test_vfio_map_region_at.c',
   'test_hostmem_shared.c',
   'test_hostmem_heap.c',
   'test_hostmem_dma.c',

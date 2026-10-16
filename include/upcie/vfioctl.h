@@ -285,6 +285,29 @@ vfio_map_region(int device_fd, size_t size, off_t offset)
 	return mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, device_fd, offset);
 }
 
+/**
+ * Map a slice of a device region over an address the caller reserved.
+ *
+ * As vfio_map_region(), but replacing whatever is mapped at `at` (MAP_FIXED),
+ * so a CPU view of device memory can sit at an address chosen before the
+ * mapping existed, such as a range reserved PROT_NONE for a device pointer.
+ * vfio-pci can map a BAR with huge pages where `at` and `offset` share their
+ * alignment within a 2 MiB or 1 GiB page; such mappings are uncached and fault
+ * (SIGBUS) once the device's memory decoding is turned off.
+ *
+ * @param device_fd vfio device fd (group or cdev).
+ * @param at        Page-aligned address to map at.
+ * @param size      Size in bytes.
+ * @param offset    The region's offset (vfio_region_info.offset) plus the
+ *                  offset within it.
+ * @return `at` on success, MAP_FAILED with errno set on failure.
+ */
+static inline void *
+vfio_map_region_at(int device_fd, void *at, size_t size, off_t offset)
+{
+	return mmap(at, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, device_fd, offset);
+}
+
 static inline int
 vfio_iommu_get_info(struct vfio_container *container, struct vfio_iommu_type1_info *info)
 {
