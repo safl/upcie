@@ -2,16 +2,17 @@
 // Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
 
 /**
- * dmamem constructor: hugepage-backed memfd
- * =========================================
+ * dmamem constructor: memfd
+ * =========================
  *
- * Creates a memfd backed by hugepages (memfd_create(MFD_HUGETLB | ...)),
- * mmaps it for CPU access, and imports the range into an iommufd IOAS
- * with a single IOMMU_IOAS_MAP_FILE call. The result is a dmamem whose
- * cpu_va is the mmap base and whose base_iova is the kernel-picked IOVA.
+ * Creates a memfd, backed by hugepages (memfd_create(MFD_HUGETLB | ...)) or by
+ * plain 4 KiB pages, mmaps it for CPU access, and imports the range into an
+ * iommufd IOAS with a single IOMMU_IOAS_MAP_FILE call. The result is a dmamem
+ * whose cpu_va is the mmap base and whose base_iova is the IOVA the kernel
+ * picked, or the one the caller fixed with dmamem_from_memfd_at().
  *
- * Caveat: the hugepage pool must be reserved out-of-band (see the
- * `hugepages` CLI or `echo N > /proc/sys/vm/nr_hugepages`), and the
+ * Caveat: for hugepages the pool must be reserved out-of-band (see the
+ * `hugepages` CLI or `echo N > /proc/sys/vm/nr_hugepages`). Either way the
  * process must have IPC_LOCK / adequate memlock limits.
  *
  * @file dmamem_memfd.h
@@ -26,36 +27,46 @@
 #endif
 
 /**
- * Allocate a hugepage-backed memfd and map it into the handle's IOAS.
+ * Allocate a memfd and map it into the handle's IOAS, at an IOVA of the
+ * caller's choosing or of the kernel's.
  *
  * @param dmem     Pre-allocated dmamem descriptor to fill.
  * @param iommufd  Open iommufd handle with an allocated IOAS (caller-owned).
- * @param size     Size in bytes; must be a multiple of hugepgsz.
- * @param hugepgsz Hugepage size in bytes; must be 2 MiB or 1 GiB.
+ * @param size     Size in bytes; must be a multiple of pgsz.
+ * @param pgsz     Page size in bytes: 4 KiB for a plain memfd, 2 MiB or 1 GiB
+ *                 for hugepages.
+ * @param flags    Bitmask of IOMMU_IOAS_MAP_* flags. With
+ *                 IOMMU_IOAS_MAP_FIXED_IOVA the range is mapped at `iova`;
+ *                 without it the kernel picks.
+ * @param iova     Where to map under IOMMU_IOAS_MAP_FIXED_IOVA; ignored
+ *                 otherwise.
  *
  * @return 0 on success, negative errno on error.
  */
 static inline int
-dmamem_from_memfd(struct dmamem *dmem, struct iommufd *iommufd, size_t size, size_t hugepgsz)
+dmamem_from_memfd_at(struct dmamem *dmem, struct iommufd *iommufd, size_t size, size_t pgsz,
+		     uint32_t flags, uint64_t iova)
 {
-	unsigned int memfd_flags = MFD_HUGETLB;
+	unsigned int memfd_flags;
 	int err;
 
 	if (!dmem || !iommufd || iommufd->fd < 0 || !size) {
 		return -EINVAL;
 	}
 
-	if (hugepgsz == 2ULL * 1024 * 1024) {
-		memfd_flags |= MFD_HUGE_2MB;
-	} else if (hugepgsz == 1024ULL * 1024 * 1024) {
-		memfd_flags |= MFD_HUGE_1GB;
+	if (pgsz == 4096) {
+		memfd_flags = 0;
+	} else if (pgsz == 2ULL * 1024 * 1024) {
+		memfd_flags = MFD_HUGETLB | MFD_HUGE_2MB;
+	} else if (pgsz == 1024ULL * 1024 * 1024) {
+		memfd_flags = MFD_HUGETLB | MFD_HUGE_1GB;
 	} else {
-		UPCIE_DEBUG("FAILED: unsupported hugepgsz(%zu)", hugepgsz);
+		UPCIE_DEBUG("FAILED: unsupported pgsz(%zu)", pgsz);
 		return -EINVAL;
 	}
 
-	if (size % hugepgsz) {
-		UPCIE_DEBUG("FAILED: size(%zu) not a multiple of hugepgsz(%zu)", size, hugepgsz);
+	if (size % pgsz) {
+		UPCIE_DEBUG("FAILED: size(%zu) not a multiple of pgsz(%zu)", size, pgsz);
 		return -EINVAL;
 	}
 
@@ -95,20 +106,14 @@ dmamem_from_memfd(struct dmamem *dmem, struct iommufd *iommufd, size_t size, siz
 	}
 
 	/*
-	 * Zero the range to fault in and pin every backing hugepage before
-	 * the IOAS map. Otherwise IOMMU_IOAS_MAP_FILE may pin a partial or
+	 * Zero the range to fault in and pin every backing page before the
+	 * IOAS map. Otherwise IOMMU_IOAS_MAP_FILE may pin a partial or
 	 * still-being-materialised range.
 	 */
 	memset(dmem->cpu_va, 0, size);
 
-	/*
-	 * Ask the kernel to pick an IOVA (FIXED_IOVA not set). base_iova is
-	 * an OUT parameter to iommufd_ioas_map_file(); the returned value is
-	 * the base of the contiguous IOVA window the kernel installed.
-	 */
-	err = iommufd_ioas_map_file(iommufd, dmem->fd, 0, size,
-				    IOMMU_IOAS_MAP_READABLE | IOMMU_IOAS_MAP_WRITEABLE,
-				    &dmem->base_iova);
+	dmem->base_iova = iova;
+	err = iommufd_ioas_map_file(iommufd, dmem->fd, 0, size, flags, &dmem->base_iova);
 	if (err) {
 		UPCIE_DEBUG("FAILED: iommufd_ioas_map_file(); err(%d)", err);
 		goto err_munmap;
@@ -122,6 +127,25 @@ err_munmap:
 	dmem->cpu_va = NULL;
 err_close:
 	close(dmem->fd);
+	memset(dmem, 0, sizeof(*dmem));
 	dmem->fd = -1;
 	return err;
+}
+
+/**
+ * Allocate a memfd and map it into the handle's IOAS where the kernel picks.
+ *
+ * @param dmem     Pre-allocated dmamem descriptor to fill.
+ * @param iommufd  Open iommufd handle with an allocated IOAS (caller-owned).
+ * @param size     Size in bytes; must be a multiple of pgsz.
+ * @param pgsz     Page size in bytes: 4 KiB for a plain memfd, 2 MiB or 1 GiB
+ *                 for hugepages.
+ *
+ * @return 0 on success, negative errno on error.
+ */
+static inline int
+dmamem_from_memfd(struct dmamem *dmem, struct iommufd *iommufd, size_t size, size_t pgsz)
+{
+	return dmamem_from_memfd_at(dmem, iommufd, size, pgsz,
+				    IOMMU_IOAS_MAP_READABLE | IOMMU_IOAS_MAP_WRITEABLE, 0);
 }

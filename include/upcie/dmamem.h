@@ -45,7 +45,8 @@
  *
  *   Owned constructors allocate the backing themselves and hold the
  *   fd / CPU view for the lifetime of the dmamem: dmamem_from_memfd()
- *   creates a hugepage-backed memfd internally; dmamem_from_dmabuf()
+ *   creates a memfd internally, of hugepages or plain pages, and
+ *   dmamem_from_memfd_at() places it at a fixed IOVA; dmamem_from_dmabuf()
  *   takes an existing dma-buf fd from an exporter (VFIO BAR export,
  *   CUDA / HIP / libdrm export). Both set owned=1 so dmamem_destroy()
  *   munmaps and closes on the way out.
