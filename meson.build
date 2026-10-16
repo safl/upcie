@@ -55,6 +55,7 @@ if not get_option('skip-install')
       'include/upcie/dmamem_iommu_map_pa.h',
       'include/upcie/dmamem_memfd.h',
       'include/upcie/dmamem_registry.h',
+      'include/upcie/dmamem_vaddr.h',
       'include/upcie/hostmem_config.h',
       'include/upcie/hostmem_dma.h',
       'include/upcie/hostmem.h',

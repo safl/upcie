@@ -56,6 +56,9 @@
  *   owns; they set owned=0 so dmamem_destroy() only removes the mapping.
  *   dmamem_from_hostmem_iommufd(), _type1(), and _lut() live in
  *   dmamem_hostmem.h and wrap an existing hostmem_hugepage.
+ *   dmamem_from_vaddr() in dmamem_vaddr.h maps any caller memory by its
+ *   address, and dmamem_adopt_iova() there describes a range someone
+ *   else mapped, with no CPU view.
  *
  * @file dmamem.h
  * @version 0.10.4
@@ -68,6 +71,8 @@ enum dmamem_backing {
 	DMAMEM_BACKING_HOSTMEM = 0x3, ///< wrapping an existing hostmem_hugepage
 	DMAMEM_BACKING_CUDAMEM = 0x4, ///< wrapping an existing cudamem_heap
 	DMAMEM_BACKING_HIPMEM = 0x5,  ///< wrapping an existing hipmem_heap
+	DMAMEM_BACKING_VADDR = 0x6,   ///< wrapping caller memory by its address
+	DMAMEM_BACKING_IOVA = 0x7,    ///< a range someone else mapped, no CPU view
 };
 
 /**

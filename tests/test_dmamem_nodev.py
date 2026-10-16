@@ -33,6 +33,12 @@ def test_dmamem_memfd_pages(cijoe):
     run_nodev(cijoe, "test_dmamem_memfd_pages")
 
 
+def test_dmamem_vaddr(cijoe):
+    """Caller memory by address, and a range adopted by its IOVA"""
+
+    run_nodev(cijoe, "test_dmamem_vaddr")
+
+
 def test_dmamem_dmabuf_unmapped(cijoe):
     """A dma-buf held by a dmamem without an iommufd, mapping nothing"""
 
