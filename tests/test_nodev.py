@@ -45,6 +45,18 @@ def test_dmamem_dmabuf_unmapped(cijoe):
     run_nodev(cijoe, "test_dmamem_dmabuf_unmapped", iommu=False)
 
 
+def test_dmamem_memfd_unmapped(cijoe):
+    """A memfd held by a dmamem without an iommufd, and a range of it mapped elsewhere"""
+
+    run_nodev(cijoe, "test_dmamem_memfd_unmapped", iommu=False)
+
+
+def test_dmamem_udmabuf(cijoe):
+    """A range of a memfd dmamem exported as a dma-buf through /dev/udmabuf"""
+
+    run_nodev(cijoe, "test_dmamem_udmabuf", iommu=False)
+
+
 def test_vfio_map_region_at(cijoe):
     """A mapping placed over a reservation, a memfd standing in for the device"""
 

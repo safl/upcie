@@ -67,6 +67,7 @@ extern "C" {
 // Linux UAPI
 #include <linux/memfd.h>
 #include <linux/pci_regs.h>
+#include <linux/udmabuf.h>
 #include <linux/vfio.h>
 
 // uPCIe libraries
@@ -98,6 +99,7 @@ extern "C" {
 #include <upcie/dmamem_iommu_map_pa.h>
 #include <upcie/dmamem_memfd.h>
 #include <upcie/dmamem_dmabuf.h>
+#include <upcie/dmamem_udmabuf.h>
 #include <upcie/dmamem_vaddr.h>
 #include <upcie/dmamem_hostmem.h>
 #include <upcie/dmamem_heap.h>

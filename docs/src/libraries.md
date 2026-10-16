@@ -94,10 +94,12 @@ The descriptions below follow the bottom-up layering.
   consumer serialises them; translation is lock-free.
 
 `dmamem_heap.h`, `dmamem_hostmem.h`, `dmamem_cuda.h`, `dmamem_hip.h`,
-`dmamem_memfd.h`, `dmamem_dmabuf.h`, `dmamem_vaddr.h`
+`dmamem_memfd.h`, `dmamem_dmabuf.h`, `dmamem_udmabuf.h`, `dmamem_vaddr.h`
 : A suballocating heap over a dmamem, and the constructors for the flavours:
-  hugepages, CUDA and HIP allocations, a memfd, an existing dma-buf, any
-  memory by its address, and a range of an IOAS that someone else mapped.
+  hugepages, CUDA and HIP allocations, a memfd, mapped in an IOAS or held for
+  a device emulated in software and exported through udmabuf, an existing
+  dma-buf, any memory by its address, and a range of an IOAS that someone
+  else mapped.
 
 `dmamem_iommu_map_pa.h`
 : **Experimental.** Decorates a `dmamem_registry` backend so its allocations are

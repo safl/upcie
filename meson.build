@@ -49,6 +49,7 @@ if not get_option('skip-install')
       'include/upcie/dmamem.h',
       'include/upcie/dmamem_cuda.h',
       'include/upcie/dmamem_dmabuf.h',
+      'include/upcie/dmamem_udmabuf.h',
       'include/upcie/dmamem_heap.h',
       'include/upcie/dmamem_hip.h',
       'include/upcie/dmamem_hostmem.h',

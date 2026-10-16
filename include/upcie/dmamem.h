@@ -296,6 +296,33 @@ dmamem_destroy(struct dmamem *dmem)
 }
 
 /**
+ * Map a range of a dmamem's fd, a memfd or a dma-buf it holds, at an address
+ * of the caller's.
+ *
+ * Replaces whatever is mapped at `at` (MAP_FIXED), so the range can sit over
+ * an address reserved before, PROT_NONE say, as vfio_map_region_at() places a
+ * BAR. The mapping is shared, and is the caller's to munmap(), or to map over
+ * again; dmamem_destroy() leaves it.
+ *
+ * @param dmem    A dmamem holding its fd (owned=1).
+ * @param at      Page-aligned address to map at.
+ * @param offset  Page-aligned offset in the dmamem.
+ * @param size    Size in bytes, within the dmamem.
+ * @return `at` on success, MAP_FAILED with errno set on failure.
+ */
+static inline void *
+dmamem_map_at(const struct dmamem *dmem, void *at, uint64_t offset, size_t size)
+{
+	if (!dmem || dmem->fd < 0 || !dmem->owned || !size || offset > dmem->size ||
+	    size > dmem->size - offset) {
+		errno = EINVAL;
+		return MAP_FAILED;
+	}
+
+	return mmap(at, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, dmem->fd, (off_t)offset);
+}
+
+/**
  * Hand memory the caller allocated to a registry-translating dmamem.
  *
  * The allocation `vaddr` falls inside is made addressable, once, and shared
