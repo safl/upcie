@@ -119,34 +119,6 @@ nvme_controller_close_vfio(struct nvme_controller *ctrlr, struct vfio_ctx *vfio)
 }
 
 /**
- * Resolve the IOMMU group ID of the PCI function identified by `bdf`.
- */
-static inline int
-vfio_device_get_iommu_group_id(const char *bdf, int *group_id)
-{
-	char path[PATH_MAX] = {0};
-	char link[PATH_MAX] = {0};
-	ssize_t nbytes;
-	char *base;
-
-	snprintf(path, sizeof(path), "/sys/bus/pci/devices/%s/iommu_group", bdf);
-
-	nbytes = readlink(path, link, sizeof(link) - 1);
-	if (nbytes < 0) {
-		return -errno;
-	}
-
-	base = strrchr(link, '/');
-	if (!base || !base[1]) {
-		return -EINVAL;
-	}
-
-	*group_id = atoi(base + 1);
-
-	return 0;
-}
-
-/**
  * Map the hugepage-backed heap into the VFIO IOMMU domain.
  *
  * The current implementation intentionally uses `iova == phys` for each hugepage.
