@@ -6,13 +6,10 @@
  * ================================================================
  *
  * From a caller-supplied vfio device fd, acquire BAR0 and drive the
- * NVMe controller enable sequence. Both nvme_controller_open_vfio
- * (legacy vfio type1 container) and nvme_controller_open_dmamem_vfio
- * (iommufd + dmamem) reach the same code once they have a device fd:
- * bus-master enable, BAR0 mmap, CC.EN=0/1 dance, CAP/CSTS handshake.
- * That invariant middle lives here. The parts that vary (how the fd
- * was obtained, how DMA is mapped, which heap backs the admin queue)
- * stay with each caller.
+ * NVMe controller enable sequence. nvme_controller_open_dmamem_vfio,
+ * nvme_controller_open_dmamem_type1 and nvme_controller_open_dmamem_uio
+ * share it once they have BAR0; how BAR0 was obtained and how DMA is
+ * mapped stay with each caller.
  *
  * @file nvme_controller_vfio_pci.h
  * @version 0.9.0
