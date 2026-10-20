@@ -32,6 +32,10 @@
  * time, and a client that has mapped it already closes the new one. Queue,
  * buffer and memory requests are refused before it, since heap offsets mean
  * nothing unmapped; NVME_CPLANE_OP_STATUS and NVME_CPLANE_OP_ADMIN_CMD are not.
+ *
+ * NVME_CPLANE_OP_REGISTER_MEM answers with a heap offset to a description
+ * rather than an address, since without an IOMMU the description is a table
+ * with an entry per granule.
  */
 enum nvme_cplane_op {
 	NVME_CPLANE_OP_INIT_CONNECTION = 1, ///< Client asks for the controller named by index
@@ -41,6 +45,8 @@ enum nvme_cplane_op {
 	NVME_CPLANE_OP_ALLOC_BUF = 5,       ///< Client asks for DMA memory it cannot allocate
 	NVME_CPLANE_OP_FREE_BUF = 6,        ///< Client hands that memory back
 	NVME_CPLANE_OP_STATUS = 7,          ///< Anybody asks what the server is holding
+	NVME_CPLANE_OP_REGISTER_MEM = 8,    ///< Client asks for its dma-buf to be made reachable
+	NVME_CPLANE_OP_UNREGISTER_MEM = 9,  ///< Client hands a registration back
 };
 
 /**
@@ -127,6 +133,21 @@ UPCIE_STATIC_ASSERT(sizeof(struct nvme_cplane_status) == NVME_CPLANE_PAYLOAD_NBY
 		    "nvme_cplane_status is not NVME_CPLANE_PAYLOAD_NBYTES")
 
 /**
+ * NVME_CPLANE_OP_REGISTER_MEM and NVME_CPLANE_OP_UNREGISTER_MEM: memory of the client's
+ *
+ * The request carries the dma-buf naming the region.
+ */
+struct nvme_cplane_mem {
+	uint64_t nbytes;      ///< Request: how much the dma-buf covers
+	uint64_t desc_offset; ///< Reply, and the request when unregistering
+	uint32_t page_size;   ///< Request: granule, which a dma-buf does not say
+	uint8_t _rsvd[60];
+};
+
+UPCIE_STATIC_ASSERT(sizeof(struct nvme_cplane_mem) == NVME_CPLANE_PAYLOAD_NBYTES,
+		    "nvme_cplane_mem is not NVME_CPLANE_PAYLOAD_NBYTES")
+
+/**
  * One message in either direction, request and reply sharing a layout
  *
  * One socket serves every controller, and a client learns the range of index
@@ -136,7 +157,7 @@ struct nvme_cplane_msg {
 	uint32_t op;      ///< One of enum nvme_cplane_op
 	uint32_t version; ///< NVME_CPLANE_VERSION as the sender knows it
 	int32_t result;   ///< Replies only: 0, or a negative errno
-	uint32_t nfds;    ///< Replies only: descriptors accompanying this message
+	uint32_t nfds;    ///< Descriptors accompanying this message
 	uint32_t index;   ///< Which of the server's controllers, from zero
 	uint32_t _rsvd;
 
@@ -147,6 +168,7 @@ struct nvme_cplane_msg {
 		struct nvme_cplane_admin_cmd admin_cmd;
 		struct nvme_cplane_buf buf;
 		struct nvme_cplane_status status;
+		struct nvme_cplane_mem mem;
 	} u; ///< Per-operation payload, named by op
 };
 
@@ -395,32 +417,36 @@ nvme_cplane_msg_tryrecv(int sock, struct nvme_cplane_msg *msg, int *fds, uint32_
 }
 
 /**
- * Ask a peer for something and wait for its answer
+ * Ask a peer for something, with descriptors attached, and wait for its answer
  *
  * @param sock A connected SOCK_SEQPACKET unix socket
  * @param msg The request, replaced by the reply
- * @param fds Pre-allocated array of NVME_CPLANE_FDS_MAX, or NULL
- * @param nfds Set to how many descriptors arrived
+ * @param send_fds Descriptors to attach to the request, or NULL
+ * @param send_nfds How many, at most NVME_CPLANE_FDS_MAX
+ * @param recv_fds Pre-allocated array of NVME_CPLANE_FDS_MAX, or NULL
+ * @param recv_nfds Set to how many descriptors arrived with the reply
  *
  * @return 0 on success, the peer's status when it refused, negative errno on error;
- *         unless it is 0, any descriptors that arrived are closed and nfds is zero.
+ *         unless it is 0, any descriptors that arrived are closed and recv_nfds is zero.
  *         After -EAGAIN from a receive timeout the reply may still arrive, and
  *         no message says which request it answers, so drop the connection
  */
 static inline int
-nvme_cplane_request(int sock, struct nvme_cplane_msg *msg, int *fds, uint32_t *nfds)
+nvme_cplane_request_with(int sock, struct nvme_cplane_msg *msg, const int *send_fds,
+			 uint32_t send_nfds, int *recv_fds, uint32_t *recv_nfds)
 {
 	int err;
 
 	msg->version = NVME_CPLANE_VERSION;
 	msg->result = 0;
+	msg->nfds = send_nfds;
 
-	err = nvme_cplane_msg_send(sock, msg, NULL, 0);
+	err = nvme_cplane_msg_send(sock, msg, send_fds, send_nfds);
 	if (err) {
 		return err;
 	}
 
-	err = nvme_cplane_msg_recv(sock, msg, fds, nfds);
+	err = nvme_cplane_msg_recv(sock, msg, recv_fds, recv_nfds);
 	if (err) {
 		return err;
 	}
@@ -428,14 +454,30 @@ nvme_cplane_request(int sock, struct nvme_cplane_msg *msg, int *fds, uint32_t *n
 	if (msg->version != NVME_CPLANE_VERSION) {
 		UPCIE_DEBUG("FAILED: peer speaks version(%u), this is version(%u)", msg->version,
 			    NVME_CPLANE_VERSION);
-		nvme_cplane_fds_close(fds, nfds);
+		nvme_cplane_fds_close(recv_fds, recv_nfds);
 		return -EPROTO;
 	}
 	if (msg->result) {
-		nvme_cplane_fds_close(fds, nfds);
+		nvme_cplane_fds_close(recv_fds, recv_nfds);
 	}
 
 	return msg->result;
+}
+
+/**
+ * Ask a peer for something, sending nothing but the message
+ *
+ * @param sock A connected SOCK_SEQPACKET unix socket
+ * @param msg The request, replaced by the reply
+ * @param recv_fds Pre-allocated array of NVME_CPLANE_FDS_MAX, or NULL
+ * @param recv_nfds Set to how many descriptors arrived with the reply
+ *
+ * @return As nvme_cplane_request_with()
+ */
+static inline int
+nvme_cplane_request(int sock, struct nvme_cplane_msg *msg, int *recv_fds, uint32_t *recv_nfds)
+{
+	return nvme_cplane_request_with(sock, msg, NULL, 0, recv_fds, recv_nfds);
 }
 
 /**
