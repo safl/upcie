@@ -140,7 +140,7 @@ nvme_io(struct rte *rte, uint8_t opc, void *buffer, size_t buffer_size)
 
 	nvme_qpair_sqdb_update(&rte->ioq);
 
-	err = nvme_qpair_reap_cpl(&rte->ioq, rte->ctrlr.timeout_ms, &cpl);
+	err = nvme_qpair_reap_cpl(&rte->ioq, rte->ctrlr.base.timeout_ms, &cpl);
 	if (err) {
 		printf("FAILED: nvme_qpair_reap_cpl(); err(%d)\n", err);
 		return err;

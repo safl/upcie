@@ -116,12 +116,13 @@ nvme_controller_reset_via_bar0(struct nvme_controller *ctrlr, uint8_t *bar0, uin
 	uint64_t cap = nvme_mmio_cap_read(bar0);
 	int err;
 
-	ctrlr->timeout_ms = nvme_reg_cap_get_to(cap) * 500;
-	ctrlr->admin_timeout_ms = NVME_ADMIN_TIMEOUT_MS;
+	ctrlr->base.cap = cap;
+	ctrlr->base.timeout_ms = nvme_reg_cap_get_to(cap) * 500;
+	ctrlr->base.admin_timeout_ms = NVME_ADMIN_TIMEOUT_MS;
 
 	nvme_mmio_cc_disable(bar0);
 
-	err = nvme_mmio_csts_wait_until_not_ready(bar0, ctrlr->timeout_ms);
+	err = nvme_mmio_csts_wait_until_not_ready(bar0, ctrlr->base.timeout_ms);
 	if (err) {
 		UPCIE_DEBUG("FAILED: nvme_mmio_csts_wait_until_not_ready(); err(%d)", err);
 		return err;
@@ -154,8 +155,9 @@ nvme_controller_enable_via_bar0(struct nvme_controller *ctrlr, uint8_t *bar0, ui
 	cc = nvme_reg_cc_set_en(cc, 0x1);
 
 	nvme_mmio_cc_write(bar0, cc);
+	ctrlr->base.cc = cc;
 
-	err = nvme_mmio_csts_wait_until_ready(bar0, ctrlr->timeout_ms);
+	err = nvme_mmio_csts_wait_until_ready(bar0, ctrlr->base.timeout_ms);
 	if (err) {
 		UPCIE_DEBUG("FAILED: nvme_mmio_csts_wait_until_ready(); err(%d)", err);
 		return err;

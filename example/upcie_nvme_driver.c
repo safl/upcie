@@ -445,7 +445,8 @@ nvme_identify(struct nvme *nvme)
 	cmd.prp1 = dmamem_heap_at_iova(&nvme->heap, off);
 	cmd.cdw10 = 1;
 
-	err = nvme_qpair_submit_sync(&nvme->ctrlr.aq, &cmd, nvme->ctrlr.admin_timeout_ms, &cpl);
+	err = nvme_qpair_submit_sync(&nvme->ctrlr.aq, &cmd, nvme->ctrlr.base.admin_timeout_ms,
+				     &cpl);
 	if (err == -EIO) {
 		printf("FAILED: IDENTIFY status(0x%x)\n", cpl.status);
 		goto exit;

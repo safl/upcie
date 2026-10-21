@@ -46,6 +46,24 @@ struct nvme_qpair {
 };
 
 /**
+ * A queue pair as another process names it: heap offsets, not pointers
+ *
+ * The offsets are into the heap the queue was carved from. A process given it
+ * derives the doorbells from its own BAR0 as nvme_qpair_dmamem_init() does.
+ */
+struct nvme_ioqpair {
+	uint64_t sq_offset;  ///< Submission queue, as a heap offset
+	uint64_t cq_offset;  ///< Completion queue, as a heap offset
+	uint64_t prp_offset; ///< PRP scratch for the client's request pool
+	uint32_t qid;        ///< The identifier allocated, never zero
+	uint16_t depth;      ///< Entries in the queue pair
+	uint16_t _rsvd;
+};
+
+UPCIE_STATIC_ASSERT(sizeof(struct nvme_ioqpair) == 32,
+		    "nvme_ioqpair changed size; another process reads it as it is")
+
+/**
  * Reaps at most a single completion and informs the controller via qp->cqdb
  *
  * @param qp A queue-pair as represented by 'struct nvme_qp'

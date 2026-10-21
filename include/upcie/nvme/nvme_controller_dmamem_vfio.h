@@ -335,8 +335,9 @@ nvme_controller_close_dmamem_vfio(struct nvme_controller *ctrlr, struct nvme_dma
 
 	if (ctx->bar0) {
 		nvme_mmio_cc_disable(ctx->bar0);
-		if (ctrlr->timeout_ms) {
-			err = nvme_mmio_csts_wait_until_not_ready(ctx->bar0, ctrlr->timeout_ms);
+		if (ctrlr->base.timeout_ms) {
+			err = nvme_mmio_csts_wait_until_not_ready(ctx->bar0,
+								  ctrlr->base.timeout_ms);
 			if (err) {
 				first_err = err;
 			}
@@ -380,7 +381,7 @@ nvme_admin_sync_dmamem(struct nvme_controller *ctrlr, struct nvme_command *cmd, 
 	}
 	nvme_qpair_sqdb_update(&ctrlr->aq);
 
-	err = nvme_qpair_reap_cpl(&ctrlr->aq, ctrlr->admin_timeout_ms, cpl);
+	err = nvme_qpair_reap_cpl(&ctrlr->aq, ctrlr->base.admin_timeout_ms, cpl);
 	if (err) {
 		return err;
 	}
