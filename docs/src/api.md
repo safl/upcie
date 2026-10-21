@@ -88,3 +88,8 @@ Doxygen and Breathe. For a narrative overview of what each header is for, see
 
 ```{doxygenfile} upcie/nvme/nvme_request.h
 ```
+
+### nvme_cplane.h
+
+```{doxygenfile} upcie/nvme/nvme_cplane.h
+```

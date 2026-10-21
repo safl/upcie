@@ -20,6 +20,8 @@ test_sources = files(
   'test_nvme_qid.c',
   'test_dmamem_shared_hostmem.c',
   'test_nvme_controller_rebuild.c',
+  'test_nvme_cplane.c',
+  'test_nvme_cplane_msg.c',
   'test_dmamem_iommu_map_pa_unwind.c',
 )
 
@@ -32,6 +34,7 @@ hwfree_tests = [
   'test_dmamem_heap',
   'test_dmamem_registry',
   'test_nvme_qid',
+  'test_nvme_cplane_msg',
   'test_dmamem_iommu_map_pa_unwind',
 ]
 
