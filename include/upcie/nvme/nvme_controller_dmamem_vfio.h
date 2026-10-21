@@ -393,13 +393,16 @@ nvme_admin_sync_dmamem(struct nvme_controller *ctrlr, struct nvme_command *cmd, 
 }
 
 /**
- * Create an I/O queue pair on the dmamem path, with the CQ where the caller says
+ * Create an I/O queue pair on the dmamem path, with the SQ and CQ where the caller says
  *
- * As nvme_controller_create_io_qpair_dmamem(), but the controller completes
- * into cq_iova. The dmamem CQ is still allocated and qp->cq points at it; the
- * caller keeps it a copy of cq_iova so the reap primitives work unchanged. A
- * CQ beside the data in a peer's memory is not held behind the data it
- * announces. A cq_iova of 0 means the dmamem CQ.
+ * As nvme_controller_create_io_qpair_dmamem(), but the controller reads
+ * submissions from sq_iova and completes into cq_iova. The dmamem SQ and CQ
+ * are still allocated and qp->sq and qp->cq point at them; a caller that
+ * places the CQ elsewhere keeps the dmamem one a copy of it so the reap
+ * primitives work unchanged. A CQ beside the data in a peer's memory is not
+ * held behind the data it announces, and a device submitting I/O itself needs
+ * its SQ where it can write the entries. An address of 0 means the dmamem
+ * queue.
  *
  * @param ctrlr An opened controller
  * @param qp Queue pair to populate; fully memset before use
@@ -408,6 +411,7 @@ nvme_admin_sync_dmamem(struct nvme_controller *ctrlr, struct nvme_command *cmd, 
  * @param sq_offset_out On success, heap offset of the SQ allocation
  * @param cq_offset_out On success, heap offset of the CQ allocation
  * @param prp_offset_out On success, heap offset of the PRP scratch
+ * @param sq_iova Where the controller reads submissions; 0 for the dmamem SQ
  * @param cq_iova Where the controller writes completions; 0 for the dmamem CQ
  *
  * @return 0 on success, negative errno on error; -ENOMEM when no queue
@@ -415,15 +419,15 @@ nvme_admin_sync_dmamem(struct nvme_controller *ctrlr, struct nvme_command *cmd, 
  *         controller cannot hold, -EIO when the controller refused a create
  */
 static inline int
-nvme_controller_create_io_qpair_dmamem_cq_iova(struct nvme_controller *ctrlr,
-					       struct nvme_qpair *qp, uint16_t depth,
-					       struct dmamem_heap *heap, size_t *sq_offset_out,
-					       size_t *cq_offset_out, size_t *prp_offset_out,
-					       uint64_t cq_iova)
+nvme_controller_create_io_qpair_dmamem_at(struct nvme_controller *ctrlr, struct nvme_qpair *qp,
+					  uint16_t depth, struct dmamem_heap *heap,
+					  size_t *sq_offset_out, size_t *cq_offset_out,
+					  size_t *prp_offset_out, uint64_t sq_iova,
+					  uint64_t cq_iova)
 {
 	struct nvme_command cmd = {0};
 	struct nvme_completion cpl = {0};
-	uint64_t sq_iova = 0, cq_dmamem_iova = 0;
+	uint64_t sq_dmamem_iova = 0, cq_dmamem_iova = 0;
 	uint16_t qid;
 	int err;
 
@@ -439,13 +443,16 @@ nvme_controller_create_io_qpair_dmamem_cq_iova(struct nvme_controller *ctrlr,
 		return err;
 	}
 
-	err = nvme_qpair_dmamem_init(qp, qid, depth, ctrlr->func.bars[0].region, heap, sq_offset_out,
-				     cq_offset_out, prp_offset_out, &sq_iova,
+	err = nvme_qpair_dmamem_init(qp, qid, depth, ctrlr->func.bars[0].region, heap,
+				     sq_offset_out, cq_offset_out, prp_offset_out, &sq_dmamem_iova,
 				     &cq_dmamem_iova);
 	if (err) {
 		UPCIE_DEBUG("FAILED: nvme_qpair_dmamem_init(io); err(%d)", err);
 		nvme_qid_free(ctrlr->qids, qid);
 		return err;
+	}
+	if (!sq_iova) {
+		sq_iova = sq_dmamem_iova;
 	}
 	if (!cq_iova) {
 		cq_iova = cq_dmamem_iova;
@@ -489,6 +496,33 @@ rollback_qpair:
 }
 
 /**
+ * Create an I/O queue pair on the dmamem path, with the CQ where the caller says
+ *
+ * nvme_controller_create_io_qpair_dmamem_at() with the dmamem SQ.
+ *
+ * @param ctrlr An opened controller
+ * @param qp Queue pair to populate; fully memset before use
+ * @param depth Queue depth in entries
+ * @param heap dmamem_heap the SQ, CQ and PRP scratch are carved from
+ * @param sq_offset_out On success, heap offset of the SQ allocation
+ * @param cq_offset_out On success, heap offset of the CQ allocation
+ * @param prp_offset_out On success, heap offset of the PRP scratch
+ * @param cq_iova Where the controller writes completions; 0 for the dmamem CQ
+ *
+ * @return As nvme_controller_create_io_qpair_dmamem_at()
+ */
+static inline int
+nvme_controller_create_io_qpair_dmamem_cq_iova(struct nvme_controller *ctrlr,
+					       struct nvme_qpair *qp, uint16_t depth,
+					       struct dmamem_heap *heap, size_t *sq_offset_out,
+					       size_t *cq_offset_out, size_t *prp_offset_out,
+					       uint64_t cq_iova)
+{
+	return nvme_controller_create_io_qpair_dmamem_at(
+		ctrlr, qp, depth, heap, sq_offset_out, cq_offset_out, prp_offset_out, 0, cq_iova);
+}
+
+/**
  * Create an I/O queue pair on the dmamem path.
  *
  * Allocates SQ/CQ from the caller's dmamem_heap, then programs the
@@ -509,7 +543,7 @@ rollback_qpair:
  * @param cq_offset_out On success, heap offset of the CQ allocation
  * @param prp_offset_out On success, heap offset of the PRP scratch
  *
- * @return As nvme_controller_create_io_qpair_dmamem_cq_iova()
+ * @return As nvme_controller_create_io_qpair_dmamem_at()
  */
 static inline int
 nvme_controller_create_io_qpair_dmamem(struct nvme_controller *ctrlr, struct nvme_qpair *qp,
@@ -517,8 +551,8 @@ nvme_controller_create_io_qpair_dmamem(struct nvme_controller *ctrlr, struct nvm
 				       size_t *sq_offset_out, size_t *cq_offset_out,
 				       size_t *prp_offset_out)
 {
-	return nvme_controller_create_io_qpair_dmamem_cq_iova(
-		ctrlr, qp, depth, heap, sq_offset_out, cq_offset_out, prp_offset_out, 0);
+	return nvme_controller_create_io_qpair_dmamem_at(ctrlr, qp, depth, heap, sq_offset_out,
+							 cq_offset_out, prp_offset_out, 0, 0);
 }
 
 /**

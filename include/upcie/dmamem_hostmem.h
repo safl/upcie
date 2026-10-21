@@ -150,6 +150,54 @@ UPCIE_STATIC_ASSERT(sizeof(struct hostmem_shared_desc) == 32,
 		    "hostmem_shared_desc changed size; bump HOSTMEM_SHARED_DESC_VERSION")
 
 /**
+ * Where an offset into a described region lands, as the device sees it
+ *
+ * A client names memory by offset into a region it registered, never by
+ * address. The description sits in memory every client maps, so this is no
+ * isolation boundary: clients of one controller are one trust domain. A run
+ * leaving its granule is refused, since the next granule can sit anywhere.
+ *
+ * @param desc The description, as the registering side left it
+ * @param offset Byte offset from the region's base
+ * @param nbytes How much has to be addressable in one run from there
+ * @param addr Set to the DMA address on success
+ *
+ * @return 0 on success, negative errno on failure
+ */
+static inline int
+hostmem_shared_desc_addr(const struct hostmem_shared_desc *desc, uint64_t offset, uint64_t nbytes,
+			 uint64_t *addr)
+{
+	uint64_t gran, within;
+
+	if (!desc || !addr || !nbytes) {
+		return -EINVAL;
+	}
+	if ((offset > desc->nbytes) || (nbytes > (desc->nbytes - offset))) {
+		return -ERANGE;
+	}
+
+	if (HOSTMEM_SHARED_ARITHMETIC == desc->kind) {
+		*addr = desc->base_addr + offset;
+		return 0;
+	}
+
+	gran = (uint64_t)1 << desc->gran_shift;
+	within = offset & (gran - 1);
+
+	if ((within + nbytes) > gran) {
+		return -ERANGE;
+	}
+	if ((offset >> desc->gran_shift) >= desc->nphys) {
+		return -ERANGE;
+	}
+
+	*addr = desc->phys[offset >> desc->gran_shift] + within;
+
+	return 0;
+}
+
+/**
  * What to allocate for a description of a region with this many granules
  *
  * @param nphys Granules the region spans; 0 for an ARITHMETIC description

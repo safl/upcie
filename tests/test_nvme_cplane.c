@@ -12,22 +12,28 @@
  * boundary. The
  * client is a separate process, not a fork, so it holds nothing it was not
  * handed. client-badversion checks that the server refuses another version.
+ * client-at registers memory of its own, a udmabuf, and reads LBA 0 on a queue
+ * with its CQ there and then on one with both queues there; this server
+ * describes a registration by pagemap, so it serves that only under uio.
  *
  * Usage:
  *   test_nvme_cplane server <bdf> <socket> [vfio]
  *   test_nvme_cplane client <socket>
  *   test_nvme_cplane client-badversion <socket>
+ *   test_nvme_cplane client-at <socket>
  */
 #define _UPCIE_WITH_NVME
 #include <upcie/upcie.h>
 
 #include <linux/limits.h>
+#include <linux/udmabuf.h>
 #include <sys/un.h>
 
 #define HEAP_NBYTES (64ULL * 1024 * 1024)
 #define HUGEPGSZ (2ULL * 1024 * 1024)
 #define QUEUE_DEPTH 64
 #define PAYLOAD_NBYTES 4096
+#define REG_NBYTES (64 * 1024)
 
 /**
  * Status with the phase tag masked off, since bit zero is not a status code
@@ -273,12 +279,120 @@ runtime_init(struct runtime *rt, const char *bdf, int use_vfio)
 /**
  * The server: opens the controller, then answers until the client leaves.
  */
+/**
+ * Memory a client registered: this server's mapping of it and its description
+ */
+struct registration {
+	void *va;
+	size_t nbytes;
+	size_t desc_off;
+	int alive;
+};
+
+/**
+ * Describe a client's dma-buf by the physical address of each page
+ *
+ * Reading pagemap is enough under uio, where the controller is handed
+ * physical addresses; behind an IOMMU the pages would have to be mapped into
+ * its domain, which this server does not do. Pagemap does not walk a mapping
+ * of the dma-buf itself, which is VM_PFNMAP, so this server takes the memfd
+ * behind the udmabuf as a second descriptor and reads the pages there; the
+ * udmabuf holds them, so their addresses do not change.
+ */
+static int
+server_register(struct runtime *rt, int memfd, const struct nvme_cplane_mem *req,
+		struct registration *reg)
+{
+	struct hostmem_shared_desc *desc;
+	uint64_t pgsz = (uint64_t)getpagesize();
+	uint32_t nphys;
+	int err;
+
+	if (rt->use_vfio) {
+		return -EOPNOTSUPP;
+	}
+	if (reg->alive) {
+		return -EBUSY;
+	}
+	if ((req->page_size != pgsz) || !req->nbytes || (req->nbytes % pgsz)) {
+		return -EINVAL;
+	}
+	nphys = (uint32_t)(req->nbytes / pgsz);
+
+	reg->va = mmap(NULL, req->nbytes, PROT_READ | PROT_WRITE, MAP_SHARED, memfd, 0);
+	if (reg->va == MAP_FAILED) {
+		reg->va = NULL;
+		return -errno;
+	}
+	reg->nbytes = req->nbytes;
+
+	err = dmamem_heap_alloc(&rt->heap, hostmem_shared_desc_nbytes(nphys), &reg->desc_off);
+	if (err) {
+		munmap(reg->va, reg->nbytes);
+		return err;
+	}
+	desc = dmamem_heap_at_va(&rt->heap, reg->desc_off);
+	memset(desc, 0, hostmem_shared_desc_nbytes(nphys));
+	desc->version = HOSTMEM_SHARED_DESC_VERSION;
+	desc->kind = HOSTMEM_SHARED_LUT;
+	desc->nbytes = req->nbytes;
+	desc->nphys = nphys;
+	desc->gran_shift = (uint32_t)__builtin_ctzll(pgsz);
+
+	for (uint32_t i = 0; i < nphys; ++i) {
+		volatile char *page = (char *)reg->va + (size_t)i * pgsz;
+
+		(void)*page;
+		err = hostmem_pagemap_virt_to_phys((void *)page, &desc->phys[i]);
+		if (err || !desc->phys[i]) {
+			dmamem_heap_free(&rt->heap, reg->desc_off);
+			munmap(reg->va, reg->nbytes);
+			return err ? err : -EIO;
+		}
+	}
+	reg->alive = 1;
+
+	return 0;
+}
+
+static void
+server_unregister(struct runtime *rt, struct registration *reg)
+{
+	if (!reg->alive) {
+		return;
+	}
+	dmamem_heap_free(&rt->heap, reg->desc_off);
+	munmap(reg->va, reg->nbytes);
+	memset(reg, 0, sizeof(*reg));
+}
+
+/**
+ * Where a queue placed in the registration lands for the controller; 0 for the heap
+ */
+static int
+server_placement(struct runtime *rt, const struct registration *reg, uint64_t offset,
+		 uint64_t nbytes, uint64_t *iova)
+{
+	const struct hostmem_shared_desc *desc;
+
+	*iova = 0;
+	if (offset == NVME_CPLANE_QUEUE_IN_HEAP) {
+		return 0;
+	}
+	desc = dmamem_heap_at_va(&rt->heap, reg->desc_off);
+
+	return hostmem_shared_desc_addr(desc, offset, nbytes, iova);
+}
+
 static int
 server(const char *bdf, const char *path, int use_vfio)
 {
 	struct runtime rt = {0};
+	struct registration reg = {0};
 	struct nvme_qpair allocated = {0};
 	struct nvme_cplane_msg msg;
+	int in_fds[NVME_CPLANE_FDS_MAX];
+	uint32_t in_nfds = 0;
 	size_t sq_off = 0, cq_off = 0, prp_off = 0;
 	int listener, sock;
 	int granted_live = 0;
@@ -317,12 +431,13 @@ server(const char *bdf, const char *path, int use_vfio)
 		       (unsigned)cred.gid);
 	}
 
-	while (!(err = nvme_cplane_msg_recv(sock, &msg, NULL, NULL))) {
+	while (!(err = nvme_cplane_msg_recv(sock, &msg, in_fds, &in_nfds))) {
 		struct nvme_cplane_msg reply = {.op = msg.op, .version = NVME_CPLANE_VERSION};
 		int fds[NVME_CPLANE_FDS_MAX];
 		uint32_t nfds = 0;
 
 		if (msg.version != NVME_CPLANE_VERSION) {
+			nvme_cplane_fds_close(in_fds, &in_nfds);
 			reply.result = -EPROTO;
 			nvme_cplane_msg_send(sock, &reply, NULL, 0);
 			continue;
@@ -403,10 +518,68 @@ server(const char *bdf, const char *path, int use_vfio)
 			       reply.result);
 			break;
 
+		case NVME_CPLANE_OP_REGISTER_MEM:
+			reply.result = (in_nfds == 2)
+					       ? server_register(&rt, in_fds[1], &msg.u.mem, &reg)
+					       : -EINVAL;
+			reply.u.mem.desc_offset = reg.desc_off;
+			printf("server: registration of %" PRIu64 " at 0x%zx result(%d)\n",
+			       msg.u.mem.nbytes, reg.desc_off, reply.result);
+			break;
+
+		case NVME_CPLANE_OP_UNREGISTER_MEM:
+			if (!reg.alive || (msg.u.mem.desc_offset != reg.desc_off)) {
+				reply.result = -ENOENT;
+				break;
+			}
+			server_unregister(&rt, &reg);
+			break;
+
+		case NVME_CPLANE_OP_ALLOC_IOQPAIR_AT: {
+			uint16_t depth = msg.u.alloc_ioqpair_at.depth;
+			uint64_t sq_iova = 0, cq_iova = 0;
+
+			if (granted_live) {
+				reply.result = -EBUSY;
+				break;
+			}
+			if (!reg.alive || (msg.u.alloc_ioqpair_at.desc_offset != reg.desc_off)) {
+				reply.result = -ENOENT;
+				break;
+			}
+			reply.result = server_placement(
+				&rt, &reg, msg.u.alloc_ioqpair_at.sq_offset,
+				(uint64_t)depth * sizeof(struct nvme_command), &sq_iova);
+			if (!reply.result) {
+				reply.result = server_placement(
+					&rt, &reg, msg.u.alloc_ioqpair_at.cq_offset,
+					(uint64_t)depth * sizeof(struct nvme_completion),
+					&cq_iova);
+			}
+			if (!reply.result) {
+				reply.result = nvme_controller_create_io_qpair_dmamem_at(
+					&rt.ctrlr, &allocated, depth, &rt.heap, &sq_off, &cq_off,
+					&prp_off, sq_iova, cq_iova);
+			}
+			if (!reply.result) {
+				granted_live = 1;
+				reply.u.alloc_ioqpair_at.allocation.sq_offset = sq_off;
+				reply.u.alloc_ioqpair_at.allocation.cq_offset = cq_off;
+				reply.u.alloc_ioqpair_at.allocation.prp_offset = prp_off;
+				reply.u.alloc_ioqpair_at.allocation.qid = allocated.qid;
+				reply.u.alloc_ioqpair_at.allocation.depth = allocated.depth;
+			}
+			printf("server: placed allocation qid(%u) sq_iova(0x%" PRIx64
+			       ") cq_iova(0x%" PRIx64 ") result(%d)\n",
+			       allocated.qid, sq_iova, cq_iova, reply.result);
+			break;
+		}
+
 		default:
 			reply.result = -ENOSYS;
 			break;
 		}
+		nvme_cplane_fds_close(in_fds, &in_nfds);
 
 		reply.nfds = nfds;
 		if (nvme_cplane_msg_send(sock, &reply, nfds ? fds : NULL, nfds)) {
@@ -419,6 +592,7 @@ server(const char *bdf, const char *path, int use_vfio)
 		nvme_controller_delete_io_qpair_dmamem(&rt.ctrlr, &allocated, &rt.heap, sq_off,
 						       cq_off, prp_off);
 	}
+	server_unregister(&rt, &reg);
 	close(sock);
 	close(listener);
 	unlink(path);
@@ -560,6 +734,36 @@ view_qpair_release(struct nvme_qpair *qpair)
 }
 
 /**
+ * Attach to the controller and build a view of it from what comes back
+ */
+static int
+client_attach(int sock, struct view *view)
+{
+	struct nvme_cplane_msg msg = {.op = NVME_CPLANE_OP_INIT_CONNECTION};
+	int fds[NVME_CPLANE_FDS_MAX];
+	uint32_t nfds = 0;
+	int err;
+
+	err = nvme_cplane_request(sock, &msg, fds, &nfds);
+	if (err || (nfds != 2)) {
+		printf("# FAILED: attach; err(%d) nfds(%u)\n", err, nfds);
+		nvme_cplane_fds_close(fds, &nfds);
+		return err ? err : -EPROTO;
+	}
+	printf("client: heap descriptor received, description at 0x%" PRIx64 "\n",
+	       msg.u.init_connection.desc_offset);
+
+	err = view_init(view, fds[0], fds[1], &msg.u.init_connection);
+	nvme_cplane_fds_close(fds, &nfds);
+	if (err) {
+		return err;
+	}
+	printf("client: attached to %s\n", view->ctrlr.func.bdf);
+
+	return 0;
+}
+
+/**
  * The client: holds nothing it was not handed.
  *
  * With bad_version set, the first message is sent with nvme_cplane_msg_send()
@@ -573,8 +777,6 @@ client(const char *path, int bad_version)
 	struct nvme_qpair qpair = {0};
 	struct nvme_cplane_msg msg = {0};
 	struct nvme_command cmd = {0};
-	int fds[NVME_CPLANE_FDS_MAX];
-	uint32_t nfds = 0;
 	uint64_t payload_off = 0;
 	void *payload;
 	int sock, err;
@@ -607,22 +809,10 @@ client(const char *path, int bad_version)
 		return 0;
 	}
 
-	err = nvme_cplane_request(sock, &msg, fds, &nfds);
-	if (err || (nfds != 2)) {
-		printf("# FAILED: attach; err(%d) nfds(%u)\n", err, nfds);
-		nvme_cplane_fds_close(fds, &nfds);
-		return err ? err : -EPROTO;
-	}
-	printf("client: heap descriptor received, description at 0x%" PRIx64 "\n",
-	       msg.u.init_connection.desc_offset);
-
-	err = view_init(&view, fds[0], fds[1], &msg.u.init_connection);
-	close(fds[0]);
-	close(fds[1]);
+	err = client_attach(sock, &view);
 	if (err) {
 		goto exit;
 	}
-	printf("client: attached to %s\n", view.ctrlr.func.bdf);
 
 	memset(&msg, 0, sizeof(msg));
 	msg.op = NVME_CPLANE_OP_ALLOC_IOQPAIR;
@@ -718,6 +908,204 @@ exit:
 	return err;
 }
 
+/**
+ * Memory of the client's own the device can reach: a memfd behind a udmabuf
+ *
+ * fds[0] is the dma-buf, which is what a registration names, and fds[1] the
+ * memfd, which only this test's server needs; see server_register().
+ */
+static int
+client_region(size_t nbytes, void **va, int fds[2])
+{
+	struct udmabuf_create create = {0};
+	int memfd, udmabuf;
+
+	memfd = memfd_create("upcie-cplane-at", MFD_ALLOW_SEALING);
+	if (memfd < 0) {
+		return -errno;
+	}
+	if (ftruncate(memfd, (off_t)nbytes) || fcntl(memfd, F_ADD_SEALS, F_SEAL_SHRINK)) {
+		close(memfd);
+		return -errno;
+	}
+
+	udmabuf = open("/dev/udmabuf", O_RDWR);
+	if (udmabuf < 0) {
+		close(memfd);
+		return -errno;
+	}
+	create.memfd = memfd;
+	create.size = nbytes;
+	fds[0] = ioctl(udmabuf, UDMABUF_CREATE, &create);
+	close(udmabuf);
+	if (fds[0] < 0) {
+		close(memfd);
+		return -errno;
+	}
+
+	*va = mmap(NULL, nbytes, PROT_READ | PROT_WRITE, MAP_SHARED, memfd, 0);
+	if (*va == MAP_FAILED) {
+		close(fds[0]);
+		close(memfd);
+		return -errno;
+	}
+	fds[1] = memfd;
+	memset(*va, 0, nbytes);
+
+	return 0;
+}
+
+/**
+ * Read LBA 0 on a queue pair placed in the registration, then hand it back
+ *
+ * The CQ is at the start of the region and, with sq_too, the SQ a page in.
+ * The client reaps from the CQ the controller writes, so it needs no mirror.
+ */
+static int
+client_at_read(int sock, struct view *view, void *reg_va, uint64_t desc_offset, int sq_too,
+	       void *payload)
+{
+	struct nvme_cplane_msg msg = {.op = NVME_CPLANE_OP_ALLOC_IOQPAIR_AT};
+	struct nvme_completion cpl = {0};
+	struct nvme_command cmd = {0};
+	struct nvme_qpair qpair = {0};
+	uint64_t sq_offset = sq_too ? (uint64_t)getpagesize() : NVME_CPLANE_QUEUE_IN_HEAP;
+	uint32_t qid;
+	int err;
+
+	memset(reg_va, 0, REG_NBYTES);
+
+	msg.u.alloc_ioqpair_at.desc_offset = desc_offset;
+	msg.u.alloc_ioqpair_at.sq_offset = sq_offset;
+	msg.u.alloc_ioqpair_at.cq_offset = 0;
+	msg.u.alloc_ioqpair_at.depth = QUEUE_DEPTH;
+	err = nvme_cplane_request(sock, &msg, NULL, NULL);
+	if (err) {
+		printf("# FAILED: placed allocation, sq_too(%d); err(%d)\n", sq_too, err);
+		return err;
+	}
+
+	qid = msg.u.alloc_ioqpair_at.allocation.qid;
+
+	err = view_qpair(view, &msg.u.alloc_ioqpair_at.allocation, &qpair);
+	if (err) {
+		printf("# FAILED: building the placed queue pair; err(%d)\n", err);
+		return err;
+	}
+	qpair.cq = reg_va;
+	if (sq_too) {
+		qpair.sq = (char *)reg_va + sq_offset;
+	}
+
+	cmd.opc = 0x2;
+	cmd.nsid = 1;
+	cmd.prp1 = dmamem_va_to_iova(&view->dmem, payload);
+	err = nvme_qpair_submit_sync(&qpair, &cmd, view->ctrlr.base.timeout_ms, &cpl);
+	if (err || cpl_status(&cpl)) {
+		printf("# FAILED: read LBA 0, sq_too(%d); err(%d) status(0x%x)\n", sq_too, err,
+		       cpl_status(&cpl));
+		err = err ? err : -EIO;
+	} else {
+		printf("# LGTM: read LBA 0 with the CQ%s in memory of the client's own\n",
+		       sq_too ? " and the SQ" : "");
+	}
+
+	view_qpair_release(&qpair);
+
+	memset(&msg, 0, sizeof(msg));
+	msg.op = NVME_CPLANE_OP_FREE_IOQPAIR;
+	msg.u.free_ioqpair.qid = qid;
+	nvme_cplane_request(sock, &msg, NULL, NULL);
+
+	return err;
+}
+
+/**
+ * A client placing queues in memory of its own
+ */
+static int
+client_at(const char *path)
+{
+	struct view view = {0};
+	struct nvme_cplane_msg msg = {0};
+	uint64_t payload_off = 0, desc_offset = 0;
+	void *reg_va = NULL, *payload;
+	int reg_fds[2] = {-1, -1};
+	int sock, err;
+
+	sock = connect_to(path);
+	if (sock < 0) {
+		printf("# FAILED: connect_to(); err(%d)\n", sock);
+		return sock;
+	}
+
+	err = client_attach(sock, &view);
+	if (err) {
+		goto exit;
+	}
+
+	err = client_region(REG_NBYTES, &reg_va, reg_fds);
+	if (err) {
+		printf("# FAILED: a udmabuf to register; err(%d)\n", err);
+		reg_va = NULL;
+		goto exit;
+	}
+
+	msg.op = NVME_CPLANE_OP_REGISTER_MEM;
+	msg.u.mem.nbytes = REG_NBYTES;
+	msg.u.mem.page_size = (uint32_t)getpagesize();
+	err = nvme_cplane_request_with(sock, &msg, reg_fds, 2, NULL, NULL);
+	if (err) {
+		printf("# FAILED: registration; err(%d)\n", err);
+		goto exit;
+	}
+	desc_offset = msg.u.mem.desc_offset;
+	printf("client: registered, described at 0x%" PRIx64 "\n", desc_offset);
+
+	memset(&msg, 0, sizeof(msg));
+	msg.op = NVME_CPLANE_OP_ALLOC_BUF;
+	msg.u.buf.nbytes = PAYLOAD_NBYTES;
+	err = nvme_cplane_request(sock, &msg, NULL, NULL);
+	if (err) {
+		printf("# FAILED: buffer; err(%d)\n", err);
+		goto exit;
+	}
+	payload_off = msg.u.buf.offset;
+	payload = (char *)view.heap_base + payload_off;
+
+	err = client_at_read(sock, &view, reg_va, desc_offset, 0, payload);
+	if (!err) {
+		err = client_at_read(sock, &view, reg_va, desc_offset, 1, payload);
+	}
+
+	memset(&msg, 0, sizeof(msg));
+	msg.op = NVME_CPLANE_OP_FREE_BUF;
+	msg.u.buf.offset = payload_off;
+	nvme_cplane_request(sock, &msg, NULL, NULL);
+
+	memset(&msg, 0, sizeof(msg));
+	msg.op = NVME_CPLANE_OP_UNREGISTER_MEM;
+	msg.u.mem.desc_offset = desc_offset;
+	if (nvme_cplane_request(sock, &msg, NULL, NULL) && !err) {
+		printf("# FAILED: unregistration\n");
+		err = -EIO;
+	}
+
+exit:
+	if (reg_va) {
+		munmap(reg_va, REG_NBYTES);
+	}
+	for (int i = 0; i < 2; ++i) {
+		if (reg_fds[i] >= 0) {
+			close(reg_fds[i]);
+		}
+	}
+	view_term(&view);
+	close(sock);
+
+	return err;
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -735,10 +1123,14 @@ main(int argc, char *argv[])
 	if ((argc == 3) && !strcmp(argv[1], "client-badversion")) {
 		return client(argv[2], 1) ? EXIT_FAILURE : EXIT_SUCCESS;
 	}
+	if ((argc == 3) && !strcmp(argv[1], "client-at")) {
+		return client_at(argv[2]) ? EXIT_FAILURE : EXIT_SUCCESS;
+	}
 
 	fprintf(stderr, "usage: %s server <bdf> <socket> [vfio]\n", argv[0]);
 	fprintf(stderr, "       %s client <socket>\n", argv[0]);
 	fprintf(stderr, "       %s client-badversion <socket>\n", argv[0]);
+	fprintf(stderr, "       %s client-at <socket>\n", argv[0]);
 
 	return 2;
 }
