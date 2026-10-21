@@ -183,8 +183,9 @@ nvme_controller_close_dmamem_type1(struct nvme_controller *ctrlr, struct nvme_dm
 
 	if (ctx->bar0) {
 		nvme_mmio_cc_disable(ctx->bar0);
-		if (ctrlr->timeout_ms) {
-			err = nvme_mmio_csts_wait_until_not_ready(ctx->bar0, ctrlr->timeout_ms);
+		if (ctrlr->base.timeout_ms) {
+			err = nvme_mmio_csts_wait_until_not_ready(ctx->bar0,
+								  ctrlr->base.timeout_ms);
 			if (err) {
 				first_err = err;
 			}

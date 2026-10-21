@@ -153,9 +153,9 @@ nvme_controller_close_dmamem_uio(struct nvme_controller *ctrlr, struct nvme_dmam
 
 	if (ctx->bar0_mapped && ctrlr->func.bars[0].region) {
 		nvme_mmio_cc_disable(ctrlr->func.bars[0].region);
-		if (ctrlr->timeout_ms) {
+		if (ctrlr->base.timeout_ms) {
 			err = nvme_mmio_csts_wait_until_not_ready(ctrlr->func.bars[0].region,
-								  ctrlr->timeout_ms);
+								  ctrlr->base.timeout_ms);
 			if (err) {
 				first_err = err;
 			}

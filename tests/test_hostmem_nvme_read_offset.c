@@ -140,7 +140,7 @@ read_lbas(struct rte *rte, void *dbuf, size_t nbytes, uint64_t slba, uint8_t *sc
 
 	nvme_qpair_enqueue(&rte->ioq, &cmd);
 	nvme_qpair_sqdb_update(&rte->ioq);
-	err = nvme_qpair_reap_cpl(&rte->ioq, rte->ctrlr.timeout_ms, &cpl);
+	err = nvme_qpair_reap_cpl(&rte->ioq, rte->ctrlr.base.timeout_ms, &cpl);
 	if (err)
 		return err;
 	nvme_request_free(rte->ioq.rpool, cpl.cid);

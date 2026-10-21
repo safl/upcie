@@ -50,7 +50,7 @@ run_reads(struct nvme_controller *ctrlr, struct nvme_qpair *ioq, struct dmamem_h
 		}
 		nvme_qpair_sqdb_update(ioq);
 
-		err = nvme_qpair_reap_cpl(ioq, ctrlr->timeout_ms, &cpl);
+		err = nvme_qpair_reap_cpl(ioq, ctrlr->base.timeout_ms, &cpl);
 		if (err) {
 			fprintf(stderr, "FAIL: read(%d) nvme_qpair_reap_cpl() err(%d)\n", i, err);
 			goto out_free;

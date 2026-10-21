@@ -190,7 +190,7 @@ main(int argc, char *argv[])
 	}
 	nvme_qpair_sqdb_update(&ctrlr.aq);
 
-	err = nvme_qpair_reap_cpl(&ctrlr.aq, ctrlr.admin_timeout_ms, &cpl);
+	err = nvme_qpair_reap_cpl(&ctrlr.aq, ctrlr.base.admin_timeout_ms, &cpl);
 	if (err) {
 		fprintf(stderr, "FAIL: nvme_qpair_reap_cpl err(%d)\n", err);
 		goto out_ctrlr;
@@ -275,7 +275,7 @@ main(int argc, char *argv[])
 		printf("issue: NVMe WRITE LBA 0..%u <- PRP1=0x%" PRIx64
 		       " (VRAM IOVA base 0x%" PRIx64 " + offset 0x%zx)\n",
 		       NBLOCKS_M1 + 1, write_iova, gpu_bar_dmem.base_iova, WRITE_OFFSET);
-		err = nvme_qpair_submit_sync(&ioq, &cmd, ctrlr.timeout_ms, &cpl);
+		err = nvme_qpair_submit_sync(&ioq, &cmd, ctrlr.base.timeout_ms, &cpl);
 		if (err) {
 			fprintf(stderr, "FAIL: WRITE from VRAM err(%d)\n", err);
 			goto io_done;
@@ -288,7 +288,7 @@ main(int argc, char *argv[])
 		cmd.nsid = NSID;
 		cmd.prp1 = dmamem_heap_at_iova(&admin_heap, verify_off);
 		cmd.cdw12 = NBLOCKS_M1;
-		err = nvme_qpair_submit_sync(&ioq, &cmd, ctrlr.timeout_ms, &cpl);
+		err = nvme_qpair_submit_sync(&ioq, &cmd, ctrlr.base.timeout_ms, &cpl);
 		if (err) {
 			fprintf(stderr, "FAIL: verify READ LBA 0 err(%d)\n", err);
 		} else if (memcmp(verify_va, vram, 4096) == 0) {

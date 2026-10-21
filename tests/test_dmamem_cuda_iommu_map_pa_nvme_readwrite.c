@@ -120,7 +120,7 @@ nvme_io(struct rte *rte, struct dmamem *dmem, uint8_t opc, void *buf, size_t nby
 	}
 	nvme_qpair_sqdb_update(&rte->ioq);
 
-	err = nvme_qpair_reap_cpl(&rte->ioq, rte->ctrlr.timeout_ms, &cpl);
+	err = nvme_qpair_reap_cpl(&rte->ioq, rte->ctrlr.base.timeout_ms, &cpl);
 	if (err) {
 		/* Submitted and unreaped: the controller still owns this cid, so it
 		 * cannot go back to the pool for another command to take. */
@@ -238,7 +238,7 @@ read_lba_bytes(struct rte *rte, uint32_t *lba_bytes)
 	}
 	nvme_qpair_sqdb_update(&rte->ctrlr.aq);
 
-	err = nvme_qpair_reap_cpl(&rte->ctrlr.aq, rte->ctrlr.admin_timeout_ms, &cpl);
+	err = nvme_qpair_reap_cpl(&rte->ctrlr.aq, rte->ctrlr.base.admin_timeout_ms, &cpl);
 	if (err) {
 		/* Submitted and unreaped: the controller may still write here, so it
 		 * cannot go back to the heap for another allocation to take. */

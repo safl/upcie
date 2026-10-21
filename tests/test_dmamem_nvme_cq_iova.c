@@ -64,7 +64,7 @@ run_reads(struct nvme_controller *ctrlr, struct nvme_qpair *ioq, struct dmamem_h
 		}
 		nvme_qpair_sqdb_update(ioq);
 
-		err = wait_for_cpl(&cq_alt[round], 1, ctrlr->timeout_ms);
+		err = wait_for_cpl(&cq_alt[round], 1, ctrlr->base.timeout_ms);
 		if (err) {
 			fprintf(stderr, "FAIL: no completion at cq_iova[%d]\n", round);
 			goto out_free;
@@ -87,7 +87,7 @@ run_reads(struct nvme_controller *ctrlr, struct nvme_qpair *ioq, struct dmamem_h
 
 		cq[round] = cq_alt[round];
 
-		err = nvme_qpair_reap_cpl(ioq, ctrlr->timeout_ms, &cpl);
+		err = nvme_qpair_reap_cpl(ioq, ctrlr->base.timeout_ms, &cpl);
 		if (err) {
 			fprintf(stderr, "FAIL: nvme_qpair_reap_cpl() err(%d)\n", err);
 			goto out_free;
