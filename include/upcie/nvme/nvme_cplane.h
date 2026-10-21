@@ -36,17 +36,29 @@
  * NVME_CPLANE_OP_REGISTER_MEM answers with a heap offset to a description
  * rather than an address, since without an IOMMU the description is a table
  * with an entry per granule.
+ *
+ * NVME_CPLANE_OP_ALLOC_IOQPAIR_AT places the SQ, the CQ or both in a region
+ * the client registered, and the rest in the heap. A GPU issuing I/O itself
+ * needs both where it writes and reads the entries; a host doing P2P into
+ * device memory wants only the CQ there, beside the data, so the drive's
+ * posted writes do not alternate between two destinations. The server
+ * allocates the qid and creates the queues. The reply names the heap queues
+ * and PRP scratch as NVME_CPLANE_OP_ALLOC_IOQPAIR does; one standing in for a
+ * queue placed in the registration is never used by the controller, and a
+ * host client mirrors completions into it so nvme_qpair_reap_cpl() works
+ * unchanged.
  */
 enum nvme_cplane_op {
-	NVME_CPLANE_OP_INIT_CONNECTION = 1, ///< Client asks for the controller named by index
-	NVME_CPLANE_OP_ALLOC_IOQPAIR = 2,   ///< Client asks for a queue of a given depth
-	NVME_CPLANE_OP_FREE_IOQPAIR = 3,    ///< Client hands a queue back
-	NVME_CPLANE_OP_ADMIN_CMD = 4,       ///< Client asks for an admin command to be submitted
-	NVME_CPLANE_OP_ALLOC_BUF = 5,       ///< Client asks for DMA memory it cannot allocate
-	NVME_CPLANE_OP_FREE_BUF = 6,        ///< Client hands that memory back
-	NVME_CPLANE_OP_STATUS = 7,          ///< Anybody asks what the server is holding
-	NVME_CPLANE_OP_REGISTER_MEM = 8,    ///< Client asks for its dma-buf to be made reachable
-	NVME_CPLANE_OP_UNREGISTER_MEM = 9,  ///< Client hands a registration back
+	NVME_CPLANE_OP_INIT_CONNECTION = 1,   ///< Client asks for the controller named by index
+	NVME_CPLANE_OP_ALLOC_IOQPAIR = 2,     ///< Client asks for a queue of a given depth
+	NVME_CPLANE_OP_FREE_IOQPAIR = 3,      ///< Client hands a queue back
+	NVME_CPLANE_OP_ADMIN_CMD = 4,         ///< Client asks for an admin command to be submitted
+	NVME_CPLANE_OP_ALLOC_BUF = 5,         ///< Client asks for DMA memory it cannot allocate
+	NVME_CPLANE_OP_FREE_BUF = 6,          ///< Client hands that memory back
+	NVME_CPLANE_OP_STATUS = 7,            ///< Anybody asks what the server is holding
+	NVME_CPLANE_OP_REGISTER_MEM = 8,      ///< Client asks for its dma-buf to be made reachable
+	NVME_CPLANE_OP_UNREGISTER_MEM = 9,    ///< Client hands a registration back
+	NVME_CPLANE_OP_ALLOC_IOQPAIR_AT = 10, ///< Client asks for a queue in memory it registered
 };
 
 /**
@@ -148,6 +160,26 @@ UPCIE_STATIC_ASSERT(sizeof(struct nvme_cplane_mem) == NVME_CPLANE_PAYLOAD_NBYTES
 		    "nvme_cplane_mem is not NVME_CPLANE_PAYLOAD_NBYTES")
 
 /**
+ * Where NVME_CPLANE_OP_ALLOC_IOQPAIR_AT leaves a queue to the heap
+ */
+#define NVME_CPLANE_QUEUE_IN_HEAP UINT64_MAX
+
+/**
+ * NVME_CPLANE_OP_ALLOC_IOQPAIR_AT: a queue pair placed in a registration
+ */
+struct nvme_cplane_alloc_ioqpair_at {
+	struct nvme_ioqpair allocation; ///< Reply: the queue allocated, as in the heap
+	uint64_t desc_offset;           ///< Request: the registration a placed queue lives in
+	uint64_t sq_offset; ///< Request: the SQ in the registration, or NVME_CPLANE_QUEUE_IN_HEAP
+	uint64_t cq_offset; ///< Request: the CQ in the registration, or NVME_CPLANE_QUEUE_IN_HEAP
+	uint16_t depth;     ///< Request: entries wanted
+	uint8_t _rsvd[22];
+};
+
+UPCIE_STATIC_ASSERT(sizeof(struct nvme_cplane_alloc_ioqpair_at) == NVME_CPLANE_PAYLOAD_NBYTES,
+		    "nvme_cplane_alloc_ioqpair_at is not NVME_CPLANE_PAYLOAD_NBYTES")
+
+/**
  * One message in either direction, request and reply sharing a layout
  *
  * One socket serves every controller, and a client learns the range of index
@@ -169,6 +201,7 @@ struct nvme_cplane_msg {
 		struct nvme_cplane_buf buf;
 		struct nvme_cplane_status status;
 		struct nvme_cplane_mem mem;
+		struct nvme_cplane_alloc_ioqpair_at alloc_ioqpair_at;
 	} u; ///< Per-operation payload, named by op
 };
 

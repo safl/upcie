@@ -76,3 +76,24 @@ def test_cplane_refuses_a_stranger_version(cijoe, bdf):
 
     err, _ = cplane_session(cijoe, bdf, "client-badversion")
     assert not err
+
+
+@pytest.mark.parametrize("bdf", uio_devices())
+def test_cplane_client_places_queues_uio(cijoe, bdf):
+    """A client registers memory of its own and has queues placed in it.
+
+    The client registers a udmabuf and reads LBA 0 twice: with the CQ in its
+    memory and the SQ in the heap, and with both in its memory, so the server
+    must translate the registration and the controller must use it. The test
+    server describes a registration by pagemap, which is what uio needs.
+    """
+
+    err, _ = cijoe.run("test -c /dev/udmabuf")
+    if err:
+        pytest.skip("guest has no /dev/udmabuf to register memory with")
+
+    err, _ = cijoe.run("devbind --bind uio_pci_generic")
+    assert not err
+
+    err, _ = cplane_session(cijoe, bdf, "client-at")
+    assert not err

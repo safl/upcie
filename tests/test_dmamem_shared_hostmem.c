@@ -5,21 +5,12 @@
  * Translating through memory somebody else described
  * ==================================================
  *
- * A client of a served runtime maps the server's memory and has to turn
- * addresses in it into DMA addresses, without reading pagemap. It does that
- * from a description the server left behind.
- *
- * The interesting part is not the copy but the rebasing: a registry is indexed
- * by address, and the client's mapping is at a different address than the
- * server's. So this maps the same descriptor twice, builds a second dmamem over
- * the second mapping from the description alone, and requires that both agree
- * on the DMA address of the same byte. No second process is needed to show
- * that, and none is used, so what fails here is the translation rather than
- * anything about sockets.
- *
- * The same description is also read as device memory, since what backs a
- * region is not what translates it; that is what lets a client register memory
- * the server never allocated and still be told where it lives.
+ * Map a hugepage twice, build a dmamem over the second mapping from a
+ * hostmem_shared_desc alone (no pagemap), and require both to agree on the
+ * DMA address of each probed offset. Fails when rebasing to the second
+ * mapping's address is wrong. Also checks that the description translates the
+ * same when read as device memory, and that hostmem_shared_desc_addr()
+ * refuses a run straddling two granules or past the region.
  *
  * Usage:
  *   test_dmamem_shared_hostmem
@@ -118,6 +109,58 @@ main(void)
 	}
 	printf("# LGTM: the description resolves the same whatever backs it\n");
 	dmamem_destroy(&device);
+
+	for (size_t i = 0; i < sizeof(probes) / sizeof(*probes); ++i) {
+		uint64_t want = dmamem_offset_to_iova(&owned, probes[i]);
+		uint64_t got = 0;
+
+		err = hostmem_shared_desc_addr(desc, probes[i], 4096, &got);
+		if (err || (got != want)) {
+			printf("# FAILED: desc_addr(0x%zx); err(%d) got(0x%" PRIx64
+			       ") want(0x%" PRIx64 ")\n",
+			       probes[i], err, got, want);
+			return 1;
+		}
+	}
+	{
+		uint64_t gran = (uint64_t)1 << desc->gran_shift;
+		uint64_t addr = 0;
+
+		if (hostmem_shared_desc_addr(desc, gran - 2048, 4096, &addr) != -ERANGE) {
+			printf("# FAILED: a run across a granule boundary was answered\n");
+			return 1;
+		}
+		if (hostmem_shared_desc_addr(desc, desc->nbytes, 1, &addr) != -ERANGE) {
+			printf("# FAILED: an offset past the region was answered\n");
+			return 1;
+		}
+	}
+	{
+		uint64_t gran = (uint64_t)1 << desc->gran_shift;
+		struct hostmem_shared_desc *made;
+		uint64_t addr = 0;
+
+		made = calloc(1, hostmem_shared_desc_nbytes(2));
+		if (!made) {
+			printf("# FAILED: calloc()\n");
+			return 1;
+		}
+		made->version = HOSTMEM_SHARED_DESC_VERSION;
+		made->kind = HOSTMEM_SHARED_LUT;
+		made->nbytes = 2 * gran;
+		made->nphys = 2;
+		made->gran_shift = desc->gran_shift;
+		made->phys[0] = 0x100000000ULL;
+		made->phys[1] = 0x40000000ULL;
+
+		if (hostmem_shared_desc_addr(made, gran + 4096, 4096, &addr) ||
+		    (addr != made->phys[1] + 4096)) {
+			printf("# FAILED: the second granule resolved to 0x%" PRIx64 "\n", addr);
+			return 1;
+		}
+		free(made);
+	}
+	printf("# LGTM: offsets resolve, and runs that no address covers are refused\n");
 
 	memset((char *)hp.virt + 8192, 0xA5, 4096);
 	if (memcmp((char *)hp.virt + 8192, (char *)second + 8192, 4096)) {
