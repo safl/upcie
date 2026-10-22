@@ -100,11 +100,22 @@ install_headers(
   subdir: 'upcie/nvme'
 )
 
-# Optional dependency for other Meson projects
+# For other Meson projects: dependency('upcie') finds this one when it is a
+# wrap or subproject, and an installed uPCIe through upcie.pc otherwise
 upcie_dep = declare_dependency(
   include_directories: include_directories('include')
 )
+meson.override_dependency('upcie', upcie_dep)
 
-# Add the test programs
-subdir('example')
-subdir('tests')
+import('pkgconfig').generate(
+  name: 'upcie',
+  description: 'User-space PCIe device interaction, header-only',
+  url: 'https://github.com/safl/upcie',
+)
+
+# A project taking uPCIe through a wrap gets the dependency, not the example
+# (installed) and the tests
+if not meson.is_subproject()
+  subdir('example')
+  subdir('tests')
+endif
