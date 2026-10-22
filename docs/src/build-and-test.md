@@ -11,6 +11,25 @@ make build         # meson compile -C builddir
 The compiled C tests land in `builddir/tests` and expect a suitable environment,
 such as reserved hugepages or a device bound to a user-space driver.
 
+## From a Meson project
+
+`dependency('upcie')` finds an installed uPCIe through its `upcie.pc`, or
+falls back to a wrap in the project's `subprojects/upcie.wrap`:
+
+```ini
+[wrap-git]
+url = https://github.com/safl/upcie.git
+revision = <a commit or tag>
+depth = 1
+
+[provide]
+dependency_names = upcie
+```
+
+As a subproject uPCIe declares its headers and builds neither the example
+nor the tests. `tests/meson/check.sh` builds a consumer both ways, and CI
+runs it.
+
 ## Guest-based testing
 
 The integration tests build, install, and run uPCIe on a *target* machine,

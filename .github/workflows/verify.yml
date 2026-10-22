@@ -104,6 +104,24 @@ jobs:
           -c tests/test_vfioctl.c -o /tmp/test_vfioctl_installed.o
 
   #
+  # A Meson project taking uPCIe installed, through upcie.pc, and through a wrap
+  #
+  meson-consumer:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Grab source
+      uses: actions/checkout@v7.0.0
+
+    - name: Install build requirements
+      run: |
+        sudo apt-get update -qy
+        sudo apt-get install -qy meson ninja-build gcc git pkg-config linux-libc-dev
+
+    - name: Build consumers, installed and wrapped
+      run: tests/meson/check.sh
+
+  #
   # Provision a QEMU guest from the nosi image and run the test-suite, once with
   # the IOMMU disabled (uio_pci_generic) and once enabled (vfio-pci + iommufd).
   #
