@@ -151,7 +151,12 @@ static void dmabuf_import_move_notify(struct dma_buf_attachment *attach)
  */
 static const struct dma_buf_attach_ops dmabuf_import_attach_ops = {
 	.allow_peer2peer	= true,
+	/* Linux 7.1 renamed the callback; it is called as before */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 1, 0)
+	.invalidate_mappings	= dmabuf_import_move_notify,
+#else
 	.move_notify		= dmabuf_import_move_notify,
+#endif
 };
 
 static struct dmabuf_import_desc *dmabuf_import_tree_find(struct rb_root *root, int dma_buf_fd)
