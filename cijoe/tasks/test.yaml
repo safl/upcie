@@ -7,7 +7,7 @@ doc: |
   up by 'guest_setup.yaml' or a real machine reached over SSH. Pass the same
   config, e.g.:
 
-    cijoe tasks/test.yaml --config configs/ubuntu-2604-iommu_disabled.toml
+    cijoe tasks/test.yaml --config configs/ubuntu-2604.toml --config configs/iommu_disabled.toml
 
 steps:
 - name: test

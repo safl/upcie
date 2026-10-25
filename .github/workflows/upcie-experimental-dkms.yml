@@ -37,7 +37,7 @@ jobs:
   build-deb:
     runs-on: ubuntu-latest
     container:
-      image: ubuntu:24.04
+      image: ubuntu:26.04
     steps:
       - name: Install packaging toolchain
         run: |
@@ -74,7 +74,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        release: ["24.04", "26.04", "26.10"]
+        release: ["26.04", "26.10"]
     container:
       image: ubuntu:${{ matrix.release }}
     steps:
@@ -193,7 +193,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        release: ["24.04", "26.04", "26.10"]
+        release: ["26.04", "26.10"]
         module: [dmabuf_import, iommu_map_pa]
     container:
       image: ubuntu:${{ matrix.release }}

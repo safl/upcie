@@ -1,13 +1,14 @@
 # Shared system-imaging image definitions; pass alongside a guest config:
 #
-#   --config configs/<guest>.toml --config configs/system_imaging.toml
+#   --config configs/<release>.toml --config configs/<mode>.toml \
+#   --config configs/system_imaging.toml
 #
-# The disk image is staged by stage_nosi_guest from the guest config's
+# The disk image is staged by stage_nosi_guest from the release config's
 # [guest_image].url into disk.path, where qemu.guest_initialize picks it up.
-[system-imaging.images.ubuntu-2604-x86_64]
+[system-imaging.images.nosi-x86_64]
 system_label = "x86_64"
 
 cloud.metadata_path = "{{ resources.auxiliary['system_imaging.cloudinit-linux-common-metadata'] }}"
 cloud.userdata_path = "{{ resources.auxiliary['system_imaging.cloudinit-linux-common-userdata'] }}"
 
-disk.path = "{{ local.env.HOME }}/system_imaging/disk/ubuntu-2604-amd64.qcow2"
+disk.path = "{{ local.env.HOME }}/system_imaging/disk/nosi-amd64.qcow2"

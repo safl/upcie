@@ -40,8 +40,8 @@ Stock ``/dev/udmabuf`` keeps serving ``UDMABUF_CREATE``; the module adds
 One package, ``upcie-experimental-dkms``, ships this module and
 ``iommu_map_pa`` together, because the experimental *upcie* paths need both.
 
-* Install the ``.deb`` (CI builds it and installs it on Ubuntu 24.04 and
-  26.04)::
+* Install the ``.deb`` (CI builds it and installs it on Ubuntu 26.04 and
+  26.10)::
 
 	  apt install ./upcie-experimental-dkms_*_all.deb
 
