@@ -2,9 +2,13 @@ BUILD_DIR ?= builddir
 VERSION ?= 0.10.1
 
 # cijoe configuration selecting the guest IOMMU mode:
-#   configs/ubuntu-2604-iommu_disabled.toml  IOMMU disabled, uio_pci_generic
-#   configs/ubuntu-2604-iommu_enabled.toml   IOMMU enabled, vfio-pci + iommufd
-CIJOE_CONFIG ?= configs/ubuntu-2604-iommu_disabled.toml
+#   configs/iommu_disabled.toml  IOMMU disabled, uio_pci_generic
+#   configs/iommu_enabled.toml   IOMMU enabled, vfio-pci + iommufd
+CIJOE_CONFIG ?= configs/iommu_disabled.toml
+# The Ubuntu release the QEMU guest runs: ubuntu-2604 or ubuntu-2610.
+# Passed first, so a CIJOE_CONFIG for a real machine overrides it.
+RELEASE ?= ubuntu-2604
+CIJOE_CONFIGS = --config configs/$(RELEASE).toml --config $(CIJOE_CONFIG)
 
 .PHONY: all config build verify verify-iommu-disabled verify-iommu-enabled deploy test guest install uninstall clean docs dkms-deb dkms-version-check
 
@@ -70,7 +74,7 @@ gen-artifacts:
 guest:
 	@cd cijoe && cijoe \
 		tasks/guest_setup.yaml \
-		--config $(CIJOE_CONFIG) \
+		$(CIJOE_CONFIGS) \
 		--config configs/system_imaging.toml \
 		-l \
 		-m
@@ -81,14 +85,14 @@ guest:
 deploy: gen-artifacts
 	@cd cijoe && cijoe \
 		tasks/deploy.yaml \
-		--config $(CIJOE_CONFIG) \
+		$(CIJOE_CONFIGS) \
 		-l \
 		-m
 
 test:
 	@cd cijoe && cijoe \
 		tasks/test.yaml \
-		--config $(CIJOE_CONFIG) \
+		$(CIJOE_CONFIGS) \
 		-l \
 		-m
 
@@ -97,10 +101,10 @@ verify:
 	$(MAKE) verify-iommu-enabled
 
 verify-iommu-disabled:
-	$(MAKE) guest deploy test CIJOE_CONFIG=configs/ubuntu-2604-iommu_disabled.toml
+	$(MAKE) guest deploy test CIJOE_CONFIG=configs/iommu_disabled.toml
 
 verify-iommu-enabled:
-	$(MAKE) guest deploy test CIJOE_CONFIG=configs/ubuntu-2604-iommu_enabled.toml
+	$(MAKE) guest deploy test CIJOE_CONFIG=configs/iommu_enabled.toml
 
 uninstall:
 	cd $(BUILD_DIR) && meson --internal uninstall

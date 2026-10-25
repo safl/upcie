@@ -1,0 +1,18 @@
+# uPCIe cijoe configuration: Ubuntu 26.04 guest
+#
+# The release half of a guest config: which nosi image the QEMU guest boots.
+# Pass it before an IOMMU mode, e.g.:
+#
+#   cijoe tasks/guest_setup.yaml \
+#     --config configs/ubuntu-2604.toml \
+#     --config configs/iommu_disabled.toml \
+#     --config configs/system_imaging.toml
+
+[os]
+name = "ubuntu"
+version = "26.04"
+
+# nosi guest image pulled by stage_nosi_guest into the system-imaging disk.path;
+# the digest is the .img.gz layer's
+[guest_image]
+url = "oras://ghcr.io/safl/nosi/ubuntu-2604-headless@sha256:ba8a8e478a067fa3f566dcb05559d83abf3c823b10d93c0b27fb896192d03628"

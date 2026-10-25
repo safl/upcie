@@ -52,7 +52,8 @@ jobs:
       matrix:
         container:
         - {os: 'debian', image: 'debian:trixie'}
-        - {os: 'ubuntu', image: 'ubuntu:noble'}
+        - {os: 'ubuntu', image: 'ubuntu:26.04'}
+        - {os: 'ubuntu', image: 'ubuntu:26.10'}
         - {os: 'fedora', image: 'fedora:44'}
         - {os: 'alpine', image: 'ghcr.io/refenv/alpine-bash:latest'}
 
@@ -105,7 +106,8 @@ jobs:
 
   #
   # Provision a QEMU guest from the nosi image and run the test-suite, once with
-  # the IOMMU disabled (uio_pci_generic) and once enabled (vfio-pci + iommufd).
+  # the IOMMU disabled (uio_pci_generic) and once enabled (vfio-pci + iommufd),
+  # on each Ubuntu release uPCIe supports: 26.04 and 26.10.
   #
   # Runs inside the nosi container, which ships qemu + cijoe. The job needs
   # /dev/kvm and pulls a multi-GB guest image, so it targets a KVM-capable
@@ -119,6 +121,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        release: [ubuntu-2604, ubuntu-2610]
         mode: [iommu_disabled, iommu_enabled]
 
     container:
@@ -163,39 +166,42 @@ jobs:
       run: |
         cd cijoe && cijoe \
           tasks/guest_setup.yaml \
-          --config "configs/ubuntu-2604-${{ matrix.mode }}.toml" \
+          --config "configs/${{ matrix.release }}.toml" \
+          --config "configs/${{ matrix.mode }}.toml" \
           --config "configs/system_imaging.toml" \
           --monitor \
-          --output "verify-${{ matrix.mode }}-guest"
+          --output "verify-${{ matrix.release }}-${{ matrix.mode }}-guest"
 
     - name: CIJOE, deploy uPCIe
       run: |
         cd cijoe && cijoe \
           tasks/deploy.yaml \
-          --config "configs/ubuntu-2604-${{ matrix.mode }}.toml" \
+          --config "configs/${{ matrix.release }}.toml" \
+          --config "configs/${{ matrix.mode }}.toml" \
           --monitor \
-          --output "verify-${{ matrix.mode }}-deploy"
+          --output "verify-${{ matrix.release }}-${{ matrix.mode }}-deploy"
 
     - name: CIJOE, test
       run: |
         cd cijoe && cijoe \
           tasks/test.yaml \
-          --config "configs/ubuntu-2604-${{ matrix.mode }}.toml" \
+          --config "configs/${{ matrix.release }}.toml" \
+          --config "configs/${{ matrix.mode }}.toml" \
           --monitor \
-          --output "verify-${{ matrix.mode }}-test"
+          --output "verify-${{ matrix.release }}-${{ matrix.mode }}-test"
 
     - name: CIJOE, dump result logs on failure
       if: failure()
       run: |
         find cijoe -name "*.output" -exec cat {} +
-        tail -c 20000 "$HOME/guests/ubuntu-2604-amd64/serial.output" 2>/dev/null || true
+        tail -c 20000 "$HOME/guests/nosi-amd64/serial.output" 2>/dev/null || true
 
     - name: CIJOE, upload output dirs
       if: always()
       uses: actions/upload-artifact@v7.0.1
       with:
-        name: verify-${{ matrix.mode }}-report
-        path: cijoe/verify-${{ matrix.mode }}*
+        name: verify-${{ matrix.release }}-${{ matrix.mode }}-report
+        path: cijoe/verify-${{ matrix.release }}-${{ matrix.mode }}*
         if-no-files-found: warn
 
   #
