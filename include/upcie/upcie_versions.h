@@ -10,7 +10,7 @@
  * from different releases work together for as long as these agree.
  *
  * @file upcie_versions.h
- * @version 0.10.0
+ * @version 0.10.1
  */
 
 #ifndef __UPCIE_VERSIONS_H
