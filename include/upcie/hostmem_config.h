@@ -5,7 +5,7 @@
  * ================================
  * 
  * @file hostmem_config.h
- * @version 0.10.1
+ * @version 0.10.2
  */
 
 #ifndef MFD_HUGE_2MB

@@ -45,7 +45,7 @@
  * released by the registry.
  *
  * @file dmamem_registry.h
- * @version 0.10.1
+ * @version 0.10.2
  */
 
 /**
