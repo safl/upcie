@@ -7,15 +7,12 @@
 #     --config configs/ubuntu-2610.toml \
 #     --config configs/iommu_disabled.toml \
 #     --config configs/system_imaging.toml
-#
-# nosi has no headless 26.10 image; ubuntu-2610-rocm is the stock 26.10 with
-# ROCm and the RDMA userspace from the archive on top, none of which uPCIe uses.
 
 [os]
 name = "ubuntu"
 version = "26.10"
 
 # nosi guest image pulled by stage_nosi_guest into the system-imaging disk.path;
-# the digest is the .img.gz layer's, ubuntu-2610-rocm:2026.W43
+# the digest is the .img.gz layer's, ubuntu-2610-headless:2026.W44
 [guest_image]
-url = "oras://ghcr.io/safl/nosi/ubuntu-2610-rocm@sha256:33a34476eee7f0ab9ced75c2c115c107e3f52bd5bd0084528b5079ac74019ad4"
+url = "oras://ghcr.io/safl/nosi/ubuntu-2610-headless@sha256:a4bc7064105ff389a210c7ec421c656c70c90b789f249746a1defd84bb10f43c"
