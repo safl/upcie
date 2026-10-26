@@ -57,7 +57,7 @@
  *   dmamem_hostmem.h and wrap an existing hostmem_hugepage.
  *
  * @file dmamem.h
- * @version 0.10.1
+ * @version 0.10.2
  */
 
 enum dmamem_backing {

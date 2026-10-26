@@ -47,7 +47,7 @@
  *   - Sub-hugepage contiguity enforcement
  *
  * @file hostmem_dma.h
- * @version 0.10.1
+ * @version 0.10.2
  */
 
 /**

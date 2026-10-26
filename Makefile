@@ -1,5 +1,5 @@
 BUILD_DIR ?= builddir
-VERSION ?= 0.10.1
+VERSION ?= 0.10.2
 
 # cijoe configuration selecting the guest IOMMU mode:
 #   configs/iommu_disabled.toml  IOMMU disabled, uio_pci_generic
