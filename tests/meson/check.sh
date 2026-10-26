@@ -5,7 +5,9 @@
 # Checks meson.build the two ways a Meson project takes uPCIe: installed, found
 # through upcie.pc, and fetched by a wrap-git of this checkout's HEAD. Each
 # builds tests/meson/consumer.c as a consumer; the wrapped build must not build
-# uPCIe's own example and tests. Run from the repository's top.
+# uPCIe's own example and tests, must install uPCIe's headers and upcie.pc by
+# default, and must install nothing with skip-install=true. Run from the
+# repository's top.
 set -eu
 
 top=$PWD
@@ -45,6 +47,20 @@ ninja -C "$tmp/c2" > /dev/null
 test -x "$tmp/c2/consumer"
 if [ -n "$(find "$tmp/c2/subprojects" -name 'test_*' -o -name upcie_nvme_driver)" ]; then
 	echo "a wrapped uPCIe built its own example or tests" >&2
+	exit 1
+fi
+DESTDIR="$tmp/c2-dest" meson install -C "$tmp/c2" > /dev/null
+for f in upcie/upcie.h upcie/nvme/nvme_qpair.h upcie.pc; do
+	if [ -z "$(find "$tmp/c2-dest" -path "*/$f")" ]; then
+		echo "a wrapped uPCIe did not install $f" >&2
+		exit 1
+	fi
+done
+
+meson configure -Dupcie:skip-install=true "$tmp/c2" > /dev/null
+DESTDIR="$tmp/c2-noinst" meson install -C "$tmp/c2" > /dev/null
+if [ -n "$(find "$tmp/c2-noinst" -path '*upcie*' 2> /dev/null)" ]; then
+	echo "a wrapped uPCIe installed with skip-install=true" >&2
 	exit 1
 fi
 echo "meson: installed and wrapped consumers built"
