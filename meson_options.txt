@@ -1,3 +1,5 @@
 option('debug-logging', type: 'feature', value: 'auto')
 option('cuda-arch', type: 'string', value: 'native',
        description: 'nvcc -arch for the GPU kernels; "native" targets the GPU in this machine')
+option('skip-install', type: 'boolean', value: false,
+       description: 'as a subproject: install neither the headers nor upcie.pc')

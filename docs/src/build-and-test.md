@@ -26,9 +26,12 @@ depth = 1
 dependency_names = upcie
 ```
 
-As a subproject uPCIe declares its headers and builds neither the example
-nor the tests. `tests/meson/check.sh` builds a consumer both ways, and CI
-runs it.
+As a subproject uPCIe declares its headers and builds neither the example nor
+the tests. It installs its headers and `upcie.pc` into the project's prefix,
+as Meson subprojects do; a project that builds against uPCIe without shipping
+it sets `-Dupcie:skip-install=true`, or `default_options:
+['skip-install=true']` on its `subproject('upcie')` call.
+`tests/meson/check.sh` builds a consumer both ways, and CI runs it.
 
 ## Guest-based testing
 
