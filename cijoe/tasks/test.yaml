@@ -1,6 +1,6 @@
 ---
 doc: |
-  Run the uPCIe test-suite against the transport target
+  Run the uPCIe test-suite against the target
 
   Expects uPCIe already deployed by 'deploy.yaml' (built, installed, drivers
   loaded, hugepages allocated) on the target, which may be a QEMU guest brought
