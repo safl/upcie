@@ -6,7 +6,7 @@ doc: |
   built at /tmp/upcie_source/builddir, hugepages reserved, iommufd/vfio
   modules loaded). This task only runs the binary and reports the outcome.
 
-    make gen-artifacts
+    make gen-artifacts rust-artifacts
     cijoe tasks/deploy.yaml            --config configs/hw-example.toml
     cijoe tasks/dmamem_smoketest.yaml  --config configs/hw-example.toml
 

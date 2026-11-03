@@ -3,7 +3,7 @@
 # Pair with tasks/deploy.yaml to build and install uPCIe on the target, then
 # tasks/test.yaml (or a targeted run) to exercise it on real hardware:
 #
-#   make gen-artifacts
+#   make gen-artifacts rust-artifacts
 #   cijoe tasks/deploy.yaml --config configs/hw-example.toml
 #   cijoe tasks/test.yaml   --config configs/hw-example.toml
 #

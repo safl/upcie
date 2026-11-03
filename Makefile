@@ -9,9 +9,8 @@ CIJOE_CONFIG ?= configs/iommu_disabled.toml
 # Passed first, so a CIJOE_CONFIG for a real machine overrides it.
 RELEASE ?= ubuntu-2604
 CIJOE_CONFIGS = --config configs/$(RELEASE).toml --config $(CIJOE_CONFIG)
-# What deploy makes first: the source archive it copies to the target. Emptied
-# where the archive is made elsewhere, as devenv-verify does
-DEPLOY_ARTIFACTS ?= gen-artifacts
+# Emptied where the artifacts are made elsewhere, as devenv-verify does
+DEPLOY_ARTIFACTS ?= gen-artifacts rust-artifacts
 # The rig the QEMU guest boots with, from cijoe/rigs/, its PCIe topology and devices
 RIG ?= upcie-nvme
 
@@ -23,7 +22,7 @@ DEVENV_NAME ?= upcie-devenv-$(notdir $(CURDIR))
 DEVENV_HOME ?= $(CURDIR)/.devenv
 DEVENV_RUN = $(DEVENV_ENGINE) exec $(DEVENV_NAME) bash -euo pipefail -c '$(1)'
 
-.PHONY: all config build verify verify-iommu-disabled verify-iommu-enabled deploy test guest devenv-host devenv-run devenv-verify devenv-down install uninstall clean docs dkms-deb dkms-version-check
+.PHONY: rust rust-aarch64 rust-artifacts all config build verify verify-iommu-disabled verify-iommu-enabled deploy test guest devenv-host devenv-run devenv-verify devenv-down install uninstall clean docs dkms-deb dkms-version-check
 
 all: clean config build install verify
 
@@ -82,6 +81,22 @@ gen-artifacts:
 	cp $(BUILD_DIR)/meson-dist/upcie-$(VERSION).tar.gz /tmp/artifacts/upcie-src.tar.gz
 	ls -l /tmp/artifacts
 
+# The Rust crate in rust/: formatting, lints and unit tests, none needing a device
+rust:
+	cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+
+# aarch64's DMA barriers differ from x86_64's
+rust-aarch64:
+	cd rust && cargo check --all-targets --target aarch64-unknown-linux-gnu
+
+# Static, as it runs on a target whose glibc may be older than this host's
+RUST_TARGET ?= x86_64-unknown-linux-musl
+rust-artifacts:
+	cd rust && cargo build --release --example nvme --target $(RUST_TARGET)
+	mkdir -p /tmp/artifacts
+	cp rust/target/$(RUST_TARGET)/release/examples/nvme /tmp/artifacts/upcie-rs-nvme
+	ls -l /tmp/artifacts
+
 # Bring up the QEMU guest with its rig. QEMU-specific, so it takes the
 # system_imaging config and the rig; the retargetable deploy/test below do not.
 # Runs where xnvme-devenv's rig scripts are: in its host container, see devenv-*.
@@ -137,7 +152,7 @@ devenv-run: devenv-host
 
 # verify, in the host container. The source archive is made here first, as
 # meson dist needs the git repository, which a worktree does not carry inside
-devenv-verify: gen-artifacts devenv-host
+devenv-verify: gen-artifacts rust-artifacts devenv-host
 	$(call DEVENV_RUN,make verify DEPLOY_ARTIFACTS= RELEASE=$(RELEASE) RIG=$(RIG))
 
 # Stop and remove the host container and the guest in it; DEVENV_HOME stays

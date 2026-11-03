@@ -8,10 +8,11 @@ doc: |
   account first (a no-op once root SSH works), then checks the tooling, syncs the
   source tarball, builds and installs uPCIe, and loads the drivers and hugepages.
 
-  /tmp/artifacts must hold upcie-src.tar.gz (from 'make gen-artifacts'). Point the
-  default cijoe target at the machine, then:
+  /tmp/artifacts must hold upcie-src.tar.gz and upcie-rs-nvme (from 'make
+  gen-artifacts rust-artifacts'). Point the default cijoe target at the machine,
+  then:
 
-    make gen-artifacts
+    make gen-artifacts rust-artifacts
     cijoe tasks/deploy.yaml --config configs/<target>.toml
     cijoe tasks/test.yaml   --config configs/<target>.toml
 
@@ -45,6 +46,11 @@ steps:
   uses: meson_install
   with:
     source: /tmp/upcie_source
+
+- name: rust_artifacts
+  uses: rust_artifacts
+  with:
+    artifacts: /tmp/artifacts
 
 - name: modprobe
   run: |

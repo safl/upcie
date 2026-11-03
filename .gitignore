@@ -4,6 +4,7 @@ docs/xml
 __pycache__
 cijoe-output/
 .devenv/
+rust/target/
 
 # Output of the experimental DKMS package build, which lands beside the
 # experimental/ source directory

@@ -9,7 +9,9 @@ uPCIe: user-space PCIe libraries
 uPCIe is a set of header-only C libraries for user-space PCIe device interaction
 on Linux. It provides hugepage-backed DMA, MMIO accessors, PCI discovery and BAR
 mapping, VFIO wrappers, dma-buf helpers, and a minimalist NVMe driver, with no
-dependencies beyond the Linux UAPI headers.
+dependencies beyond the Linux UAPI headers. A Rust crate in ``rust/`` covers
+PCI discovery, MMIO, VFIO, iommufd, DMA memory and barriers, with no
+dependencies either.
 
 It started as a way to explore the boundary between safe and unsafe user-space
 PCIe practices. It targets both the IOMMU-protected path (``vfio-pci``) and the
