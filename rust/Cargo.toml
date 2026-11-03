@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) Simon Andreas Frimann Lund <os@safl.dk>
+[package]
+name = "upcie"
+version = "0.10.4"
+edition = "2024"
+rust-version = "1.85"
+license = "BSD-3-Clause"
+description = "User-space PCIe in Rust: sysfs, VFIO, iommufd, MMIO and DMA memory, with no dependencies"
+repository = "https://github.com/safl/upcie"
+readme = "README.md"
+keywords = ["pcie", "vfio", "iommufd", "nvme", "user-space"]
+categories = ["os::linux-apis", "hardware-support"]
+
+[dependencies]
