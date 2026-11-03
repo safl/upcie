@@ -22,7 +22,7 @@ DEVENV_NAME ?= upcie-devenv-$(notdir $(CURDIR))
 DEVENV_HOME ?= $(CURDIR)/.devenv
 DEVENV_RUN = $(DEVENV_ENGINE) exec $(DEVENV_NAME) bash -euo pipefail -c '$(1)'
 
-.PHONY: rust rust-aarch64 rust-artifacts all config build verify verify-iommu-disabled verify-iommu-enabled deploy test guest devenv-host devenv-run devenv-verify devenv-down install uninstall clean docs dkms-deb dkms-version-check
+.PHONY: rust rust-version-check rust-aarch64 rust-artifacts all config build verify verify-iommu-disabled verify-iommu-enabled deploy test guest devenv-host devenv-run devenv-verify devenv-down install uninstall clean docs dkms-deb dkms-version-check
 
 all: clean config build install verify
 
@@ -35,6 +35,7 @@ endif
 	@sed -i "s/^\([[:space:]]*version: '\)[^']*'/\1$(NEW_VERSION)'/" meson.build
 	@python3 -c "import sys, re, pathlib; [p.write_text(re.sub(r'(@version)\s+.*', rf'\1 {sys.argv[1]}', p.read_text()), encoding='utf-8') for p in pathlib.Path('.').rglob('*.h') if '@version' in p.read_text()]" $(NEW_VERSION)
 	@sed -i "s/MODULE_VERSION(\"[^\"]*\")/MODULE_VERSION(\"$(NEW_VERSION)\")/" experimental/*/module/*.c
+	@python3 -c "import sys, re, pathlib; v = sys.argv[1]; p = pathlib.Path('rust/Cargo.toml'); p.write_text(re.sub(r'(?m)^version = \"[^\"]*\"', f'version = \"{v}\"', p.read_text(), count=1)); p = pathlib.Path('rust/Cargo.lock'); p.write_text(re.sub(r'(name = \"upcie\"\nversion = )\"[^\"]*\"', rf'\1\"{v}\"', p.read_text()))" $(NEW_VERSION)
 	@if ! head -1 experimental/debian/changelog | grep -q "^upcie-experimental ($(NEW_VERSION))"; then \
 		{ \
 			echo "upcie-experimental ($(NEW_VERSION)) unstable; urgency=medium"; \
@@ -81,9 +82,17 @@ gen-artifacts:
 	cp $(BUILD_DIR)/meson-dist/upcie-$(VERSION).tar.gz /tmp/artifacts/upcie-src.tar.gz
 	ls -l /tmp/artifacts
 
-# The Rust crate in rust/: formatting, lints and unit tests, none needing a device
-rust:
+rust-version-check:
+	@ver=$$(sed -n 's/^version = "\(.*\)"/\1/p' rust/Cargo.toml | head -1); \
+	if [ "$$ver" != "$(VERSION)" ]; then \
+		echo "rust/Cargo.toml is at $$ver, VERSION is $(VERSION); run 'make bump NEW_VERSION=$(VERSION)'"; \
+		exit 1; \
+	fi; \
+	echo "Rust crate version $$ver matches upcie $(VERSION)"
+
+rust: rust-version-check
 	cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+	cd rust && cargo package --locked --allow-dirty
 
 # aarch64's DMA barriers differ from x86_64's
 rust-aarch64:
