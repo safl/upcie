@@ -1,17 +1,20 @@
 ---
 doc: |
-  Bring up the QEMU guest from the nosi image
+  Bring up the QEMU guest with its rig, from xnvme-devenv's host container
 
   The QEMU-specific phase, kept apart from deployment because it depends on the
   qemu.* and system-imaging config that does not apply to a real machine. It
-  kills any running guest, stages the nosi disk-image into the system-imaging
-  disk.path, initializes and starts the guest, and leaves it running with root
-  still locked. Select the IOMMU mode by which guest config is passed, e.g.:
+  kills any running guest, stages the guest's disk image from its oras://
+  reference, initializes the guest, and starts it with the rig's PCIe topology
+  and devices through xnvme-devenv's rig scripts, which its host container
+  carries, leaving it running with root still locked. Select the IOMMU mode by
+  which guest config is passed, and the devices by the rig, e.g.:
 
     cijoe tasks/guest_setup.yaml \
       --config configs/ubuntu-2604.toml \
       --config configs/iommu_disabled.toml \
-      --config configs/system_imaging.toml
+      --config configs/system_imaging.toml \
+      --config rigs/upcie-nvme.toml
 
   Follow with tasks/deploy.yaml (which opens root on the nosi operator and is
   retargetable: it runs the same against a guest or a real machine) and
@@ -19,12 +22,14 @@ doc: |
 
 steps:
 - name: guest_kill
-  uses: qemu.guest_kill
+  uses: xnvme_devenv.rig_guest_kill
   with:
     guest_name: "{{ config.qemu.default_guest }}"
 
-- name: stage_nosi_guest
-  uses: stage_nosi_guest
+- name: stage_guest
+  uses: system_imaging.diskimage_from_oras
+  with:
+    pattern: "{{ config.qemu.default_systemimage }}"
 
 - name: guest_initialize
   uses: qemu.guest_initialize
@@ -33,6 +38,6 @@ steps:
     system_image_name: "{{ config.qemu.default_systemimage }}"
 
 - name: guest_start
-  uses: qemu_guest_start_nvme
+  uses: xnvme_devenv.rig_guest_start
   with:
     guest_name: "{{ config.qemu.default_guest }}"
