@@ -3,8 +3,9 @@
 #   --config configs/<release>.toml --config configs/<mode>.toml \
 #   --config configs/system_imaging.toml
 #
-# The disk image is staged by stage_nosi_guest from the release config's
-# [guest_image].url into disk.path, where qemu.guest_initialize picks it up.
+# The disk image is staged by system_imaging.diskimage_from_oras from the
+# release config's oras.url into disk.path, where qemu.guest_initialize picks it
+# up.
 [system-imaging.images.nosi-x86_64]
 system_label = "x86_64"
 

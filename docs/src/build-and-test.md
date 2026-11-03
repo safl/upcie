@@ -38,19 +38,31 @@ it sets `-Dupcie:skip-install=true`, or `default_options:
 The integration tests build, install, and run uPCIe on a *target* machine,
 following the same cijoe-driven model as xNVMe. The target is described entirely
 by a cijoe configuration: how to reach it over SSH (the `cijoe.transport`
-section), and, for a QEMU guest, where its disk image lives
-(`system_imaging.toml`) and how to boot it (the `qemu` and `guest_image`
-sections of the guest config).
+section), and, for a QEMU guest, which image it boots (`system_imaging.toml` and
+the release config's `oras.url`), how (the `qemu` section of the guest config),
+and with which devices (a rig in `cijoe/rigs/`).
 
-The default guest image is a [nosi](https://github.com/safl/nosi) build, which
-already ships the `devbind`, `hugepages`, and `iommu` tools the test-suite uses.
+The guest is booted by the rig scripts of
+[xnvme-devenv](https://github.com/xnvme/xnvme-devenv), whose host container
+carries QEMU, cijoe and those scripts; CI runs the guest jobs in it. A rig is a
+cijoe config giving the guest's PCIe topology and devices. uPCIe's own,
+`upcie-nvme`, has the one NVMe controller the tests drive, at `0000:01:00.0`;
+xnvme-devenv's, under `/opt/xnvme-devenv/rigs` in the container, add PCIe
+switches, an emulated GPU and NIC, and more controllers. The default guest image
+is a [nosi](https://github.com/safl/nosi) build, which already ships the
+`devbind`, `hugepages`, and `iommu` tools the test-suite uses.
 
-The default target is a QEMU guest: `make guest` brings it up, `make deploy`
-builds and installs uPCIe on it, and `make test` runs the suite. `make verify`
-chains all three across both IOMMU modes:
+`make guest` brings the guest up, `make deploy` builds and installs uPCIe on it,
+and `make test` runs the suite. `make verify` chains all three across both IOMMU
+modes. `make guest` needs the rig scripts, so it runs in the host container;
+`make devenv-verify` starts the container and runs `make verify` in it:
 
 ```bash
-make guest                   # bring up the QEMU guest
+make devenv-verify           # verify, in xnvme-devenv's host container
+make devenv-run CMD="..."    # any command in the container, e.g. make guest
+make devenv-down             # remove the container; its guests stay in .devenv
+
+make guest                   # in the container: bring up the QEMU guest
 make deploy                  # build and install uPCIe on the target
 make test                    # run the test-suite against the target
 make verify                  # guest, deploy, and test across both IOMMU modes
@@ -60,11 +72,11 @@ make verify-iommu-enabled    # just the IOMMU-on path (vfio-pci)
 
 The two modes differ in the QEMU machine, so each is a full cycle rather than two
 passes against one guest. CI runs both on every push and pull request.
-`CIJOE_CONFIG` selects the config for the bare guest, deploy, and test targets.
+`CIJOE_CONFIG` selects the config for the bare guest, deploy, and test targets,
+`RIG` the rig, and `RELEASE` the Ubuntu release the guest runs.
 
-Provisioning pulls a multi-gigabyte guest image and requires `/dev/kvm`, QEMU,
-and cijoe on the host. The image is resolved and pulled with
-[withcache](https://github.com/safl/withcache).
+Provisioning pulls a multi-gigabyte guest image and requires `/dev/kvm` and
+docker or podman (`DEVENV_ENGINE=podman`) on the host.
 
 ## Retargeting
 

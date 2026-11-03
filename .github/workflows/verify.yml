@@ -127,10 +127,9 @@ jobs:
   # the IOMMU disabled (uio_pci_generic) and once enabled (vfio-pci + iommufd),
   # on each Ubuntu release uPCIe supports: 26.04 and 26.10.
   #
-  # Runs inside the nosi container, which ships qemu + cijoe. The job needs
-  # /dev/kvm and pulls a multi-GB guest image, so it targets a KVM-capable
-  # runner. /mnt is the runner's large ephemeral disk; the nosi qcow2 + raw
-  # decompression overflow the container overlay otherwise.
+  # The job needs /dev/kvm and pulls a multi-GB guest image, so it targets a
+  # KVM-capable runner. /mnt is the runner's large ephemeral disk; the nosi
+  # qcow2 + raw decompression overflow the container overlay otherwise.
   #
   verify:
     needs: source-archive
@@ -142,9 +141,11 @@ jobs:
         release: [ubuntu-2604, ubuntu-2610]
         mode: [iommu_disabled, iommu_enabled]
 
+    # xnvme-devenv's host container: QEMU, cijoe, and the rig scripts that boot
+    # the guest with its devices
     container:
-      image: ghcr.io/safl/nosi/ubuntu-2604-docker:latest
-      options: --privileged -v /mnt:/mnt
+      image: ghcr.io/xnvme/xnvme-devenv/host:v0.15.0
+      options: --privileged --ulimit memlock=-1 -v /mnt:/mnt
 
     steps:
     - name: Grab source
@@ -164,11 +165,6 @@ jobs:
         cijoe_bin_dir="$(dirname "$(readlink -f "$(command -v cijoe)")")"
         echo "cijoe venv bin: $cijoe_bin_dir"
         echo "$cijoe_bin_dir" >> $GITHUB_PATH
-        # stage_nosi_guest resolves the oras:// image ref via withcache. The
-        # cijoe pipx venv ships no pip, so bootstrap one with ensurepip and
-        # install withcache into the venv the cijoe python runs from.
-        "$cijoe_bin_dir/python" -m ensurepip --upgrade >/dev/null
-        "$cijoe_bin_dir/python" -m pip install --quiet withcache
         # The pytest test-runner resolves tests from upcie.repository.path.
         mkdir -p "$HOME/git"
         ln -sfn "$GITHUB_WORKSPACE" "$HOME/git/upcie"
@@ -187,6 +183,7 @@ jobs:
           --config "configs/${{ matrix.release }}.toml" \
           --config "configs/${{ matrix.mode }}.toml" \
           --config "configs/system_imaging.toml" \
+          --config "rigs/upcie-nvme.toml" \
           --monitor \
           --output "verify-${{ matrix.release }}-${{ matrix.mode }}-guest"
 

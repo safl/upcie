@@ -9,8 +9,21 @@ CIJOE_CONFIG ?= configs/iommu_disabled.toml
 # Passed first, so a CIJOE_CONFIG for a real machine overrides it.
 RELEASE ?= ubuntu-2604
 CIJOE_CONFIGS = --config configs/$(RELEASE).toml --config $(CIJOE_CONFIG)
+# What deploy makes first: the source archive it copies to the target. Emptied
+# where the archive is made elsewhere, as devenv-verify does
+DEPLOY_ARTIFACTS ?= gen-artifacts
+# The rig the QEMU guest boots with, from cijoe/rigs/, its PCIe topology and devices
+RIG ?= upcie-nvme
 
-.PHONY: all config build verify verify-iommu-disabled verify-iommu-enabled deploy test guest install uninstall clean docs dkms-deb dkms-version-check
+# The guest is booted by xnvme-devenv's rig scripts, which its host container
+# carries along with QEMU and cijoe; the devenv-* targets run there
+DEVENV_IMAGE ?= ghcr.io/xnvme/xnvme-devenv/host:v0.15.0
+DEVENV_ENGINE ?= docker
+DEVENV_NAME ?= upcie-devenv-$(notdir $(CURDIR))
+DEVENV_HOME ?= $(CURDIR)/.devenv
+DEVENV_RUN = $(DEVENV_ENGINE) exec $(DEVENV_NAME) bash -euo pipefail -c '$(1)'
+
+.PHONY: all config build verify verify-iommu-disabled verify-iommu-enabled deploy test guest devenv-host devenv-run devenv-verify devenv-down install uninstall clean docs dkms-deb dkms-version-check
 
 all: clean config build install verify
 
@@ -69,20 +82,22 @@ gen-artifacts:
 	cp $(BUILD_DIR)/meson-dist/upcie-$(VERSION).tar.gz /tmp/artifacts/upcie-src.tar.gz
 	ls -l /tmp/artifacts
 
-# Bring up the QEMU guest. QEMU-specific, so it takes the system_imaging config;
-# the retargetable deploy/test below do not.
+# Bring up the QEMU guest with its rig. QEMU-specific, so it takes the
+# system_imaging config and the rig; the retargetable deploy/test below do not.
+# Runs where xnvme-devenv's rig scripts are: in its host container, see devenv-*.
 guest:
 	@cd cijoe && cijoe \
 		tasks/guest_setup.yaml \
 		$(CIJOE_CONFIGS) \
 		--config configs/system_imaging.toml \
+		--config rigs/$(RIG).toml \
 		-l \
 		-m
 
 # Deploy uPCIe to the transport target: build, install, drivers, hugepages. The
 # same task retargets to a real machine by selecting a CIJOE_CONFIG whose first
 # transport points at it (see configs/hw-example.toml).
-deploy: gen-artifacts
+deploy: $(DEPLOY_ARTIFACTS)
 	@cd cijoe && cijoe \
 		tasks/deploy.yaml \
 		$(CIJOE_CONFIGS) \
@@ -105,6 +120,29 @@ verify-iommu-disabled:
 
 verify-iommu-enabled:
 	$(MAKE) guest deploy test CIJOE_CONFIG=configs/iommu_enabled.toml
+
+# Start the xnvme-devenv host container, unless running, with this tree and
+# /tmp/artifacts in it; DEVENV_HOME keeps its guests and images between runs
+devenv-host:
+	mkdir -p $(DEVENV_HOME) /tmp/artifacts
+	$(DEVENV_ENGINE) inspect $(DEVENV_NAME) >/dev/null 2>&1 || \
+		$(DEVENV_ENGINE) run -d --name $(DEVENV_NAME) --privileged --ulimit memlock=-1 \
+			-v $(DEVENV_HOME):/root -v $(CURDIR):/root/git/upcie -v /tmp/artifacts:/tmp/artifacts \
+			-w /root/git/upcie $(DEVENV_IMAGE) sleep infinity
+
+# Run CMD in the host container, e.g. make devenv-run CMD="make guest RIG=upcie-nvme"
+devenv-run: devenv-host
+	$(if $(strip $(CMD)),,$(error no command; give CMD=<command>))
+	$(call DEVENV_RUN,$(CMD))
+
+# verify, in the host container. The source archive is made here first, as
+# meson dist needs the git repository, which a worktree does not carry inside
+devenv-verify: gen-artifacts devenv-host
+	$(call DEVENV_RUN,make verify DEPLOY_ARTIFACTS= RELEASE=$(RELEASE) RIG=$(RIG))
+
+# Stop and remove the host container and the guest in it; DEVENV_HOME stays
+devenv-down:
+	$(DEVENV_ENGINE) rm -f $(DEVENV_NAME)
 
 uninstall:
 	cd $(BUILD_DIR) && meson --internal uninstall
