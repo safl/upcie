@@ -76,7 +76,10 @@ passes against one guest. CI runs both on every push and pull request.
 `RIG` the rig, and `RELEASE` the Ubuntu release the guest runs.
 
 Provisioning pulls a multi-gigabyte guest image and requires `/dev/kvm` and
-docker or podman (`DEVENV_ENGINE=podman`) on the host.
+docker or podman (`DEVENV_ENGINE=podman`) on the host. `make deploy` also builds
+the Rust NVMe example there, so the host needs cargo, Rust 1.85 or later, and
+the `x86_64-unknown-linux-musl` target (`rustup target add
+x86_64-unknown-linux-musl`); see [Rust](rust.md).
 
 ## Retargeting
 
@@ -87,7 +90,6 @@ what is on the other end. So they retarget to a real machine unchanged: point a
 config's default target at it (see `configs/hw-example.toml`) and run
 
 ```bash
-make gen-artifacts
 make deploy test CIJOE_CONFIG=configs/hw-example.toml
 ```
 
