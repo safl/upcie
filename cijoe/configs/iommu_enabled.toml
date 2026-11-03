@@ -51,7 +51,7 @@ default_systemimage = "nosi-x86_64"
 [qemu.systems.x86_64]
 bin = "qemu-system-x86_64"
 
-# Used by: qemu.guest_start.py and qemu.guest_kill.py
+# Used by: qemu.guest_initialize, and xnvme_devenv.rig_guest_start and rig_guest_kill
 [qemu.guests.nosi_amd64]
 path = "{{ local.env.HOME }}/guests/nosi-amd64"
 system_label = "x86_64"
