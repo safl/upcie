@@ -21,7 +21,7 @@
  * hipmem_config (and one hipmem_mapping_registry, one hipmem_heap) per GPU.
  *
  * @file hipmem_config.h
- * @version 0.10.4
+ * @version 0.11.0
  */
 
 /**

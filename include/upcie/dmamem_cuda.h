@@ -25,7 +25,7 @@
  * <upcie/dmamem_iommu_map_pa.h>.
  *
  * @file dmamem_cuda.h
- * @version 0.10.4
+ * @version 0.11.0
  */
 
 /**
