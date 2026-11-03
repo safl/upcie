@@ -35,7 +35,7 @@ cargo run --release --example nvme -- 0000:01:00.0
 ## Building and testing
 
 ```bash
-make rust             # cargo fmt --check, clippy with warnings as errors, unit tests
+make rust             # cargo fmt --check, clippy with warnings as errors, unit tests, package
 make rust-aarch64     # type-check for aarch64, whose DMA barriers differ
 make rust-artifacts   # the NVMe example, static with musl, into /tmp/artifacts
 ```
@@ -45,3 +45,10 @@ the NVMe example over both drivers, beside the C example. `make deploy` builds
 it first, statically for `x86_64-unknown-linux-musl`, so it needs Rust 1.85 or
 later with that target added (`rustup target add x86_64-unknown-linux-musl`);
 `RUST_TARGET` picks another. CI builds it in its `rust` job.
+
+## Releases
+
+The crate carries the uPCIe version and is released with it as `upcie` on
+crates.io. `make bump` sets its version with the rest, `make rust` fails when
+they differ, and a `v*` tag publishes it once CI has passed, through crates.io's
+trusted publishing, so the repository holds no token.

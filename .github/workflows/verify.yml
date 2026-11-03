@@ -299,3 +299,50 @@ jobs:
         name: reports
         path: reports/
         if-no-files-found: warn
+
+  # Trusted publishing: the crate's crates.io settings name this workflow
+  rust-publish:
+    needs: [rust, verify]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    - name: Grab source
+      uses: actions/checkout@v7.0.0
+
+    - name: Check the tag names the crate's version
+      run: |
+        ver=$(sed -n 's/^version = "\(.*\)"/\1/p' rust/Cargo.toml | head -1)
+        if [ "v$ver" != "$GITHUB_REF_NAME" ]; then
+          echo "tag $GITHUB_REF_NAME, crate version $ver"
+          exit 1
+        fi
+        echo "version=$ver" >> "$GITHUB_OUTPUT"
+      id: version
+
+    - name: Check whether crates.io has the version
+      id: published
+      run: |
+        code=$(curl -s -o /dev/null -w '%{http_code}' \
+          -A "upcie release (github.com/${GITHUB_REPOSITORY})" \
+          "https://crates.io/api/v1/crates/upcie/${{ steps.version.outputs.version }}")
+        case "$code" in
+          200) echo "already=true" >> "$GITHUB_OUTPUT" ;;
+          404) echo "already=false" >> "$GITHUB_OUTPUT" ;;
+          *) echo "crates.io answered $code"; exit 1 ;;
+        esac
+
+    - name: Authenticate with crates.io
+      if: steps.published.outputs.already == 'false'
+      id: auth
+      uses: rust-lang/crates-io-auth-action@v1.0.6
+
+    - name: Publish the crate
+      if: steps.published.outputs.already == 'false'
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+      run: cd rust && cargo publish --locked
