@@ -37,7 +37,7 @@ it sets `-Dupcie:skip-install=true`, or `default_options:
 
 The integration tests build, install, and run uPCIe on a *target* machine,
 following the same cijoe-driven model as xNVMe. The target is described entirely
-by a cijoe configuration: how to reach it over SSH (the `cijoe.transport`
+by a cijoe configuration: how to reach it over SSH (the `cijoe.targets`
 section), and, for a QEMU guest, which image it boots (`system_imaging.toml` and
 the release config's `oras.url`), how (the `qemu` section of the guest config),
 and with which devices (a rig in `cijoe/rigs/`).
@@ -82,9 +82,9 @@ docker or podman (`DEVENV_ENGINE=podman`) on the host.
 
 The bring-up is deliberately a separate task from the deploy. `guest_setup.yaml`
 is QEMU-specific (it depends on the qemu and system-imaging config), while
-`deploy.yaml` and `test.yaml` run over the configured transport and do not care
+`deploy.yaml` and `test.yaml` run on the configured target and do not care
 what is on the other end. So they retarget to a real machine unchanged: point a
-config's first transport at it (see `configs/hw-example.toml`) and run
+config's default target at it (see `configs/hw-example.toml`) and run
 
 ```bash
 make gen-artifacts

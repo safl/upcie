@@ -1,15 +1,15 @@
 ---
 doc: |
-  Deploy uPCIe to the transport target (retargetable)
+  Deploy uPCIe to the target (retargetable)
 
-  CIJOE runs build, install, and test over the configured transport, so the same
+  CIJOE runs build, install, and test on the configured target, so the same
   flow that follows a QEMU bring-up also deploys to a real machine reached over
   SSH. nosi targets ship with root locked, so this opens root over the operator
   account first (a no-op once root SSH works), then checks the tooling, syncs the
   source tarball, builds and installs uPCIe, and loads the drivers and hugepages.
 
   /tmp/artifacts must hold upcie-src.tar.gz (from 'make gen-artifacts'). Point the
-  default cijoe.transport at the target, then:
+  default cijoe target at the machine, then:
 
     make gen-artifacts
     cijoe tasks/deploy.yaml --config configs/<target>.toml

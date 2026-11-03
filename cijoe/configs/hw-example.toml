@@ -14,10 +14,13 @@
 # For GPU-direct (CUDA or ROCm) the GPU driver stack is set up via AiSIO
 # (github.com/xnvme/aisio), not by uPCIe.
 #
-# The first transport is the default for cijoe.run(); point it at the target.
+# cijoe.default_target is where cijoe.run() goes; point the target at the machine.
 
 # SSH options are passed verbatim to paramiko; see https://www.paramiko.org/
-[cijoe.transport.target]
+[cijoe]
+default_target = "target"
+
+[cijoe.targets.target.ssh]
 hostname = "CHANGEME"        # the target's hostname or IP
 port = 22
 username = "root"
@@ -25,7 +28,7 @@ username = "root"
 # password = "..."
 # key_filename = "{{ local.env.HOME }}/.ssh/id_ed25519"
 
-[cijoe.workflow]
+[cijoe.task]
 fail_fast = true
 
 [os]
