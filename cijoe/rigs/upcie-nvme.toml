@@ -1,0 +1,13 @@
+# upcie-nvme: the one NVMe controller uPCIe's tests drive, on a root port of its
+# own, so at 0000:01:00.0, which upcie.dut.nvme_bdf names. Booted by
+# xnvme-devenv's rig scripts, from its host container; see
+# /opt/xnvme-devenv/cijoe/scripts/rig.py there for the format.
+
+[rig.devices.nvme0]
+provider = "qemu"
+labels = ["nvm"]
+device = "nvme,mdts=7,ioeventfd=on"
+serial = "beef0000"
+drives = ["id=nvme0n1,file={{ local.env.HOME }}/guests/upcie-nvme/nvme0n1.img,format=raw,if=none,discard=on,detect-zeroes=unmap"]
+children = ["nvme-ns,drive=nvme0n1,nsid=1,logical_block_size=4096,physical_block_size=4096"]
+image = {path = "{{ local.env.HOME }}/guests/upcie-nvme/nvme0n1.img", size = "8G"}
