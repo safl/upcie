@@ -33,6 +33,16 @@
  * buffer and memory requests are refused before it, since heap offsets mean
  * nothing unmapped; NVME_CPLANE_OP_STATUS and NVME_CPLANE_OP_ADMIN_CMD are not.
  *
+ * A server whose heap sits behind an IOMMU at an IOVA equal to its own
+ * address adds a third descriptor, the iommufd or the type1 container, and
+ * names which. A client mapping the heap at that same address then has one
+ * address space with the server: it maps memory of its own into it at an IOVA
+ * equal to its address, and translation stays arithmetic. A range already
+ * taken is refused, so two clients cannot claim the same addresses. The memory
+ * is the client's, and so is removing its mappings: the server neither hears
+ * of them nor removes them. A client removes them as it tears down; one that
+ * dies first leaves them until the address space goes.
+ *
  * NVME_CPLANE_OP_REGISTER_MEM answers with a heap offset to a description
  * rather than an address, since without an IOMMU the description is a table
  * with an entry per granule.
@@ -67,6 +77,15 @@ enum nvme_cplane_op {
 #define NVME_CPLANE_PAYLOAD_NBYTES 80
 
 /**
+ * What the third descriptor of an NVME_CPLANE_OP_INIT_CONNECTION reply is
+ */
+enum nvme_cplane_iommu {
+	NVME_CPLANE_IOMMU_NONE = 0,    ///< There is none
+	NVME_CPLANE_IOMMU_IOMMUFD = 1, ///< An iommufd, with the IOAS named
+	NVME_CPLANE_IOMMU_TYPE1 = 2,   ///< A vfio type1 container
+};
+
+/**
  * NVME_CPLANE_OP_INIT_CONNECTION: what a client needs to use the controller
  */
 struct nvme_cplane_init_connection {
@@ -75,7 +94,9 @@ struct nvme_cplane_init_connection {
 	uint64_t desc_offset;              ///< Reply: the heap's hostmem_shared_desc
 	uint64_t bar0_nbytes;              ///< Reply: size of the BAR0 mapping to make
 	char bdf[16];                      ///< Reply: the controller, for the client to check
-	uint8_t _rsvd[16];
+	uint32_t ioas_id;                  ///< Reply: the IOAS, with NVME_CPLANE_IOMMU_IOMMUFD
+	uint8_t iommu;                     ///< Reply: an enum nvme_cplane_iommu
+	uint8_t _rsvd[11];
 };
 
 UPCIE_STATIC_ASSERT(sizeof(struct nvme_cplane_init_connection) == NVME_CPLANE_PAYLOAD_NBYTES,

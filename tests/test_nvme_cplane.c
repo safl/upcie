@@ -15,10 +15,14 @@
  * client-at registers memory of its own, a udmabuf, and reads LBA 0 on a queue
  * with its CQ there and then on one with both queues there; this server
  * describes a registration by pagemap, so it serves that only under uio.
+ * client-own maps memory of its own, from malloc(), with the iommufd or type1
+ * container a vfio or type1 server passes, at an IOVA equal to its address,
+ * reads LBA 0 into it, and checks that ranges already taken are refused.
  *
  * Usage:
- *   test_nvme_cplane server <bdf> <socket> [vfio]
+ *   test_nvme_cplane server <bdf> <socket> [vfio|type1]
  *   test_nvme_cplane client <socket>
+ *   test_nvme_cplane client-own <socket>
  *   test_nvme_cplane client-badversion <socket>
  *   test_nvme_cplane client-at <socket>
  */
@@ -114,21 +118,31 @@ resolve_vfio_cdev(const char *bdf, char *cdev_path, size_t cdev_path_len)
 /**
  * What the server holds: the heap, the controller and what it exported
  */
+enum runtime_mode {
+	RUNTIME_UIO,
+	RUNTIME_VFIO,
+	RUNTIME_TYPE1,
+};
+
 struct runtime {
-	int use_vfio;
+	enum runtime_mode mode;
 	struct hostmem_config config;
 	struct hostmem_hugepage hp;
 	struct iommufd iommufd;
+	struct vfio_container container;
+	struct vfio_group group;
 	struct dmamem dmem;
 	struct dmamem_heap heap;
 	struct nvme_controller ctrlr;
 	union {
 		struct nvme_dmamem_uio_ctx uio;
 		struct nvme_dmamem_vfio_ctx vfio;
+		struct nvme_dmamem_type1_ctx type1;
 	} attach;
 	size_t desc_off;
 	int heap_fd;
 	int hp_alive, iommufd_alive, ioas_alive, dmem_alive, heap_alive, ctrlr_alive;
+	int container_alive, group_alive;
 	int export_alive;
 };
 
@@ -139,10 +153,17 @@ runtime_term(struct runtime *rt)
 		dmamem_heap_free(&rt->heap, rt->desc_off);
 	}
 	if (rt->ctrlr_alive) {
-		if (rt->use_vfio) {
+		switch (rt->mode) {
+		case RUNTIME_VFIO:
 			nvme_controller_close_dmamem_vfio(&rt->ctrlr, &rt->attach.vfio, &rt->heap);
-		} else {
+			break;
+		case RUNTIME_TYPE1:
+			nvme_controller_close_dmamem_type1(&rt->ctrlr, &rt->attach.type1,
+							   &rt->heap);
+			break;
+		case RUNTIME_UIO:
 			nvme_controller_close_dmamem_uio(&rt->ctrlr, &rt->attach.uio, &rt->heap);
+			break;
 		}
 	}
 	if (rt->heap_alive) {
@@ -160,24 +181,90 @@ runtime_term(struct runtime *rt)
 	if (rt->iommufd_alive) {
 		iommufd_close(&rt->iommufd);
 	}
+	if (rt->group_alive) {
+		vfio_group_close(&rt->group);
+	}
+	if (rt->container_alive) {
+		vfio_container_close(&rt->container);
+	}
 }
 
 /**
  * Open the controller and leave a description of the heap in the heap
  *
  * Under vfio the controller is opened by its device file and never learns its
- * bdf, so it is written in by hand for the init reply to carry.
+ * bdf, so it is written in by hand for the init reply to carry. Behind an
+ * IOMMU the heap sits at an IOVA equal to its address, so a client can map
+ * memory of its own beside it by the same rule.
  */
 static int
-runtime_init(struct runtime *rt, const char *bdf, int use_vfio)
+runtime_init(struct runtime *rt, const char *bdf, enum runtime_mode mode)
 {
 	struct hostmem_shared_desc *desc;
 	size_t desc_nbytes;
 	int err;
 
-	rt->use_vfio = use_vfio;
+	rt->mode = mode;
 
-	if (use_vfio) {
+	if (mode == RUNTIME_TYPE1) {
+		int group_id = 0;
+
+		if (vfio_container_open(&rt->container)) {
+			printf("# FAILED: vfio_container_open(); errno(%d)\n", errno);
+			return -errno;
+		}
+		rt->container_alive = 1;
+		err = vfio_device_get_iommu_group_id(bdf, &group_id);
+		if (err) {
+			printf("# FAILED: vfio_device_get_iommu_group_id(%s); err(%d)\n", bdf, err);
+			return err;
+		}
+		if (vfio_group_open(group_id, &rt->group)) {
+			printf("# FAILED: vfio_group_open(%d); errno(%d)\n", group_id, errno);
+			return -errno;
+		}
+		rt->group_alive = 1;
+		if (vfio_group_set_container(&rt->group, &rt->container) ||
+		    vfio_set_iommu(&rt->container, VFIO_TYPE1_IOMMU)) {
+			printf("# FAILED: attaching group(%d) to a type1 container; errno(%d)\n",
+			       group_id, errno);
+			return -errno;
+		}
+
+		if (hostmem_config_init(&rt->config) ||
+		    hostmem_hugepage_alloc(HEAP_NBYTES, &rt->hp, &rt->config)) {
+			printf("# FAILED: hostmem_hugepage_alloc(); are hugepages reserved?\n");
+			return -ENOMEM;
+		}
+		rt->hp_alive = 1;
+
+		err = dmamem_from_hostmem_type1(&rt->dmem, &rt->container, (uint64_t)rt->hp.virt,
+						&rt->hp);
+		if (err) {
+			printf("# FAILED: dmamem_from_hostmem_type1(); err(%d)\n", err);
+			return err;
+		}
+		rt->dmem_alive = 1;
+
+		err = dmamem_heap_init(&rt->heap, &rt->dmem, 4096);
+		if (err) {
+			printf("# FAILED: dmamem_heap_init(); err(%d)\n", err);
+			return err;
+		}
+		rt->heap_alive = 1;
+
+		nvme_dmamem_type1_ctx_init(&rt->attach.type1);
+		err = nvme_controller_open_dmamem_type1(&rt->ctrlr, &rt->attach.type1,
+							&rt->container, &rt->group, &rt->heap, bdf);
+		if (err) {
+			printf("# FAILED: nvme_controller_open_dmamem_type1(%s); err(%d)\n", bdf,
+			       err);
+			return err;
+		}
+		rt->ctrlr_alive = 1;
+		rt->heap_fd = rt->hp.fd;
+		snprintf(rt->ctrlr.func.bdf, sizeof(rt->ctrlr.func.bdf), "%.12s", bdf);
+	} else if (mode == RUNTIME_VFIO) {
 		char cdev[PATH_MAX] = {0};
 
 		err = resolve_vfio_cdev(bdf, cdev, sizeof(cdev));
@@ -196,9 +283,9 @@ runtime_init(struct runtime *rt, const char *bdf, int use_vfio)
 		}
 		rt->ioas_alive = 1;
 
-		err = dmamem_from_memfd(&rt->dmem, &rt->iommufd, HEAP_NBYTES, HUGEPGSZ);
+		err = dmamem_from_memfd_at_va(&rt->dmem, &rt->iommufd, HEAP_NBYTES, HUGEPGSZ);
 		if (err) {
-			printf("# FAILED: dmamem_from_memfd(); err(%d)\n", err);
+			printf("# FAILED: dmamem_from_memfd_at_va(); err(%d)\n", err);
 			return err;
 		}
 		rt->dmem_alive = 1;
@@ -254,7 +341,8 @@ runtime_init(struct runtime *rt, const char *bdf, int use_vfio)
 		rt->heap_fd = rt->hp.fd;
 	}
 
-	desc_nbytes = use_vfio ? sizeof(*desc) : hostmem_shared_desc_nbytes(rt->hp.nphys);
+	desc_nbytes = (mode != RUNTIME_UIO) ? sizeof(*desc)
+					    : hostmem_shared_desc_nbytes(rt->hp.nphys);
 	err = dmamem_heap_alloc(&rt->heap, desc_nbytes, &rt->desc_off);
 	if (err) {
 		printf("# FAILED: dmamem_heap_alloc(desc); err(%d)\n", err);
@@ -264,12 +352,12 @@ runtime_init(struct runtime *rt, const char *bdf, int use_vfio)
 
 	desc = dmamem_heap_at_va(&rt->heap, rt->desc_off);
 
-	err = use_vfio ? hostmem_shared_desc_fill_arithmetic(desc, rt->dmem.size,
-							     rt->dmem.base_iova)
-		       : hostmem_shared_desc_fill(desc, &rt->hp);
+	err = (mode != RUNTIME_UIO)
+		      ? hostmem_shared_desc_fill_arithmetic(desc, rt->dmem.size, rt->dmem.base_iova)
+		      : hostmem_shared_desc_fill(desc, &rt->hp);
 	if (err) {
 		printf("# FAILED: hostmem_shared_desc_fill%s(); err(%d)\n",
-		       use_vfio ? "_arithmetic" : "", err);
+		       (mode != RUNTIME_UIO) ? "_arithmetic" : "", err);
 		return err;
 	}
 
@@ -308,7 +396,7 @@ server_register(struct runtime *rt, int memfd, const struct nvme_cplane_mem *req
 	uint32_t nphys;
 	int err;
 
-	if (rt->use_vfio) {
+	if (rt->mode != RUNTIME_UIO) {
 		return -EOPNOTSUPP;
 	}
 	if (reg->alive) {
@@ -385,7 +473,7 @@ server_placement(struct runtime *rt, const struct registration *reg, uint64_t of
 }
 
 static int
-server(const char *bdf, const char *path, int use_vfio)
+server(const char *bdf, const char *path, enum runtime_mode mode)
 {
 	struct runtime rt = {0};
 	struct registration reg = {0};
@@ -398,7 +486,7 @@ server(const char *bdf, const char *path, int use_vfio)
 	int granted_live = 0;
 	int err;
 
-	err = runtime_init(&rt, bdf, use_vfio);
+	err = runtime_init(&rt, bdf, mode);
 	if (err) {
 		runtime_term(&rt);
 		return err;
@@ -453,6 +541,14 @@ server(const char *bdf, const char *path, int use_vfio)
 				 "%s", rt.ctrlr.func.bdf);
 			fds[nfds++] = rt.heap_fd;
 			fds[nfds++] = rt.ctrlr.func.bars[0].fd;
+			if (rt.mode == RUNTIME_VFIO) {
+				reply.u.init_connection.iommu = NVME_CPLANE_IOMMU_IOMMUFD;
+				reply.u.init_connection.ioas_id = rt.iommufd.ioas_id;
+				fds[nfds++] = rt.iommufd.fd;
+			} else if (rt.mode == RUNTIME_TYPE1) {
+				reply.u.init_connection.iommu = NVME_CPLANE_IOMMU_TYPE1;
+				fds[nfds++] = rt.container.fd;
+			}
 			printf("server: attach, heap fd and description at 0x%" PRIx64 "\n",
 			       reply.u.init_connection.desc_offset);
 			break;
@@ -734,10 +830,22 @@ view_qpair_release(struct nvme_qpair *qpair)
 }
 
 /**
+ * What a server behind an IOMMU passes for a client to map memory of its own
+ */
+struct iommu_handle {
+	uint8_t kind; ///< An enum nvme_cplane_iommu
+	struct iommufd iommufd;
+	struct vfio_container container;
+};
+
+/**
  * Attach to the controller and build a view of it from what comes back
+ *
+ * The third descriptor, when there is one, is kept in iommu when given, and
+ * closed otherwise.
  */
 static int
-client_attach(int sock, struct view *view)
+client_attach(int sock, struct view *view, struct iommu_handle *iommu)
 {
 	struct nvme_cplane_msg msg = {.op = NVME_CPLANE_OP_INIT_CONNECTION};
 	int fds[NVME_CPLANE_FDS_MAX];
@@ -745,13 +853,21 @@ client_attach(int sock, struct view *view)
 	int err;
 
 	err = nvme_cplane_request(sock, &msg, fds, &nfds);
-	if (err || (nfds != 2)) {
+	if (err || (nfds != (msg.u.init_connection.iommu ? 3U : 2U))) {
 		printf("# FAILED: attach; err(%d) nfds(%u)\n", err, nfds);
 		nvme_cplane_fds_close(fds, &nfds);
 		return err ? err : -EPROTO;
 	}
 	printf("client: heap descriptor received, description at 0x%" PRIx64 "\n",
 	       msg.u.init_connection.desc_offset);
+
+	if (iommu && (nfds == 3)) {
+		iommu->kind = msg.u.init_connection.iommu;
+		iommu->iommufd.fd = fds[2];
+		iommu->iommufd.ioas_id = msg.u.init_connection.ioas_id;
+		iommu->container.fd = fds[2];
+		nfds = 2;
+	}
 
 	err = view_init(view, fds[0], fds[1], &msg.u.init_connection);
 	nvme_cplane_fds_close(fds, &nfds);
@@ -809,7 +925,7 @@ client(const char *path, int bad_version)
 		return 0;
 	}
 
-	err = client_attach(sock, &view);
+	err = client_attach(sock, &view, NULL);
 	if (err) {
 		goto exit;
 	}
@@ -1039,7 +1155,7 @@ client_at(const char *path)
 		return sock;
 	}
 
-	err = client_attach(sock, &view);
+	err = client_attach(sock, &view, NULL);
 	if (err) {
 		goto exit;
 	}
@@ -1106,16 +1222,218 @@ exit:
 	return err;
 }
 
+/**
+ * Map memory of this process's own at `iova`, through what the server passed
+ */
+static int
+own_map(struct iommu_handle *iommu, void *va, size_t nbytes, uint64_t iova)
+{
+	if (iommu->kind == NVME_CPLANE_IOMMU_TYPE1) {
+		struct vfio_iommu_type1_dma_map map = {.argsz = sizeof(map)};
+
+		map.flags = VFIO_DMA_MAP_FLAG_READ | VFIO_DMA_MAP_FLAG_WRITE;
+		map.vaddr = (uint64_t)va;
+		map.iova = iova;
+		map.size = nbytes;
+
+		return vfio_iommu_map_dma(&iommu->container, &map) ? -errno : 0;
+	}
+
+	return iommufd_ioas_map(&iommu->iommufd, (uint64_t)va, nbytes,
+				IOMMU_IOAS_MAP_FIXED_IOVA | IOMMU_IOAS_MAP_READABLE |
+					IOMMU_IOAS_MAP_WRITEABLE,
+				&iova);
+}
+
+static int
+own_unmap(struct iommu_handle *iommu, uint64_t iova, size_t nbytes)
+{
+	if (iommu->kind == NVME_CPLANE_IOMMU_TYPE1) {
+		struct vfio_iommu_type1_dma_unmap unmap = {.argsz = sizeof(unmap)};
+
+		unmap.iova = iova;
+		unmap.size = nbytes;
+
+		return vfio_iommu_unmap_dma(&iommu->container, &unmap) ? -errno : 0;
+	}
+
+	return iommufd_ioas_unmap(&iommu->iommufd, iova, nbytes);
+}
+
+static int
+read_lba0(struct view *view, struct nvme_qpair *qpair, uint64_t prp1)
+{
+	struct nvme_completion cpl = {0};
+	struct nvme_command cmd = {0};
+	int err;
+
+	cmd.opc = 0x2;
+	cmd.nsid = 1;
+	cmd.prp1 = prp1;
+
+	err = nvme_qpair_submit_sync(qpair, &cmd, view->ctrlr.base.timeout_ms, &cpl);
+	if (err || cpl_status(&cpl)) {
+		printf("# FAILED: read LBA 0; err(%d) status(0x%x)\n", err, cpl_status(&cpl));
+		return err ? err : -EIO;
+	}
+
+	return 0;
+}
+
+/**
+ * The client maps memory of its own, from malloc(), and the device reads into it
+ *
+ * LBA 0 is read into a heap buffer and into the client's own, each filled with
+ * another pattern first, so their first 512 bytes agree only when both landed. The client's mapping sits at an IOVA equal to its address; mapping it
+ * again, or at the heap's IOVA, must be refused since those are taken.
+ */
+static int
+client_own(const char *path)
+{
+	struct iommu_handle iommu = {0};
+	struct view view = {0};
+	struct nvme_qpair qpair = {0};
+	struct nvme_cplane_msg msg = {0};
+	uint64_t payload_off = 0;
+	int payload_alive = 0, own_mapped = 0;
+	uint8_t *ref, *own = NULL;
+	int sock, err;
+
+	sock = connect_to(path);
+	if (sock < 0) {
+		printf("# FAILED: connect_to(); err(%d)\n", sock);
+		return sock;
+	}
+
+	err = client_attach(sock, &view, &iommu);
+	if (err) {
+		goto exit;
+	}
+	if ((iommu.kind != NVME_CPLANE_IOMMU_IOMMUFD) && (iommu.kind != NVME_CPLANE_IOMMU_TYPE1)) {
+		printf("# FAILED: the server passed no IOMMU descriptor; iommu(%u)\n", iommu.kind);
+		err = -EPROTO;
+		goto exit;
+	}
+	printf("client: received the %s\n",
+	       (iommu.kind == NVME_CPLANE_IOMMU_TYPE1) ? "type1 container" : "iommufd");
+
+	msg.op = NVME_CPLANE_OP_ALLOC_IOQPAIR;
+	msg.u.alloc_ioqpair.depth = QUEUE_DEPTH;
+	err = nvme_cplane_request(sock, &msg, NULL, NULL);
+	if (err) {
+		printf("# FAILED: allocation; err(%d)\n", err);
+		goto exit;
+	}
+	err = view_qpair(&view, &msg.u.alloc_ioqpair.allocation, &qpair);
+	if (err) {
+		printf("# FAILED: building the queue pair; err(%d)\n", err);
+		goto exit;
+	}
+
+	memset(&msg, 0, sizeof(msg));
+	msg.op = NVME_CPLANE_OP_ALLOC_BUF;
+	msg.u.buf.nbytes = PAYLOAD_NBYTES;
+	err = nvme_cplane_request(sock, &msg, NULL, NULL);
+	if (err) {
+		printf("# FAILED: buffer; err(%d)\n", err);
+		goto exit;
+	}
+	payload_off = msg.u.buf.offset;
+	payload_alive = 1;
+	ref = (uint8_t *)view.heap_base + payload_off;
+
+	memset(ref, 0xA5, PAYLOAD_NBYTES);
+	err = read_lba0(&view, &qpair, dmamem_va_to_iova(&view.dmem, ref));
+	if (err) {
+		goto exit;
+	}
+
+	if (posix_memalign((void **)&own, 4096, PAYLOAD_NBYTES)) {
+		err = -ENOMEM;
+		goto exit;
+	}
+	memset(own, 0x5A, PAYLOAD_NBYTES);
+
+	err = own_map(&iommu, own, PAYLOAD_NBYTES, (uint64_t)own);
+	if (err) {
+		printf("# FAILED: mapping own memory at its address; err(%d)\n", err);
+		goto exit;
+	}
+	own_mapped = 1;
+
+	err = read_lba0(&view, &qpair, (uint64_t)own);
+	if (err) {
+		goto exit;
+	}
+	if (memcmp(ref, own, 512)) {
+		printf("# FAILED: what landed in own memory is not what landed in the heap\n");
+		err = -EIO;
+		goto exit;
+	}
+	printf("# LGTM: read LBA 0 into own memory at IOVA(%p)\n", (void *)own);
+
+	err = own_map(&iommu, own, PAYLOAD_NBYTES, (uint64_t)own);
+	if (err != -EEXIST) {
+		printf("# FAILED: mapping the same range again; err(%d), expected -EEXIST\n", err);
+		err = -EIO;
+		goto exit;
+	}
+	err = own_map(&iommu, own, PAYLOAD_NBYTES, view.dmem.base_iova);
+	if (err != -EEXIST) {
+		printf("# FAILED: mapping at the heap's IOVA; err(%d), expected -EEXIST\n", err);
+		err = -EIO;
+		goto exit;
+	}
+	printf("# LGTM: ranges already taken are refused with EEXIST\n");
+
+	err = own_unmap(&iommu, (uint64_t)own, PAYLOAD_NBYTES);
+	own_mapped = 0;
+	if (err) {
+		printf("# FAILED: unmapping own memory; err(%d)\n", err);
+		goto exit;
+	}
+
+	memset(&msg, 0, sizeof(msg));
+	msg.op = NVME_CPLANE_OP_FREE_IOQPAIR;
+	msg.u.free_ioqpair.qid = qpair.qid;
+	nvme_cplane_request(sock, &msg, NULL, NULL);
+
+exit:
+	if (own_mapped) {
+		own_unmap(&iommu, (uint64_t)own, PAYLOAD_NBYTES);
+	}
+	free(own);
+	if (payload_alive) {
+		memset(&msg, 0, sizeof(msg));
+		msg.op = NVME_CPLANE_OP_FREE_BUF;
+		msg.u.buf.offset = payload_off;
+		nvme_cplane_request(sock, &msg, NULL, NULL);
+	}
+	if (qpair.rpool) {
+		view_qpair_release(&qpair);
+	}
+	if (iommu.kind) {
+		close(iommu.iommufd.fd);
+	}
+	view_term(&view);
+	close(sock);
+
+	return err;
+}
+
 int
 main(int argc, char *argv[])
 {
 	setvbuf(stdout, NULL, _IOLBF, 0);
 
 	if ((argc == 4) && !strcmp(argv[1], "server")) {
-		return server(argv[2], argv[3], 0) ? EXIT_FAILURE : EXIT_SUCCESS;
+		return server(argv[2], argv[3], RUNTIME_UIO) ? EXIT_FAILURE : EXIT_SUCCESS;
 	}
 	if ((argc == 5) && !strcmp(argv[1], "server") && !strcmp(argv[4], "vfio")) {
-		return server(argv[2], argv[3], 1) ? EXIT_FAILURE : EXIT_SUCCESS;
+		return server(argv[2], argv[3], RUNTIME_VFIO) ? EXIT_FAILURE : EXIT_SUCCESS;
+	}
+	if ((argc == 5) && !strcmp(argv[1], "server") && !strcmp(argv[4], "type1")) {
+		return server(argv[2], argv[3], RUNTIME_TYPE1) ? EXIT_FAILURE : EXIT_SUCCESS;
 	}
 	if ((argc == 3) && !strcmp(argv[1], "client")) {
 		return client(argv[2], 0) ? EXIT_FAILURE : EXIT_SUCCESS;
@@ -1126,11 +1444,15 @@ main(int argc, char *argv[])
 	if ((argc == 3) && !strcmp(argv[1], "client-at")) {
 		return client_at(argv[2]) ? EXIT_FAILURE : EXIT_SUCCESS;
 	}
+	if ((argc == 3) && !strcmp(argv[1], "client-own")) {
+		return client_own(argv[2]) ? EXIT_FAILURE : EXIT_SUCCESS;
+	}
 
-	fprintf(stderr, "usage: %s server <bdf> <socket> [vfio]\n", argv[0]);
+	fprintf(stderr, "usage: %s server <bdf> <socket> [vfio|type1]\n", argv[0]);
 	fprintf(stderr, "       %s client <socket>\n", argv[0]);
 	fprintf(stderr, "       %s client-badversion <socket>\n", argv[0]);
 	fprintf(stderr, "       %s client-at <socket>\n", argv[0]);
+	fprintf(stderr, "       %s client-own <socket>\n", argv[0]);
 
 	return 2;
 }
