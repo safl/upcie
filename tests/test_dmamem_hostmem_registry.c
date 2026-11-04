@@ -22,6 +22,11 @@
  * match; if they diverge, the registry, the translator, or the
  * hugepage_alloc pagemap-population is broken.
  *
+ * It then registers memory of the process's own beside the region: hugetlb
+ * pages of the same size, which must translate to the physical address
+ * pagemap reports for each, and malloc() memory, which must be refused since
+ * its pages may move.
+ *
  * Requires CAP_SYS_ADMIN so hostmem_hugepage_alloc can read
  * /proc/self/pagemap and populate phys_lut. A hugepage pool with the
  * requested count reserved. No NVMe device, no iommufd, no vfio; just
@@ -53,6 +58,82 @@ probe(struct dmamem *dmem, struct hostmem_hugepage *hp, size_t offset)
 	       " + 0x%zx)\n",
 	       offset, hp_idx, iova_via_lut, hp_idx, hp->phys_lut[hp_idx], in_hp_offset);
 	return 0;
+}
+
+/**
+ * Register memory beside the region: hugetlb pages translate, malloc() is refused
+ */
+static int
+register_own(struct dmamem *dmem, size_t hugepgsz)
+{
+	const size_t nbytes = 2 * hugepgsz;
+	const int huge = (int)((unsigned)__builtin_ctzll(hugepgsz) << MAP_HUGE_SHIFT);
+	void *heap = NULL;
+	uint8_t *va;
+	int err;
+
+	va = mmap(NULL, nbytes, PROT_READ | PROT_WRITE,
+		  MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | huge, -1, 0);
+	if (va == MAP_FAILED) {
+		fprintf(stderr, "FAIL: mmap(MAP_HUGETLB) errno(%d); are hugepages reserved?\n",
+			errno);
+		return -errno;
+	}
+
+	err = dmamem_register(dmem, va, nbytes);
+	if (err) {
+		fprintf(stderr, "FAIL: dmamem_register(hugetlb) err(%d)\n", err);
+		goto out;
+	}
+	for (size_t i = 0; i < nbytes / hugepgsz; ++i) {
+		uint8_t *page = va + i * hugepgsz;
+		uint64_t phys = 0;
+
+		err = hostmem_pagemap_virt_to_phys(page, &phys);
+		if (err || !phys) {
+			fprintf(stderr, "FAIL: pagemap of %p err(%d)\n", (void *)page, err);
+			err = err ? err : -EPERM;
+			break;
+		}
+		if (dmamem_va_to_iova(dmem, page + 0x1234) != phys + 0x1234) {
+			fprintf(stderr, "FAIL: registered page %zu translates to 0x%" PRIx64
+					", pagemap says 0x%" PRIx64 "\n",
+				i, dmamem_va_to_iova(dmem, page + 0x1234), phys + 0x1234);
+			err = -EINVAL;
+			break;
+		}
+	}
+	if (dmamem_unregister(dmem, va)) {
+		fprintf(stderr, "FAIL: dmamem_unregister(hugetlb)\n");
+		err = err ? err : -EINVAL;
+	}
+	if (err) {
+		goto out;
+	}
+	printf("register: hugetlb pages translate to their physical addresses\n");
+
+	if (posix_memalign(&heap, hugepgsz, nbytes)) {
+		err = -ENOMEM;
+		goto out;
+	}
+	memset(heap, 0, nbytes);
+	err = dmamem_register(dmem, heap, nbytes);
+	if (err != -EOPNOTSUPP) {
+		fprintf(stderr, "FAIL: dmamem_register(malloc) err(%d), expected -EOPNOTSUPP\n",
+			err);
+		if (!err) {
+			dmamem_unregister(dmem, heap);
+		}
+		err = -EINVAL;
+		goto out;
+	}
+	err = 0;
+	printf("register: malloc() memory is refused\n");
+
+out:
+	free(heap);
+	munmap(va, nbytes);
+	return err;
 }
 
 static int
@@ -134,6 +215,11 @@ smoketest(size_t hugepgsz, size_t nhugepages)
 
 	/* Probe: last byte of the region. */
 	err = probe(&dmem, &hp, region_size - 1);
+	if (err) {
+		goto out;
+	}
+
+	err = register_own(&dmem, hugepgsz);
 	if (err) {
 		goto out;
 	}
