@@ -33,6 +33,16 @@
  * buffer and memory requests are refused before it, since heap offsets mean
  * nothing unmapped; NVME_CPLANE_OP_STATUS and NVME_CPLANE_OP_ADMIN_CMD are not.
  *
+ * A server whose heap sits behind an IOMMU at an IOVA equal to its own
+ * address adds a third descriptor, the iommufd or the type1 container, and
+ * names which. A client mapping the heap at that same address then has one
+ * address space with the server: it maps memory of its own into it at an IOVA
+ * equal to its address, and translation stays arithmetic. A range already
+ * taken is refused, so two clients cannot claim the same addresses. The memory
+ * is the client's, and so is removing its mappings: the server neither hears
+ * of them nor removes them. A client removes them as it tears down; one that
+ * dies first leaves them until the address space goes.
+ *
  * NVME_CPLANE_OP_REGISTER_MEM answers with a heap offset to a description
  * rather than an address, since without an IOMMU the description is a table
  * with an entry per granule.
@@ -67,6 +77,15 @@ enum nvme_cplane_op {
 #define NVME_CPLANE_PAYLOAD_NBYTES 80
 
 /**
+ * What the third descriptor of an NVME_CPLANE_OP_INIT_CONNECTION reply is
+ */
+enum nvme_cplane_iommu {
+	NVME_CPLANE_IOMMU_NONE = 0,    ///< There is none
+	NVME_CPLANE_IOMMU_IOMMUFD = 1, ///< An iommufd, with the IOAS named
+	NVME_CPLANE_IOMMU_TYPE1 = 2,   ///< A vfio type1 container
+};
+
+/**
  * NVME_CPLANE_OP_INIT_CONNECTION: what a client needs to use the controller
  */
 struct nvme_cplane_init_connection {
@@ -75,7 +94,9 @@ struct nvme_cplane_init_connection {
 	uint64_t desc_offset;              ///< Reply: the heap's hostmem_shared_desc
 	uint64_t bar0_nbytes;              ///< Reply: size of the BAR0 mapping to make
 	char bdf[16];                      ///< Reply: the controller, for the client to check
-	uint8_t _rsvd[16];
+	uint32_t ioas_id;                  ///< Reply: the IOAS, with NVME_CPLANE_IOMMU_IOMMUFD
+	uint8_t iommu;                     ///< Reply: an enum nvme_cplane_iommu
+	uint8_t _rsvd[11];
 };
 
 UPCIE_STATIC_ASSERT(sizeof(struct nvme_cplane_init_connection) == NVME_CPLANE_PAYLOAD_NBYTES,
@@ -538,6 +559,82 @@ nvme_cplane_peer_cred(int sock, struct ucred *cred)
 	}
 
 	return 0;
+}
+
+/**
+ * The third descriptor of an NVME_CPLANE_OP_INIT_CONNECTION reply, as a client keeps it
+ */
+struct nvme_cplane_iommu_handle {
+	int fd;           ///< The iommufd or the type1 container
+	uint32_t ioas_id; ///< The IOAS, with NVME_CPLANE_IOMMU_IOMMUFD
+	uint8_t kind;     ///< An enum nvme_cplane_iommu
+};
+
+/**
+ * Map memory of the caller's own at `iova`, in the server's address space
+ *
+ * The pages are pinned and counted against the caller's RLIMIT_MEMLOCK. The
+ * IOVA must lie inside the IOMMU's aperture and outside its reserved ranges.
+ *
+ * @param iommu What the server passed
+ * @param va Page-aligned start of the memory
+ * @param nbytes Page-aligned length
+ * @param iova Where the device reaches it
+ *
+ * @return 0 on success, -EEXIST when any of the range is taken, other negative
+ *         errno on failure
+ */
+static inline int
+nvme_cplane_iommu_map(const struct nvme_cplane_iommu_handle *iommu, void *va, size_t nbytes,
+		      uint64_t iova)
+{
+	if (iommu->kind == NVME_CPLANE_IOMMU_TYPE1) {
+		struct vfio_container container = {.fd = iommu->fd};
+		struct vfio_iommu_type1_dma_map map = {.argsz = sizeof(map)};
+
+		map.flags = VFIO_DMA_MAP_FLAG_READ | VFIO_DMA_MAP_FLAG_WRITE;
+		map.vaddr = (uint64_t)va;
+		map.iova = iova;
+		map.size = nbytes;
+
+		return vfio_iommu_map_dma(&container, &map) ? -errno : 0;
+	}
+	if (iommu->kind == NVME_CPLANE_IOMMU_IOMMUFD) {
+		struct iommufd ctx = {.fd = iommu->fd, .ioas_id = iommu->ioas_id};
+
+		return iommufd_ioas_map(&ctx, (uint64_t)va, nbytes,
+					IOMMU_IOAS_MAP_FIXED_IOVA | IOMMU_IOAS_MAP_READABLE |
+						IOMMU_IOAS_MAP_WRITEABLE,
+					&iova);
+	}
+
+	return -EINVAL;
+}
+
+/**
+ * Remove a mapping made by nvme_cplane_iommu_map()
+ *
+ * @return 0 on success, negative errno on failure
+ */
+static inline int
+nvme_cplane_iommu_unmap(const struct nvme_cplane_iommu_handle *iommu, uint64_t iova, size_t nbytes)
+{
+	if (iommu->kind == NVME_CPLANE_IOMMU_TYPE1) {
+		struct vfio_container container = {.fd = iommu->fd};
+		struct vfio_iommu_type1_dma_unmap unmap = {.argsz = sizeof(unmap)};
+
+		unmap.iova = iova;
+		unmap.size = nbytes;
+
+		return vfio_iommu_unmap_dma(&container, &unmap) ? -errno : 0;
+	}
+	if (iommu->kind == NVME_CPLANE_IOMMU_IOMMUFD) {
+		struct iommufd ctx = {.fd = iommu->fd, .ioas_id = iommu->ioas_id};
+
+		return iommufd_ioas_unmap(&ctx, iova, nbytes);
+	}
+
+	return -EINVAL;
 }
 
 #endif /* __UPCIE_NVME_CPLANE_H */
