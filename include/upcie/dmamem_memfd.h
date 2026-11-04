@@ -8,7 +8,8 @@
  * Creates a memfd backed by hugepages (memfd_create(MFD_HUGETLB | ...)),
  * mmaps it for CPU access, and imports the range into an iommufd IOAS
  * with a single IOMMU_IOAS_MAP_FILE call. The result is a dmamem whose
- * cpu_va is the mmap base and whose base_iova is the kernel-picked IOVA.
+ * cpu_va is the mmap base and whose base_iova is the kernel-picked IOVA, or,
+ * from dmamem_from_memfd_at_va(), the mmap base itself.
  *
  * Caveat: the hugepage pool must be reserved out-of-band (see the
  * `hugepages` CLI or `echo N > /proc/sys/vm/nr_hugepages`), and the
@@ -25,19 +26,12 @@
 #define MFD_HUGE_1GB (30 << 26)
 #endif
 
-/**
- * Allocate a hugepage-backed memfd and map it into the handle's IOAS.
- *
- * @param dmem     Pre-allocated dmamem descriptor to fill.
- * @param iommufd  Open iommufd handle with an allocated IOAS (caller-owned).
- * @param size     Size in bytes; must be a multiple of hugepgsz.
- * @param hugepgsz Hugepage size in bytes; must be 2 MiB or 1 GiB.
- *
- * @return 0 on success, negative errno on error.
- */
 static inline int
-dmamem_from_memfd(struct dmamem *dmem, struct iommufd *iommufd, size_t size, size_t hugepgsz)
+dmamem_from_memfd_impl(struct dmamem *dmem, struct iommufd *iommufd, size_t size, size_t hugepgsz,
+		       int at_va)
 {
+	uint32_t map_flags = IOMMU_IOAS_MAP_READABLE | IOMMU_IOAS_MAP_WRITEABLE;
+
 	unsigned int memfd_flags = MFD_HUGETLB;
 	int err;
 
@@ -102,13 +96,14 @@ dmamem_from_memfd(struct dmamem *dmem, struct iommufd *iommufd, size_t size, siz
 	memset(dmem->cpu_va, 0, size);
 
 	/*
-	 * Ask the kernel to pick an IOVA (FIXED_IOVA not set). base_iova is
-	 * an OUT parameter to iommufd_ioas_map_file(); the returned value is
-	 * the base of the contiguous IOVA window the kernel installed.
+	 * Without at_va the kernel picks the IOVA; base_iova is an OUT parameter
+	 * to iommufd_ioas_map_file() holding the base of the window it installed.
 	 */
-	err = iommufd_ioas_map_file(iommufd, dmem->fd, 0, size,
-				    IOMMU_IOAS_MAP_READABLE | IOMMU_IOAS_MAP_WRITEABLE,
-				    &dmem->base_iova);
+	if (at_va) {
+		map_flags |= IOMMU_IOAS_MAP_FIXED_IOVA;
+		dmem->base_iova = (uint64_t)dmem->cpu_va;
+	}
+	err = iommufd_ioas_map_file(iommufd, dmem->fd, 0, size, map_flags, &dmem->base_iova);
 	if (err) {
 		UPCIE_DEBUG("FAILED: iommufd_ioas_map_file(); err(%d)", err);
 		goto err_munmap;
@@ -124,4 +119,36 @@ err_close:
 	close(dmem->fd);
 	dmem->fd = -1;
 	return err;
+}
+
+/**
+ * Allocate a hugepage-backed memfd and map it into the handle's IOAS.
+ *
+ * @param dmem     Pre-allocated dmamem descriptor to fill.
+ * @param iommufd  Open iommufd handle with an allocated IOAS (caller-owned).
+ * @param size     Size in bytes; must be a multiple of hugepgsz.
+ * @param hugepgsz Hugepage size in bytes; must be 2 MiB or 1 GiB.
+ *
+ * @return 0 on success, negative errno on error.
+ */
+static inline int
+dmamem_from_memfd(struct dmamem *dmem, struct iommufd *iommufd, size_t size, size_t hugepgsz)
+{
+	return dmamem_from_memfd_impl(dmem, iommufd, size, hugepgsz, 0);
+}
+
+/**
+ * As dmamem_from_memfd(), but mapped at an IOVA equal to its CPU address
+ *
+ * Translation stays arithmetic, and any other memory of the process mapped at
+ * its own address translates by the same rule, so the IOAS holds one address
+ * space rather than one per region. Fails where the IOAS cannot hold the
+ * mapping's address, e.g. above an IOMMU's aperture or across a reserved range.
+ *
+ * @return 0 on success, negative errno on error.
+ */
+static inline int
+dmamem_from_memfd_at_va(struct dmamem *dmem, struct iommufd *iommufd, size_t size, size_t hugepgsz)
+{
+	return dmamem_from_memfd_impl(dmem, iommufd, size, hugepgsz, 1);
 }
