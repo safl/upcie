@@ -4,7 +4,7 @@ from conftest import iommu_available, uio_devices
 SOCKET = "/tmp/upcie_cplane_test.sock"
 
 
-def cplane_session(cijoe, bdf, client_mode, use_vfio=False):
+def cplane_session(cijoe, bdf, client_mode, server_mode=""):
     """
     Run a server and a client against each other in two processes.
 
@@ -15,7 +15,7 @@ def cplane_session(cijoe, bdf, client_mode, use_vfio=False):
     also covers a client that failed before the server had anything to answer.
     """
 
-    mode = " vfio" if use_vfio else ""
+    mode = f" {server_mode}" if server_mode else ""
 
     return cijoe.run(
         f"rm -f {SOCKET};"
@@ -57,7 +57,7 @@ def test_cplane_client_attaches_vfio(cijoe, bdf):
     err, _ = cijoe.run("devbind --bind vfio-pci")
     assert not err
 
-    err, _ = cplane_session(cijoe, bdf, "client", use_vfio=True)
+    err, _ = cplane_session(cijoe, bdf, "client", server_mode="vfio")
     assert not err
 
 
@@ -96,4 +96,24 @@ def test_cplane_client_places_queues_uio(cijoe, bdf):
     assert not err
 
     err, _ = cplane_session(cijoe, bdf, "client-at")
+    assert not err
+
+
+@pytest.mark.skipif(
+    not iommu_available(), reason="guest exposes no IOMMU groups; vfio-pci unavailable"
+)
+@pytest.mark.parametrize("server_mode", ["vfio", "type1"])
+@pytest.mark.parametrize("bdf", uio_devices())
+def test_cplane_client_maps_own(cijoe, bdf, server_mode):
+    """A client maps memory of its own, from malloc(), and the device reads into it.
+
+    The server passes its iommufd or type1 container, and the client maps its
+    memory at an IOVA equal to its address and reads LBA 0 there. Mapping a
+    range already taken, the same again or the heap's, must fail with EEXIST.
+    """
+
+    err, _ = cijoe.run("devbind --bind vfio-pci")
+    assert not err
+
+    err, _ = cplane_session(cijoe, bdf, "client-own", server_mode=server_mode)
     assert not err

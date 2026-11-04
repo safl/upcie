@@ -17,6 +17,6 @@
 #define __UPCIE_VERSIONS_H
 
 #define HOSTMEM_SHARED_DESC_VERSION 1U ///< struct hostmem_shared_desc
-#define NVME_CPLANE_VERSION 1U         ///< struct nvme_cplane_msg and what it describes
+#define NVME_CPLANE_VERSION 2U         ///< struct nvme_cplane_msg and what it describes
 
 #endif /* __UPCIE_VERSIONS_H */
