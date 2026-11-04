@@ -273,10 +273,103 @@ hostmem_shared_desc_fill_arithmetic(struct hostmem_shared_desc *desc, size_t nby
 }
 
 /**
+ * Whether [va, va + nbytes) lies entirely in pages of exactly `pagesize`
+ *
+ * Read from /proc/self/smaps, and only hugetlb mappings count. Hugetlb pages are
+ * not swapped, and they move only when something explicitly migrates them, so
+ * the physical address pagemap reports for them stays valid; any other page may
+ * move underneath a device that was given its address.
+ *
+ * @return 0 when it does, -EOPNOTSUPP when any of it does not, other negative
+ *         errno on failure
+ */
+static inline int
+hostmem_range_pagesize_is(uint64_t va, size_t nbytes, size_t pagesize)
+{
+	uint64_t start = 0, end = 0, covered = va;
+	char line[512];
+	int in = 0, ok = 1;
+	FILE *fp;
+
+	fp = fopen("/proc/self/smaps", "r");
+	if (!fp) {
+		return -errno;
+	}
+
+	while (ok && fgets(line, sizeof(line), fp)) {
+		uint64_t s, e;
+		unsigned long kb;
+
+		if (sscanf(line, "%" SCNx64 "-%" SCNx64 " ", &s, &e) == 2) {
+			in = (s < va + nbytes) && (e > va);
+			start = s;
+			end = e;
+			continue;
+		}
+		if (in && (sscanf(line, "KernelPageSize: %lu kB", &kb) == 1)) {
+			ok = ((uint64_t)kb * 1024 == pagesize) && (start <= covered);
+			continue;
+		}
+		if (in && !strncmp(line, "VmFlags:", 8)) {
+			ok = (strstr(line, " ht") != NULL);
+			covered = end;
+			in = 0;
+		}
+	}
+	fclose(fp);
+
+	return (ok && (covered >= va + nbytes)) ? 0 : -EOPNOTSUPP;
+}
+
+/**
+ * Registry populate for host memory, reading the physical addresses from pagemap
+ *
+ * Only memory in hugetlb pages of exactly the registry's granularity is taken,
+ * so each granule is one physically contiguous page that stays put. Reading
+ * pagemap's frame numbers needs CAP_SYS_ADMIN; without it they read as zero,
+ * which is refused rather than handed to the device.
+ */
+static inline int
+dmamem_hostmem_pagemap_populate(void *UPCIE_UNUSED(ctx), uint64_t base, size_t UPCIE_UNUSED(size),
+				uint64_t granularity, uint64_t *lut_out, size_t nlut,
+				struct dmabuf *UPCIE_UNUSED(attach_out))
+{
+	int err;
+
+	err = hostmem_range_pagesize_is(base, nlut * granularity, granularity);
+	if (err) {
+		UPCIE_DEBUG("FAILED: 0x%" PRIx64 " is not all in %" PRIu64 "-byte hugetlb pages",
+			    base, granularity);
+		return err;
+	}
+
+	for (size_t i = 0; i < nlut; ++i) {
+		volatile char *page = (volatile char *)(base + i * granularity);
+		uint64_t phys = 0;
+
+		(void)*page; /* pagemap reports a page only once it is faulted in */
+
+		err = hostmem_pagemap_virt_to_phys((void *)page, &phys);
+		if (!err && !phys) {
+			err = -EPERM;
+		}
+		if (err) {
+			UPCIE_DEBUG("FAILED: physical address of %p; err(%d)", (void *)page, err);
+			memset(lut_out, 0, nlut * sizeof(*lut_out));
+			return err;
+		}
+		lut_out[i] = phys;
+	}
+
+	return 0;
+}
+
+/**
  * Build a dmamem over memory another process allocated and described
  *
  * Reads no pagemap: addresses come from the description, and the registry is
- * keyed by this process's own mapping of the region.
+ * keyed by this process's own mapping of the region. Over host memory,
+ * dmamem_register() on the result does read pagemap, which needs CAP_SYS_ADMIN.
  *
  * @param dmem Pre-allocated dmamem to fill
  * @param base This process's mapping of the shared region
@@ -317,8 +410,10 @@ dmamem_from_shared(struct dmamem *dmem, void *base, const struct hostmem_shared_
 		return 0;
 	}
 
-	err = dmamem_registry_init(&dmem->registry, (size_t)1 << desc->gran_shift, va_bits, NULL,
-				   NULL, NULL, NULL);
+	err = dmamem_registry_init(
+		&dmem->registry, (size_t)1 << desc->gran_shift, va_bits, NULL,
+		(backing == DMAMEM_BACKING_HOSTMEM) ? dmamem_hostmem_pagemap_populate : NULL, NULL,
+		NULL);
 	if (err) {
 		UPCIE_DEBUG("FAILED: dmamem_registry_init(); err(%d)", err);
 		return err;
@@ -367,9 +462,8 @@ dmamem_from_shared_hostmem(struct dmamem *dmem, void *base, const struct hostmem
  * physical addresses. The hugepage's per-page table is adopted at the hugepage
  * granularity, so translation is one absolute-indexed load.
  *
- * No populate callback, so it adopts and never discovers: further host memory
- * via dmamem_register() would mean reading /proc/self/pagemap, which this does
- * not do.
+ * Further host memory is taken with dmamem_register(), from hugetlb pages of
+ * the hugepage size only; see dmamem_hostmem_pagemap_populate().
  *
  * `va_bits` bounds the LUT reservation to that much address space; 0 selects
  * the default, which covers the 47-bit user range. Lower it where the
@@ -395,8 +489,8 @@ dmamem_from_hostmem_registry(struct dmamem *dmem, struct hostmem_hugepage *hp, i
 
 	memset(dmem, 0, sizeof(*dmem));
 
-	err = dmamem_registry_init(&dmem->registry, hp->config->hugepgsz, va_bits, NULL, NULL,
-				   NULL, NULL);
+	err = dmamem_registry_init(&dmem->registry, hp->config->hugepgsz, va_bits, NULL,
+				   dmamem_hostmem_pagemap_populate, NULL, NULL);
 	if (err) {
 		UPCIE_DEBUG("FAILED: dmamem_registry_init(); err(%d)", err);
 		return err;
