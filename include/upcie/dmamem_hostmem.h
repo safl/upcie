@@ -33,7 +33,7 @@
  * with its original owner.
  *
  * @file dmamem_hostmem.h
- * @version 0.10.4
+ * @version 0.11.0
  */
 
 /**
