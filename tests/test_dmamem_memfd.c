@@ -9,7 +9,9 @@
  * allocate an IOAS, construct a dmamem via dmamem_from_memfd, verify the
  * cpu_va is mapped and writable, verify base_iova + offset arithmetic
  * matches the CPU VA math, allocate a sub-range through dmamem_heap,
- * write and read back through the CPU view, tear down.
+ * write and read back through the CPU view, tear down. It does so twice: with
+ * the IOVA the kernel picks, and through dmamem_from_memfd_at_va(), where the
+ * IOVA must equal the CPU address.
  *
  * This test does not require an NVMe device; it only exercises iommufd
  * and the memfd exporter. It requires:
@@ -24,7 +26,7 @@
 #include <upcie/upcie.h>
 
 static int
-smoketest(struct iommufd *iommufd, size_t hugepgsz, size_t nhugepages)
+smoketest(struct iommufd *iommufd, size_t hugepgsz, size_t nhugepages, int at_va)
 {
 	struct dmamem dmem = {0};
 	struct dmamem_heap heap = {0};
@@ -35,9 +37,11 @@ smoketest(struct iommufd *iommufd, size_t hugepgsz, size_t nhugepages)
 	void *va;
 	int err;
 
-	err = dmamem_from_memfd(&dmem, iommufd, heap_size, hugepgsz);
+	err = at_va ? dmamem_from_memfd_at_va(&dmem, iommufd, heap_size, hugepgsz)
+		    : dmamem_from_memfd(&dmem, iommufd, heap_size, hugepgsz);
 	if (err) {
-		fprintf(stderr, "FAIL: dmamem_from_memfd() err(%d)\n", err);
+		fprintf(stderr, "FAIL: dmamem_from_memfd%s() err(%d)\n", at_va ? "_at_va" : "",
+			err);
 		return err;
 	}
 	dmamem_pp(&dmem);
@@ -54,6 +58,12 @@ smoketest(struct iommufd *iommufd, size_t hugepgsz, size_t nhugepages)
 	}
 	if (!dmem.base_iova) {
 		fprintf(stderr, "FAIL: dmem.base_iova is 0 (unexpected on modern iommufd)\n");
+		err = -EINVAL;
+		goto out;
+	}
+	if (at_va && (dmem.base_iova != (uint64_t)dmem.cpu_va)) {
+		fprintf(stderr, "FAIL: base_iova(0x%" PRIx64 ") != cpu_va(%p)\n", dmem.base_iova,
+			dmem.cpu_va);
 		err = -EINVAL;
 		goto out;
 	}
@@ -82,6 +92,11 @@ smoketest(struct iommufd *iommufd, size_t hugepgsz, size_t nhugepages)
 		err = -EINVAL;
 		goto out_heap;
 	}
+	if (at_va && (iova_via_va != (uint64_t)va)) {
+		fprintf(stderr, "FAIL: iova(0x%" PRIx64 ") != va(%p)\n", iova_via_va, va);
+		err = -EINVAL;
+		goto out_heap;
+	}
 
 	/* Touch the sub-range through the CPU VA. */
 	memset(va, 0xAB, alloc_size);
@@ -91,9 +106,9 @@ smoketest(struct iommufd *iommufd, size_t hugepgsz, size_t nhugepages)
 		goto out_heap;
 	}
 
-	printf("OK: heap_size=%zu, base_iova=0x%" PRIx64 ", offset=%zu, alloc_iova=0x%" PRIx64
+	printf("OK: at_va=%d heap_size=%zu, base_iova=0x%" PRIx64 ", offset=%zu, alloc_iova=0x%" PRIx64
 	       "\n",
-	       heap_size, dmem.base_iova, offset, iova_via_offset);
+	       at_va, heap_size, dmem.base_iova, offset, iova_via_offset);
 
 	dmamem_heap_free(&heap, offset);
 
@@ -128,7 +143,10 @@ main(int argc, char *argv[])
 		return 1;
 	}
 
-	err = smoketest(&iommufd, hugepgsz, nhugepages);
+	err = smoketest(&iommufd, hugepgsz, nhugepages, 0);
+	if (!err) {
+		err = smoketest(&iommufd, hugepgsz, nhugepages, 1);
+	}
 
 	if (iommufd_destroy(&iommufd, iommufd.ioas_id)) {
 		fprintf(stderr, "WARN: iommufd_destroy(ioas)\n");
