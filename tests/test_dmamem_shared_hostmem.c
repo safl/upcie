@@ -6,11 +6,12 @@
  * ==================================================
  *
  * Map a hugepage twice, build a dmamem over the second mapping from a
- * hostmem_shared_desc alone (no pagemap), and require both to agree on the
- * DMA address of each probed offset. Fails when rebasing to the second
- * mapping's address is wrong. Also checks that the description translates the
- * same when read as device memory, and that hostmem_shared_desc_addr()
- * refuses a run straddling two granules or past the region.
+ * hostmem_shared_desc alone, and require both to agree on the DMA address of
+ * each probed offset. Fails when rebasing to the second mapping's address is
+ * wrong. Also checks that the description translates the same when read as
+ * device memory, that hostmem_shared_desc_addr() refuses a run straddling two
+ * granules or past the region, and that a hugepage registered with the shared
+ * dmamem translates to what pagemap reports.
  *
  * Usage:
  *   test_dmamem_shared_hostmem
@@ -25,6 +26,7 @@ main(void)
 	struct hostmem_shared_desc *desc;
 	struct hostmem_config config = {0};
 	struct hostmem_hugepage hp = {0};
+	struct hostmem_hugepage reg = {0};
 	struct dmamem owned = {0};
 	struct dmamem shared = {0};
 	struct dmamem device = {0};
@@ -168,6 +170,33 @@ main(void)
 		return 1;
 	}
 	printf("# LGTM: and it is the same memory\n");
+
+	err = hostmem_hugepage_alloc(NBYTES, &reg, &config);
+	if (err) {
+		printf("# FAILED: hostmem_hugepage_alloc(reg); err(%d)\n", err);
+		return 1;
+	}
+	err = dmamem_register(&shared, reg.virt, reg.size);
+	if (err) {
+		printf("# FAILED: dmamem_register(); err(%d)\n", err);
+		return 1;
+	}
+	for (size_t i = 0; i < sizeof(probes) / sizeof(*probes); ++i) {
+		void *va = (char *)reg.virt + probes[i];
+		uint64_t got = dmamem_va_to_iova(&shared, va);
+		uint64_t want = 0;
+
+		err = hostmem_pagemap_virt_to_phys(va, &want);
+		if (err || !want || (got != want)) {
+			printf("# FAILED: registered 0x%zx; err(%d) got(0x%" PRIx64
+			       ") want(0x%" PRIx64 ")\n",
+			       probes[i], err, got, want);
+			return 1;
+		}
+	}
+	printf("# LGTM: memory registered with the shared dmamem resolves as pagemap says\n");
+	dmamem_unregister(&shared, reg.virt);
+	hostmem_hugepage_free(&reg);
 
 	dmamem_destroy(&shared);
 	munmap(second, hp.size);
