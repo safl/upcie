@@ -389,7 +389,7 @@ dmamem_from_hostmem_registry(struct dmamem *dmem, struct hostmem_hugepage *hp, i
 
 	shift = dmamem_lut_pagesize_shift(hp->config->hugepgsz);
 	if (shift < 0) {
-		UPCIE_DEBUG("FAILED: unsupported hugepgsz(%zu)", hp->config->hugepgsz);
+		UPCIE_DEBUG("FAILED: unsupported hugepgsz(%d)", hp->config->hugepgsz);
 		return -EINVAL;
 	}
 
