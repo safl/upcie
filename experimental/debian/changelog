@@ -1,3 +1,9 @@
+upcie-experimental (0.11.1) unstable; urgency=medium
+
+  * Track upcie 0.11.1.
+
+ -- Simon A. F. Lund <os@safl.dk>  Thu, 05 Nov 2026 17:21:55 +0000
+
 upcie-experimental (0.11.0) unstable; urgency=medium
 
   * Track upcie 0.11.0.
