@@ -27,7 +27,7 @@ test -f "$tmp/usr/include/upcie/upcie.h"
 test -f "$tmp/usr/include/upcie/nvme/nvme_qpair.h"
 if grep -q '^Libs:.*-l' "$pc"; then echo "upcie.pc links a library" >&2; exit 1; fi
 consumer installed
-PKG_CONFIG_PATH=$(dirname "$pc") meson setup --wrap-mode=nofallback "$tmp/c1" "$tmp/installed" > /dev/null
+PKG_CONFIG_PATH=$(dirname "$pc") meson setup -Dwerror=true --wrap-mode=nofallback "$tmp/c1" "$tmp/installed" > /dev/null
 ninja -C "$tmp/c1" > /dev/null
 test -x "$tmp/c1/consumer"
 
@@ -42,7 +42,7 @@ depth = 1
 [provide]
 dependency_names = upcie
 WRAP
-PKG_CONFIG_PATH= meson setup --wrap-mode=forcefallback "$tmp/c2" "$tmp/wrapped" > /dev/null
+PKG_CONFIG_PATH= meson setup -Dwerror=true --wrap-mode=forcefallback "$tmp/c2" "$tmp/wrapped" > /dev/null
 ninja -C "$tmp/c2" > /dev/null
 test -x "$tmp/c2/consumer"
 if [ -n "$(find "$tmp/c2/subprojects" -name 'test_*' -o -name upcie_nvme_driver)" ]; then
