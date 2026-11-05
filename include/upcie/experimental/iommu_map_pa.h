@@ -30,6 +30,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
@@ -92,7 +93,8 @@ iommu_map_pa_add(int fd, const char *bdf, int dmabuf_fd, uint64_t iova_base,
 	if (fd < 0 || !bdf || !phys || !nphys)
 		return -EINVAL;
 
-	strncpy(req.bdf, bdf, sizeof(req.bdf) - 1);
+	if (snprintf(req.bdf, sizeof(req.bdf), "%s", bdf) >= (int)sizeof(req.bdf))
+		return -EINVAL;
 	req.dmabuf_fd = dmabuf_fd;
 	req.page_size = page_size;
 	req.nphys = nphys;
