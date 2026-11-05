@@ -155,7 +155,7 @@ jobs:
                   return 0;
           }
           EOF
-          gcc -Wall -Iinclude -o consumer consumer.c
+          gcc -Wall -Werror -Iinclude -o consumer consumer.c
           ./consumer
           echo "upcie dma-buf consumer builds against the installed prerequisite"
 
@@ -184,7 +184,7 @@ jobs:
                   return 0;
           }
           EOF
-          gcc -Wall -Istaged -o consumer_map consumer_map.c
+          gcc -Wall -Werror -Istaged -o consumer_map consumer_map.c
           echo "helper wrappers build against the installed prerequisite"
 
   # Independent out-of-tree link check (modpost) per module; needs no deb.

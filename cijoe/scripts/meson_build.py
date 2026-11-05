@@ -29,7 +29,7 @@ def main(args, cijoe):
     commands = [
         "git rev-parse --short HEAD || true",
         "rm -r builddir || true",
-        "meson setup builddir",
+        "meson setup builddir -Dwerror=true",
         "meson compile -C builddir",
         "cat builddir/meson-logs/meson-log.txt",
     ]

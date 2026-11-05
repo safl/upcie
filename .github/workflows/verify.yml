@@ -111,9 +111,14 @@ jobs:
     - name: Grab source
       uses: actions/checkout@v7.0.0
 
+    - name: Configure and build with debug enabled
+      run: |
+        meson setup builddir-debug --buildtype=debug -Dwerror=true
+        meson compile -C builddir-debug
+
     - name: Configure and build
       run: |
-        meson setup builddir
+        meson setup builddir -Dwerror=true
         meson compile -C builddir
 
     - name: Run the tests that need no hardware
@@ -121,7 +126,7 @@ jobs:
 
     - name: Build a translation unit through the umbrella header
       run: |
-        gcc -std=c11 -Wall -Wextra -Iinclude -c tests/test_vfioctl.c -o /tmp/test_vfioctl.o
+        gcc -std=c11 -Wall -Wextra -Werror -Iinclude -c tests/test_vfioctl.c -o /tmp/test_vfioctl.o
 
     # Compiling against the source tree says nothing about what is installed.
     - name: Build a translation unit through the installed headers
@@ -130,7 +135,7 @@ jobs:
         prefix=$(meson introspect --buildoptions builddir \
           | tr ',' '\n' | grep -A2 '"name": "prefix"' | grep '"value"' \
           | sed 's/.*"value": "//; s/".*//')
-        gcc -std=c11 -Wall -Wextra -I"/tmp/staged${prefix}/include" \
+        gcc -std=c11 -Wall -Wextra -Werror -I"/tmp/staged${prefix}/include" \
           -c tests/test_vfioctl.c -o /tmp/test_vfioctl_installed.o
 
   #
