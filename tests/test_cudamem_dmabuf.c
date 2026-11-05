@@ -7,7 +7,7 @@ int main(void)
 	const size_t pagesize = 1 << 16; // 64k
 	const size_t size = 8 * pagesize;
 	uint64_t *phys_lut = NULL;
-	CUdeviceptr vaddr;
+	CUdeviceptr vaddr = 0;
 	CUdevice cu_dev;
 	CUcontext cu_ctx;
 	size_t nphys;
@@ -77,7 +77,9 @@ int main(void)
 	dmabuf_import_detach(&dmabuf);
 
 exit:
-	cuMemFree(vaddr);
+	if (vaddr) {
+		cuMemFree(vaddr);
+	}
 	free(phys_lut);
 	cuCtxDestroy(cu_ctx);
 	return err;
