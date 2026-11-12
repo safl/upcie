@@ -171,6 +171,54 @@ used by the controller; a host client keeps the heap completion queue a copy
 of the one it placed, so that completions are read the same way whichever
 queue they land in.
 
+## Memory of the client's own
+
+A server whose heap sits behind an IOMMU at an IOVA equal to its address passes
+the iommufd or the vfio type1 container as a third descriptor of the
+initialising reply, and names which; for an iommufd, it names the IOAS too. A
+client that maps the heap at the server's address shares one address space
+with it: memory the client maps at an IOVA equal to its own address translates
+by the same arithmetic as the heap, so the submission path neither looks
+anything up nor tells the two apart. The client maps its own pages, which it
+can do since both pin the pages of the caller and count them against its
+locked-memory limit, and a range another client holds is refused.
+
+That refusal is where two clients meet. Address-space randomisation
+places their memory apart, so a collision is rare with a few clients mapping a
+few GiB each, but grows with the size of the mappings and the number of
+clients, and is certain for two copies of one program running without
+randomisation. `IOMMU_IOAS_MAP` or `VFIO_IOMMU_MAP_DMA` then fails with
+`EEXIST`, before the device is given anything, and the client allocates its
+memory elsewhere and maps again.
+
+Unmapping is not refused that way. Neither `IOMMU_IOAS_UNMAP` nor
+`VFIO_IOMMU_UNMAP_DMA` asks which process made a mapping, so a client can
+remove the server's heap or another client's memory from the device's reach.
+The clients of one controller are one trust domain, as they already are for the
+heap and its descriptions.
+
+```{mermaid}
+sequenceDiagram
+    participant C as Client
+    participant I as IOAS or container
+    participant K as Controller
+
+    C->>I: map (its address, at the same IOVA)
+    C->>K: I/O on that memory
+    C->>I: unmap
+```
+
+The memory is the client's, and so is removing its mappings: the server neither
+hears of them nor removes them. A client removes what it still has mapped as it
+tears down, so only one that dies first, crashing or killed, leaves mappings
+behind, their pages pinned and their addresses taken, until the server closes
+the IOAS or the container. A client unmaps memory before it frees it: the pin
+keeps the old pages alive, so a later allocation at that address gets new
+pages, mapping it again fails with `EEXIST`, and I/O to it still lands in the
+old pages. A client that cannot map the heap at the server's
+address, since something of its own sits there, keeps the heap where it lands
+and maps nothing of its own.
+
 An admin command's payload does not travel with it. The command names an
 address the device can already reach, from memory the client was allocated, so
 an identify lands in the client's own buffer and only the command and its
