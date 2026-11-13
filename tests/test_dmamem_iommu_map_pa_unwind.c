@@ -7,7 +7,9 @@
  *
  * Checks that dmamem_iommu_map_pa_populate() gives back everything it took
  * when the inner backend fails, and that a failed dmamem_iommu_map_pa_attach()
- * leaves no handle that dmamem_iommu_map_pa_release() deletes a second time.
+ * leaves no handle that dmamem_iommu_map_pa_release() deletes a second time,
+ * and that -EADDRINUSE fails the installation into the first device and counts
+ * as installed for a device after it.
  *
  * ioctl(), calloc() and free() are replaced before the headers are included,
  * since the decorator is inline there. The UAPI header comes from the source
@@ -33,6 +35,7 @@
 static long g_nalloc;
 static int g_nadd;
 static int g_fail_add = -1;
+static int g_fail_errno = EIO;
 static int g_live[NHANDLES];
 static uint64_t g_next_handle;
 static int g_stale_del;
@@ -72,7 +75,11 @@ fake_ioctl(int fd, unsigned long request, ...)
 	if (request == IOMMU_MAP_PA) {
 		struct iommu_map_pa_req *req = arg;
 
-		if (g_nadd++ == g_fail_add || g_next_handle + 1 >= NHANDLES) {
+		if (g_nadd++ == g_fail_add) {
+			errno = g_fail_errno;
+			return -1;
+		}
+		if (g_next_handle + 1 >= NHANDLES) {
 			errno = EIO;
 			return -1;
 		}
@@ -180,6 +187,83 @@ test_populate_unwinds(void)
 }
 
 static int
+test_populate_first_in_use(void)
+{
+	struct dmamem_iommu_map_pa imp;
+	struct dmabuf attach = {.fd = -1};
+	uint64_t lut[NLUT];
+	int err;
+
+	imp_init(&imp);
+	g_fail_add = g_nadd;
+	g_fail_errno = EADDRINUSE;
+
+	err = dmamem_iommu_map_pa_populate(&imp, 0x200000, NLUT * GRAN, GRAN, lut, NLUT, &attach);
+	g_fail_add = -1;
+	g_fail_errno = EIO;
+	if (err != -EADDRINUSE) {
+		fprintf(stderr, "FAIL: populate gave err(%d), expected -EADDRINUSE\n", err);
+		return 1;
+	}
+	if (imp.maps) {
+		fprintf(stderr, "FAIL: populate recorded a mapping it did not install\n");
+		return 1;
+	}
+	if (g_nalloc) {
+		fprintf(stderr, "FAIL: populate left %ld allocation(s) behind\n", g_nalloc);
+		return 1;
+	}
+
+	printf("OK: -EADDRINUSE on the first device fails the populate\n");
+	return 0;
+}
+
+static int
+test_populate_second_in_use(void)
+{
+	struct dmamem_iommu_map_pa imp;
+	struct dmabuf attach = {.fd = -1};
+	uint64_t lut[NLUT];
+	int err;
+
+	imp_init(&imp);
+	strcpy(imp.bdfs[1], "0000:02:00.0");
+	imp.nbdfs = 2;
+	g_fail_add = g_nadd + 1;
+	g_fail_errno = EADDRINUSE;
+
+	err = dmamem_iommu_map_pa_populate(&imp, 0x200000, NLUT * GRAN, GRAN, lut, NLUT, &attach);
+	g_fail_add = -1;
+	g_fail_errno = EIO;
+	if (err) {
+		fprintf(stderr, "FAIL: populate gave err(%d), expected 0\n", err);
+		return 1;
+	}
+	if (!imp.maps || imp.maps->handles[1]) {
+		fprintf(stderr, "FAIL: populate did not count the second device as installed\n");
+		return 1;
+	}
+
+	dmamem_iommu_map_pa_release(&imp, &attach);
+	if (g_stale_del) {
+		fprintf(stderr, "FAIL: release deleted %d handle(s) it did not own\n",
+			g_stale_del);
+		return 1;
+	}
+	if (live_handles()) {
+		fprintf(stderr, "FAIL: %d handle(s) still mapped after release\n", live_handles());
+		return 1;
+	}
+	if (g_nalloc) {
+		fprintf(stderr, "FAIL: %ld allocation(s) left after release\n", g_nalloc);
+		return 1;
+	}
+
+	printf("OK: -EADDRINUSE on a device after the first counts as installed\n");
+	return 0;
+}
+
+static int
 test_attach_unwinds(void)
 {
 	struct dmamem_iommu_map_pa imp;
@@ -239,6 +323,8 @@ main(void)
 	int nerr = 0;
 
 	nerr += test_populate_unwinds();
+	nerr += test_populate_first_in_use();
+	nerr += test_populate_second_in_use();
 	nerr += test_attach_unwinds();
 
 	return nerr ? 1 : 0;
