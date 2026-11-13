@@ -351,7 +351,8 @@ dmamem_iommu_map_pa_range(void *ctx, uint64_t va, uint64_t *base_out, size_t *si
  * Mappings already installed are back-filled into the new domain. A device
  * sharing a domain with one already served gets -EADDRINUSE from the module;
  * that counts as installed with no handle of its own, so release leaves the
- * mapping to its owner.
+ * mapping to its owner. For the first device it is a mapping of another, and
+ * fails.
  *
  * @param imp An opened decorator
  * @param bdf The device to add, in "0000:bb:dd.f" form
@@ -394,7 +395,7 @@ dmamem_iommu_map_pa_attach(struct dmamem_iommu_map_pa *imp, const char *bdf)
 				       (uint32_t)m->granularity, m->nphys, m->phys,
 				       IOMMU_MAP_PA_PROT_READ | IOMMU_MAP_PA_PROT_WRITE,
 				       &m->handles[slot]);
-		if (err == -EADDRINUSE) {
+		if ((err == -EADDRINUSE) && slot) {
 			m->handles[slot] = 0;
 			err = 0;
 		}
@@ -425,9 +426,10 @@ dmamem_iommu_map_pa_attach(struct dmamem_iommu_map_pa *imp, const char *bdf)
 /**
  * Make one allocation addressable through the IOMMU, for a dmamem_registry.
  *
- * Installed at one IOVA into every served device's domain; -EADDRINUSE counts
- * as installed, as in dmamem_iommu_map_pa_attach(). The dma-buf fd goes along so
- * the module holds a reference on the exporter while the mapping lives.
+ * Installed at one IOVA into every served device's domain; -EADDRINUSE for a
+ * device after the first counts as installed, as in
+ * dmamem_iommu_map_pa_attach(). The dma-buf fd goes along so the module holds
+ * a reference on the exporter while the mapping lives.
  *
  * @param ctx The struct dmamem_iommu_map_pa this backend was bound with
  * @param base Start of the allocation in this process
@@ -496,7 +498,7 @@ dmamem_iommu_map_pa_populate(void *ctx, uint64_t base, size_t size, uint64_t gra
 				       (uint32_t)granularity, (uint32_t)nlut, lut_out,
 				       IOMMU_MAP_PA_PROT_READ | IOMMU_MAP_PA_PROT_WRITE,
 				       &m->handles[d]);
-		if (err == -EADDRINUSE) {
+		if ((err == -EADDRINUSE) && d) {
 			m->handles[d] = 0;
 			err = 0;
 		}
