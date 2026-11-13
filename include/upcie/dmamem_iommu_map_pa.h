@@ -425,9 +425,10 @@ dmamem_iommu_map_pa_attach(struct dmamem_iommu_map_pa *imp, const char *bdf)
 /**
  * Make one allocation addressable through the IOMMU, for a dmamem_registry.
  *
- * Installed at one IOVA into every served device's domain; -EADDRINUSE counts
- * as installed, as in dmamem_iommu_map_pa_attach(). The dma-buf fd goes along so
- * the module holds a reference on the exporter while the mapping lives.
+ * Installed at one IOVA into every served device's domain; -EADDRINUSE for a
+ * device after the first counts as installed, as in
+ * dmamem_iommu_map_pa_attach(). The dma-buf fd goes along so the module holds
+ * a reference on the exporter while the mapping lives.
  *
  * @param ctx The struct dmamem_iommu_map_pa this backend was bound with
  * @param base Start of the allocation in this process
@@ -496,7 +497,7 @@ dmamem_iommu_map_pa_populate(void *ctx, uint64_t base, size_t size, uint64_t gra
 				       (uint32_t)granularity, (uint32_t)nlut, lut_out,
 				       IOMMU_MAP_PA_PROT_READ | IOMMU_MAP_PA_PROT_WRITE,
 				       &m->handles[d]);
-		if (err == -EADDRINUSE) {
+		if ((err == -EADDRINUSE) && d) {
 			m->handles[d] = 0;
 			err = 0;
 		}
