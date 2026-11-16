@@ -21,7 +21,7 @@
  * cudamem_config (and one cudamem_mapping_registry, one cudamem_heap) per GPU.
  * 
  * @file cudamem_config.h
- * @version 0.11.1
+ * @version 0.12.0
  */
 
 /**

@@ -1,3 +1,9 @@
+upcie-experimental (0.12.0) unstable; urgency=medium
+
+  * Track upcie 0.12.0.
+
+ -- Karl Bonde Torp <k.torp@samsung.com>  Mon, 16 Nov 2026 15:40:51 +0100
+
 upcie-experimental (0.11.1) unstable; urgency=medium
 
   * Track upcie 0.11.1.
