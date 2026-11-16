@@ -100,7 +100,7 @@
  * directly and do not depend on this sentinel.
  *
  * @file hipmem_mapping.h
- * @version 0.11.1
+ * @version 0.12.0
  */
 
 /**

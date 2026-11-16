@@ -29,7 +29,7 @@
  * This header is intended to grow with additional bit manipulation utilities over time.
  *
  * @file bitfield.h
- * @version 0.11.1
+ * @version 0.12.0
  */
 
 /**

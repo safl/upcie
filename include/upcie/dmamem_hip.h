@@ -25,7 +25,7 @@
  * <upcie/dmamem_iommu_map_pa.h>.
  *
  * @file dmamem_hip.h
- * @version 0.11.1
+ * @version 0.12.0
  */
 
 /**
