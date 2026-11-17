@@ -12,6 +12,7 @@ test_sources = files(
   'test_dmamem_nvme_identify.c',
   'test_dmamem_nvme_cq_iova.c',
   'test_dmamem_nvme_qdepth.c',
+  'test_dmamem_nvme_nqueues.c',
   'test_dmamem_vfio_bar.c',
   'test_dmamem_nvme_vram.c',
   'test_dmamem_hostmem_registry.c',

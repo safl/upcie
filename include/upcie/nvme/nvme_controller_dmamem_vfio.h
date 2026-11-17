@@ -295,6 +295,11 @@ nvme_controller_open_dmamem_vfio(struct nvme_controller *ctrlr, struct nvme_dmam
 		goto fail;
 	}
 
+	err = nvme_controller_set_nqueues(ctrlr);
+	if (err) {
+		goto fail;
+	}
+
 	return 0;
 
 fail:
@@ -431,17 +436,11 @@ nvme_controller_create_io_qpair_dmamem_at(struct nvme_controller *ctrlr, struct 
 	uint16_t qid;
 	int err;
 
-	err = nvme_qid_find_free(ctrlr->qids);
-	if (err < 1) {
-		return -ENOMEM;
-	}
-	qid = err;
-
-	err = nvme_qid_alloc(ctrlr->qids, qid);
-	if (err) {
-		UPCIE_DEBUG("FAILED: nvme_qid_alloc; err(%d)", err);
+	err = nvme_controller_qid_alloc(ctrlr);
+	if (err < 0) {
 		return err;
 	}
+	qid = err;
 
 	err = nvme_qpair_dmamem_init(qp, qid, depth, ctrlr->func.bars[0].region, heap,
 				     sq_offset_out, cq_offset_out, prp_offset_out, &sq_dmamem_iova,

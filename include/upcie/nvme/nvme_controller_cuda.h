@@ -117,17 +117,11 @@ nvme_controller_cuda_create_io_qpair(struct nvme_controller *ctrlr,
 		return -EINVAL;
 	}
 
-	err = nvme_qid_find_free(ctrlr->qids);
-	if (err < 1) {
-		return -ENOMEM;
-	}
-	qid = err;
-
-	err = nvme_qid_alloc(ctrlr->qids, qid);
-	if (err) {
-		UPCIE_DEBUG("FAILED: nvme_qid_alloc(): err(%d)", err);
+	err = nvme_controller_qid_alloc(ctrlr);
+	if (err < 0) {
 		return err;
 	}
+	qid = err;
 
 	{
 		uint8_t *bar0 = ctrlr->func.bars[0].region;

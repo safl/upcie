@@ -111,6 +111,11 @@ nvme_controller_open_dmamem_uio(struct nvme_controller *ctrlr, struct nvme_dmame
 		goto fail;
 	}
 
+	err = nvme_controller_set_nqueues(ctrlr);
+	if (err) {
+		goto fail;
+	}
+
 	return 0;
 
 fail:

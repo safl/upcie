@@ -6,7 +6,8 @@
  * ==================================
  *
  * Pure bitmap logic: the allocator is a bitmap and a handful of index
- * calculations, so no device is needed.
+ * calculations, and the controller's bound is two counts, so no device is
+ * needed.
  */
 #define _UPCIE_WITH_NVME
 #include <upcie/upcie.h>
@@ -138,6 +139,59 @@ test_allocating_twice_counts_once(void)
 	return 0;
 }
 
+static int
+test_controller_qid_alloc_stops_at_the_allocation(void)
+{
+	struct nvme_controller ctrlr = {0};
+	int qid;
+
+	assert(!nvme_qid_bitmap_init(ctrlr.qids));
+	ctrlr.base.nsqa = 3;
+	ctrlr.base.ncqa = 2;
+
+	for (int expected = 1; expected <= 2; ++expected) {
+		qid = nvme_controller_qid_alloc(&ctrlr);
+		if (qid != expected) {
+			printf("FAILED: allocation gave qid %d, expected %d\n", qid, expected);
+			return 1;
+		}
+	}
+
+	qid = nvme_controller_qid_alloc(&ctrlr);
+	if (qid != -ENOMEM) {
+		printf("FAILED: past min(nsqa, ncqa) gave %d, expected -ENOMEM\n", qid);
+		return 1;
+	}
+
+	assert(!nvme_qid_free(ctrlr.qids, 1));
+	qid = nvme_controller_qid_alloc(&ctrlr);
+	if (qid != 1) {
+		printf("FAILED: a freed qid gave %d on allocation, expected 1\n", qid);
+		return 1;
+	}
+
+	printf("PASSED: controller qid allocation stops at min(nsqa, ncqa)\n");
+	return 0;
+}
+
+static int
+test_controller_qid_alloc_without_allocation(void)
+{
+	struct nvme_controller ctrlr = {0};
+	int qid;
+
+	assert(!nvme_qid_bitmap_init(ctrlr.qids));
+
+	qid = nvme_controller_qid_alloc(&ctrlr);
+	if (qid != -ENOMEM) {
+		printf("FAILED: a controller with no queues allocated gave qid %d\n", qid);
+		return 1;
+	}
+
+	printf("PASSED: a controller with no queues allocated gives no qid\n");
+	return 0;
+}
+
 int
 main(void)
 {
@@ -154,6 +208,12 @@ main(void)
 		return 1;
 	}
 	if (test_allocating_twice_counts_once()) {
+		return 1;
+	}
+	if (test_controller_qid_alloc_stops_at_the_allocation()) {
+		return 1;
+	}
+	if (test_controller_qid_alloc_without_allocation()) {
 		return 1;
 	}
 
