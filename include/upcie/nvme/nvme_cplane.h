@@ -135,8 +135,8 @@ struct nvme_cplane_status {
 	uint32_t nclients;       ///< Reply: connections over all controllers
 	uint32_t nclients_ctrlr; ///< Reply: of those, given this controller's fds
 	uint32_t nqueues;        ///< Reply: queues they hold on this controller
-	uint32_t nsq_total;      ///< Reply: Number of Queues feature, 0 if unanswered
-	uint32_t ncq_total;      ///< Reply: Number of Queues feature, 0 if unanswered
+	uint32_t nsq_total;      ///< Reply: I/O Submission Queues allocated, 0 if unknown
+	uint32_t ncq_total;      ///< Reply: I/O Completion Queues allocated, 0 if unknown
 	char bdf[16];            ///< Reply: the controller being served
 	uint8_t _rsvd[40];
 };
