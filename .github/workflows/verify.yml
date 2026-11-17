@@ -94,7 +94,7 @@ jobs:
       if: matrix.container.os == 'debian' || matrix.container.os == 'ubuntu'
       run: |
         apt-get update -qy
-        apt-get install -qy meson ninja-build gcc git linux-libc-dev
+        apt-get install -qy meson ninja-build gcc git libc6-dev linux-libc-dev
 
     - name: Install build requirements (fedora)
       if: matrix.container.os == 'fedora'
