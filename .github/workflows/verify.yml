@@ -308,7 +308,7 @@ jobs:
   # Trusted publishing: the crate's crates.io settings name this workflow
   rust-publish:
     needs: [rust, verify]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment: crates-io
     permissions:

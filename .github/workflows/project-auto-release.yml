@@ -1,0 +1,109 @@
+---
+name: project-auto-release
+
+# A commit on main with the subject 'ver: bump to vX.Y.Z' releases X.Y.Z, once
+# the pull request that merged it passed verify and upcie-experimental-dkms on
+# the same tree. It tags vX.Y.Z, creates the GitHub Release, and then dispatches
+# the two workflows that publish from a v* tag: a tag created with the workflow
+# token triggers no push event.
+on:
+  push:
+    branches: [main]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    if: >-
+      startsWith(github.event.head_commit.message, 'ver: bump to v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+
+    steps:
+    - name: Grab source
+      uses: actions/checkout@v7.0.0
+
+    - name: Check the version
+      id: version
+      run: |
+        subject=$(git log -1 --format=%s)
+        if ! [[ "$subject" =~ ^ver:\ bump\ to\ v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+          echo "::error::not a version bump: '$subject'"
+          exit 1
+        fi
+        version=${BASH_REMATCH[1]}
+        found=$(sed -n 's/^VERSION ?= //p' Makefile)
+        if [ "$found" != "$version" ]; then
+          echo "::error::the commit bumps to $version, but the Makefile VERSION is '$found'"
+          exit 1
+        fi
+        found=$(sed -n "s/^[[:space:]]*version: '\([^']*\)'.*/\1/p" meson.build)
+        if [ "$found" != "$version" ]; then
+          echo "::error::the commit bumps to $version, but meson.build has '$found'"
+          exit 1
+        fi
+        make --no-print-directory dkms-version-check rust-version-check
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+
+    - name: Check what of the release is done already
+      id: done
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
+      run: |
+        if git fetch --quiet --depth 1 origin tag "v$VERSION" 2>/dev/null &&
+          [ "$(git rev-parse "v$VERSION^{commit}")" != "$GITHUB_SHA" ]; then
+          echo "::error::v$VERSION is a tag of another commit"
+          exit 1
+        fi
+        if gh release view "v$VERSION" --repo "$REPO" >/dev/null 2>&1; then
+          echo "released=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Require that the merged pull request was tested on this tree
+      run: |
+        pr=$(gh api "repos/$REPO/commits/$GITHUB_SHA/pulls" --jq '.[0].number')
+        if [ -z "$pr" ]; then
+          echo "::error::No pull request merged $GITHUB_SHA; release by merging one"
+          exit 1
+        fi
+        git fetch --quiet --depth 1 origin "refs/pull/$pr/head"
+        if [ "$(git rev-parse 'FETCH_HEAD^{tree}')" != "$(git rev-parse 'HEAD^{tree}')" ]; then
+          echo "::error::#$pr was behind main when merged, so its checks ran on another tree"
+          exit 1
+        fi
+        head=$(git rev-parse FETCH_HEAD)
+        for workflow in verify.yml upcie-experimental-dkms.yml; do
+          run=$(gh run list --repo "$REPO" --workflow "$workflow" \
+            --commit "$head" --status success --limit 1 \
+            --json databaseId --jq '.[0].databaseId')
+          if [ -z "$run" ]; then
+            echo "::error::No successful $workflow run of #$pr's head, $head"
+            exit 1
+          fi
+        done
+
+    - name: Tag and create the release
+      if: steps.done.outputs.released != 'true'
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
+      run: |
+        gh release create "v$VERSION" --repo "$REPO" --target "$GITHUB_SHA" \
+          --title "v$VERSION" --generate-notes
+
+    # verify publishes the crate and upcie-experimental-dkms attaches the deb;
+    # both skip what is published already, so a rerun of this job is safe
+    - name: Run the workflows that publish from the tag
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
+      run: |
+        gh workflow run verify.yml --repo "$REPO" --ref "v$VERSION"
+        gh workflow run upcie-experimental-dkms.yml --repo "$REPO" --ref "v$VERSION"
