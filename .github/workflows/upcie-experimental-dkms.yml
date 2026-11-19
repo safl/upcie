@@ -237,8 +237,8 @@ jobs:
         run: |
           tag="$GITHUB_REF_NAME"
           deb=$(ls dl/upcie-experimental-dkms_*_all.deb)
-          # The upcie Release is normally created by the upcie release process;
-          # create it if it does not exist yet, then attach the deb.
+          # project-auto-release creates the upcie Release before it dispatches
+          # this workflow; a tag pushed by hand has none, so create it then.
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
             || gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$tag" --generate-notes
           gh release upload "$tag" "$deb" --repo "$GITHUB_REPOSITORY" --clobber
