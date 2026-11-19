@@ -49,6 +49,7 @@ later with that target added (`rustup target add x86_64-unknown-linux-musl`);
 ## Releases
 
 The crate carries the uPCIe version and is released with it as `upcie` on
-crates.io. `make bump` sets its version with the rest, `make rust` fails when
-they differ, and a `v*` tag publishes it once CI has passed, through crates.io's
-trusted publishing, so the repository holds no token.
+crates.io. `make bump` sets its version with the rest, and `make rust` fails
+when they differ. Merging a `ver: bump to vX.Y.Z` commit to main tags `vX.Y.Z`,
+and the tag publishes the crate once CI has passed, through crates.io's trusted
+publishing, so the repository holds no token.

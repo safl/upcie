@@ -1,0 +1,44 @@
+---
+name: project-auto-release
+
+# A commit on main with the subject 'ver: bump to vX.Y.Z' releases X.Y.Z, once
+# the pull request that merged it passed verify and upcie-experimental-dkms on
+# the same tree. The release dispatches both on the tag, as a tag created with
+# the workflow token triggers no push event: verify publishes the crate and
+# upcie-experimental-dkms attaches the deb.
+on:
+  push:
+    branches: [main]
+
+jobs:
+  release:
+    if: >-
+      startsWith(github.event.head_commit.message, 'ver: bump to v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: read
+
+    steps:
+    - name: Grab source
+      uses: actions/checkout@v7.0.0
+
+    - name: Check the version bump, and that its pull request was tested
+      id: check
+      uses: refenv/gha-project-auto-release/check@v1
+      with:
+        version-file: Makefile
+        version-pattern: '^VERSION \?= (\S+)$'
+        changelog: ''
+        workflows: verify.yml upcie-experimental-dkms.yml
+
+    - name: Tag, create the release, and publish from the tag
+      uses: refenv/gha-project-auto-release/release@v1
+      with:
+        version: ${{ steps.check.outputs.version }}
+        notes-file: ${{ steps.check.outputs.notes-file }}
+        dispatch: |
+          verify.yml
+          upcie-experimental-dkms.yml
