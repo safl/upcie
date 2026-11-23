@@ -31,7 +31,7 @@
  * after all memory has been freed.
  *
  * @file hipmem_dma.h
- * @version 0.12.0
+ * @version 0.12.1
  */
 
 /**

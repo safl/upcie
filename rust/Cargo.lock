@@ -4,4 +4,4 @@ version = 4
 
 [[package]]
 name = "upcie"
-version = "0.12.0"
+version = "0.12.1"

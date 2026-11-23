@@ -17,7 +17,7 @@
  * and free.
  *
  * @file dmamem_heap.h
- * @version 0.12.0
+ * @version 0.12.1
  */
 
 struct dmamem_heap_block {
