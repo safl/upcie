@@ -75,6 +75,20 @@ passes against one guest. CI runs both on every push and pull request.
 `CIJOE_CONFIG` selects the config for the bare guest, deploy, and test targets,
 `RIG` the rig, and `RELEASE` the Ubuntu release the guest runs.
 
+The nosi guests have no ROCm, so the CI job `verify-rocm` builds and runs the
+HIP tests in xnvme-devenv's own guest, which has ROCm. The job boots that guest
+on xnvme-devenv's `compute-node-emulated` rig, where rocjitsu emulates an AMD
+MI455X behind the PCIe switch that the NVMe controller is on. In the host
+container, the job runs:
+
+```bash
+cd cijoe
+CONFIGS="--config configs/iommu_disabled.toml --config configs/ubuntu-2610-rocm.toml --config /opt/xnvme-devenv/rigs/compute-node-emulated.toml"
+cijoe tasks/guest_setup.yaml $CONFIGS   # boot the guest on the rig
+cijoe tasks/deploy_rocm.yaml $CONFIGS   # plug the GPU, build and load the modules, build uPCIe
+cijoe tasks/hipmem_nvme.yaml $CONFIGS   # export VRAM as a dma-buf, then NVMe I/O from and into VRAM
+```
+
 Provisioning pulls a multi-gigabyte guest image and requires `/dev/kvm` and
 docker or podman (`DEVENV_ENGINE=podman`) on the host. `make deploy` also builds
 the Rust NVMe example there, so the host needs cargo, Rust 1.85 or later, and
