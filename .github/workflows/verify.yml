@@ -276,12 +276,83 @@ jobs:
         if-no-files-found: warn
 
   #
+  # Build uPCIe against ROCm and run the HIP tests, which move data between an
+  # NVMe controller and the VRAM of an emulated AMD MI455X. The guest is
+  # systems-devenv's, which has ROCm, on its compute-node-emulated rig, where
+  # rocjitsu emulates the GPU. No other job has ROCm, so no other job compiles
+  # the HIP headers and tests.
+  #
+  verify-rocm:
+    needs: source-archive
+    runs-on: ubuntu-latest
+
+    container:
+      image: ghcr.io/refenv/systems-devenv/host:v0.19.0
+      options: --privileged --ulimit memlock=-1 -v /mnt:/mnt
+
+    env:
+      CONFIGS: >-
+        --config configs/iommu_disabled.toml
+        --config configs/ubuntu-2610-rocm.toml
+        --config /opt/systems-devenv/rigs/compute-node-emulated.toml
+
+    steps:
+    - name: Grab source
+      uses: actions/checkout@v7.0.0
+
+    - name: Retrieve the uPCIe source archive
+      uses: actions/download-artifact@v8.0.1
+      with:
+        name: upcie-src-archive
+        path: /tmp/artifacts
+
+    - name: Make room on the runner for the guest and its disk images
+      uses: refenv/gha-trim-runner@v1
+      with:
+        need-gib: 50
+
+    - name: Prepare environment
+      run: |
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        mkdir -p /mnt/system_imaging /mnt/guests
+        ln -sfn /mnt/system_imaging "$HOME/system_imaging"
+        ln -sfn /mnt/guests "$HOME/guests"
+        find /tmp/artifacts
+
+    - name: CIJOE, check availability
+      run: cijoe -r
+
+    - name: CIJOE, bring up guest
+      run: cd cijoe && cijoe tasks/guest_setup.yaml $CONFIGS --monitor --output verify-rocm-guest
+
+    - name: CIJOE, deploy uPCIe
+      run: cd cijoe && cijoe tasks/deploy_rocm.yaml $CONFIGS --monitor --output verify-rocm-deploy
+
+    - name: CIJOE, test
+      run: cd cijoe && cijoe tasks/hipmem_nvme.yaml $CONFIGS --monitor --output verify-rocm-test
+
+    - name: CIJOE, dump result logs on failure
+      if: failure()
+      run: |
+        find cijoe -name "*.output" -exec cat {} +
+        tail -c 20000 "$HOME/guests/nosi-amd64/serial.output" 2>/dev/null || true
+        tail -c 20000 "$HOME/run/vfio-user-rocjitsu.log" 2>/dev/null || true
+
+    - name: CIJOE, upload output dirs
+      if: always()
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: verify-rocm-report
+        path: cijoe/verify-rocm-*
+        if-no-files-found: warn
+
+  #
   # Aggregate the per-mode output of the matrix into two downloads: one bundle
   # of all cijoe-output dirs, and a supplemental folder with each run's
   # report.html renamed after the run it came from.
   #
   reports:
-    needs: verify
+    needs: [verify, verify-rocm]
     if: always()
     runs-on: ubuntu-latest
 

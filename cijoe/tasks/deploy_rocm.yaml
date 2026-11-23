@@ -1,0 +1,69 @@
+---
+doc: |
+  Deploy uPCIe to systems-devenv's ROCm guest, with its GPU plugged in
+
+  Expects the guest brought up by 'guest_setup.yaml' on the
+  compute-node-emulated rig. The task plugs in the GPU that rocjitsu emulates
+  and waits for /dev/kfd and a DRM render node. It builds and loads this
+  tree's experimental modules, dmabuf_import and iommu_map_pa, and installs
+  their UAPI headers, in place of the modules of the older uPCIe release that
+  the guest image has. It then builds and installs uPCIe and reserves
+  hugepages. The build compiles the HIP tests only when it finds ROCm, so the
+  step 'hip_built' fails when test_hipmem_producer or
+  test_hipmem_nvme_readwrite is not installed. Follow with 'hipmem_nvme.yaml'.
+  Pass the same configs as to 'guest_setup.yaml':
+
+    cijoe tasks/deploy_rocm.yaml \
+      --config configs/iommu_disabled.toml \
+      --config configs/ubuntu-2610-rocm.toml \
+      --config /opt/systems-devenv/rigs/compute-node-emulated.toml
+
+steps:
+- name: root_unlock
+  uses: root_unlock
+
+- name: gpu_plug
+  uses: systems_devenv.rig_device_plug
+  with:
+    guest_name: "{{ config.qemu.default_guest }}"
+    device_name: gpu0
+
+- name: gpu_up
+  run: |
+    for _ in $(seq 36); do test -e /dev/kfd && ls /dev/dri | grep -q renderD && break; sleep 5; done
+    test -e /dev/kfd && ls /dev/dri | grep -q renderD || { dmesg | grep -i amdgpu | tail -40; false; }
+
+- name: source_sync
+  uses: source_from_tgz
+  with:
+    artifacts: /tmp/artifacts
+    source: /tmp/upcie_source
+
+- name: experimental
+  run: |
+    make -C /tmp/upcie_source/experimental/dmabuf_import/module
+    make -C /tmp/upcie_source/experimental/iommu_map_pa/module
+    install -m 0644 /tmp/upcie_source/experimental/dmabuf_import/module/dmabuf_import.h /tmp/upcie_source/experimental/iommu_map_pa/module/iommu_map_pa.h /usr/include/linux/
+    modprobe -r dmabuf_import iommu_map_pa || true
+    insmod /tmp/upcie_source/experimental/dmabuf_import/module/dmabuf_import.ko
+    insmod /tmp/upcie_source/experimental/iommu_map_pa/module/iommu_map_pa.ko
+    cat /sys/module/dmabuf_import/version /sys/module/iommu_map_pa/version
+
+- name: build
+  uses: meson_build
+  with:
+    source: /tmp/upcie_source
+
+- name: install
+  uses: meson_install
+  with:
+    source: /tmp/upcie_source
+
+- name: hip_built
+  run: |
+    command -v test_hipmem_producer
+    command -v test_hipmem_nvme_readwrite
+
+- name: hugepages
+  run: |
+    hugepages setup --size 2048 --count 1024

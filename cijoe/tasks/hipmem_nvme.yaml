@@ -2,11 +2,13 @@
 doc: |
   CPU-initiated NVMe read/write into AMD GPU memory
 
-  Bind a spare NVMe to uio_pci_generic and run test_hipmem_nvme_readwrite: the CPU
-  drives the NVMe (host-memory queues) while the SSD DMAs to/from AMD GPU VRAM
-  over PCIe. Requires iommu=pt, the dmabuf-import kernel, ROCm, and uPCIe
-  deployed (built against the patched udmabuf header). The NVMe BDF is taken from
-  the target config (upcie.dut.nvme_bdf).
+  Run test_hipmem_producer, which allocates VRAM and exports it as a dma-buf
+  and needs no NVMe controller. Then bind a spare NVMe controller to
+  uio_pci_generic and run test_hipmem_nvme_readwrite: the CPU drives the
+  controller (host-memory queues) while the controller DMAs to and from AMD GPU
+  VRAM over PCIe. Requires ROCm, the dmabuf_import module, uPCIe deployed, and
+  either no IOMMU or one in passthrough (iommu=pt). The controller's BDF is
+  taken from the target config (upcie.dut.nvme_bdf).
 
 steps:
 - name: drivers
@@ -17,6 +19,10 @@ steps:
     # Required: without /dev/dmabuf_import the run fails later with a
     # confusing ENOENT from dmabuf_import_attach().
     modprobe dmabuf_import
+
+- name: producer
+  run: |
+    test_hipmem_producer
 
 - name: bind_uio
   run: |
