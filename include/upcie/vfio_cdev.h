@@ -17,7 +17,7 @@
  * on this fd too.
  *
  * @file vfio_cdev.h
- * @version 0.12.0
+ * @version 0.12.1
  */
 
 struct vfio_cdev {
