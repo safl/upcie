@@ -164,6 +164,7 @@ dmamem_from_hip_iommufd(struct dmamem *dmem, struct hipmem_heap *heap, struct io
 	}
 
 	dmem->backing = DMAMEM_BACKING_HIPMEM;
+	dmem->base_va = (void *)(uintptr_t)heap->vaddr;
 
 	return 0;
 }

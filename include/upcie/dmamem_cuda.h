@@ -186,6 +186,7 @@ dmamem_from_cuda_iommufd(struct dmamem *dmem, struct cudamem_heap *heap, struct 
 	}
 
 	dmem->backing = DMAMEM_BACKING_CUDAMEM;
+	dmem->base_va = (void *)(uintptr_t)heap->vaddr;
 
 	return 0;
 }
