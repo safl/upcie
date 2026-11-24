@@ -70,7 +70,8 @@ sudo insmod experimental/iommu_map_pa/module/iommu_map_pa.ko
 `tests/test_dmamem_cuda_iommu_map_pa_nvme_readwrite` drives the module through
 uPCIe: an NVMe on vfio-cdev + iommufd, CUDA VRAM reached through the decorator,
 and I/O verified in both directions. It builds with the rest of the tests when
-CUDA is present.
+CUDA is present. `tests/test_dmamem_hip_iommu_map_pa_nvme_readwrite` is the HIP
+counterpart, takes the same arguments, and builds when ROCm is present.
 
 > [!WARNING]
 > It writes to namespace 1, LBA 0 of the selected NVMe controller. Run it only
