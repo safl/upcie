@@ -43,11 +43,11 @@ the release config's `oras.url`), how (the `qemu` section of the guest config),
 and with which devices (a rig in `cijoe/rigs/`).
 
 The guest is booted by the rig scripts of
-[xnvme-devenv](https://github.com/xnvme/xnvme-devenv), whose host container
+[systems-devenv](https://github.com/refenv/systems-devenv), whose host container
 carries QEMU, cijoe and those scripts; CI runs the guest jobs in it. A rig is a
 cijoe config giving the guest's PCIe topology and devices. uPCIe's own,
 `upcie-nvme`, has the one NVMe controller the tests drive, at `0000:01:00.0`;
-xnvme-devenv's, under `/opt/xnvme-devenv/rigs` in the container, add PCIe
+systems-devenv's, under `/opt/systems-devenv/rigs` in the container, add PCIe
 switches, an emulated GPU and NIC, and more controllers. The default guest image
 is a [nosi](https://github.com/safl/nosi) build, which already ships the
 `devbind`, `hugepages`, and `iommu` tools the test-suite uses.
@@ -58,7 +58,7 @@ modes. `make guest` needs the rig scripts, so it runs in the host container;
 `make devenv-verify` starts the container and runs `make verify` in it:
 
 ```bash
-make devenv-verify           # verify, in xnvme-devenv's host container
+make devenv-verify           # verify, in systems-devenv's host container
 make devenv-run CMD="..."    # any command in the container, e.g. make guest
 make devenv-down             # remove the container; its guests stay in .devenv
 

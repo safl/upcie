@@ -191,10 +191,10 @@ jobs:
         release: [ubuntu-2604, ubuntu-2610]
         mode: [iommu_disabled, iommu_enabled]
 
-    # xnvme-devenv's host container: QEMU, cijoe, and the rig scripts that boot
+    # systems-devenv's host container: QEMU, cijoe, and the rig scripts that boot
     # the guest with its devices
     container:
-      image: ghcr.io/xnvme/xnvme-devenv/host:v0.15.0
+      image: ghcr.io/refenv/systems-devenv/host:v0.19.0
       options: --privileged --ulimit memlock=-1 -v /mnt:/mnt
 
     steps:
