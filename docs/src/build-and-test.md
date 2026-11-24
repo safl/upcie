@@ -78,15 +78,21 @@ passes against one guest. CI runs both on every push and pull request.
 The nosi guests have no ROCm, so the CI job `verify-rocm` builds and runs the
 HIP tests in systems-devenv's own guest, which has ROCm. The job boots that
 guest on systems-devenv's `compute-node-emulated` rig, where rocjitsu emulates
-an AMD MI455X behind the PCIe switch that the NVMe controller is on. In the host
-container, the job runs:
+an AMD MI455X behind the PCIe switch that the NVMe controller is on. The guest
+has QEMU's intel-iommu and its kernel boots with `iommu=pt`, so the controller
+reaches VRAM by physical address while bound to `uio_pci_generic` and by IOVA
+while bound to `vfio-pci`. The last task unbinds the GPU from amdgpu, so the
+HIP tasks do not pass after it in the same guest boot. In the host container,
+the job runs:
 
 ```bash
 cd cijoe
-CONFIGS="--config configs/iommu_disabled.toml --config configs/ubuntu-2610-rocm.toml --config /opt/systems-devenv/rigs/compute-node-emulated.toml"
+CONFIGS="--config configs/iommu_enabled.toml --config configs/ubuntu-2610-rocm.toml --config /opt/systems-devenv/rigs/compute-node-emulated.toml"
 cijoe tasks/guest_setup.yaml $CONFIGS   # boot the guest on the rig
 cijoe tasks/deploy_rocm.yaml $CONFIGS   # plug the GPU, build and load the modules, build uPCIe
 cijoe tasks/hipmem_nvme.yaml $CONFIGS   # export VRAM as a dma-buf, then NVMe I/O from and into VRAM
+cijoe tasks/hipmem_nvme_iommu_map_pa.yaml $CONFIGS   # NVMe I/O on VRAM that iommu_map_pa maps into the controller's IOMMU domain
+cijoe tasks/dmamem_nvme_vram_smoketest.yaml $CONFIGS # NVMe I/O on the GPU's BAR0, imported into an iommufd IOAS through vfio-pci
 ```
 
 Provisioning pulls a multi-gigabyte guest image and requires `/dev/kvm` and

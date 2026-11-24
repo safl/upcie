@@ -280,7 +280,11 @@ jobs:
   # NVMe controller and the VRAM of an emulated AMD MI455X. The guest is
   # systems-devenv's, which has ROCm, on its compute-node-emulated rig, where
   # rocjitsu emulates the GPU. No other job has ROCm, so no other job compiles
-  # the HIP headers and tests.
+  # the HIP headers and tests. The guest has QEMU's intel-iommu and its kernel
+  # boots with iommu=pt, so the controller reaches VRAM by physical address
+  # while bound to uio_pci_generic and by IOVA while bound to vfio-pci.
+  # dmamem_nvme_vram_smoketest.yaml runs last, because it unbinds the GPU from
+  # amdgpu and the HIP tests need amdgpu.
   #
   verify-rocm:
     needs: source-archive
@@ -292,7 +296,7 @@ jobs:
 
     env:
       CONFIGS: >-
-        --config configs/iommu_disabled.toml
+        --config configs/iommu_enabled.toml
         --config configs/ubuntu-2610-rocm.toml
         --config /opt/systems-devenv/rigs/compute-node-emulated.toml
 
@@ -328,8 +332,14 @@ jobs:
     - name: CIJOE, deploy uPCIe
       run: cd cijoe && cijoe tasks/deploy_rocm.yaml $CONFIGS --monitor --output verify-rocm-deploy
 
-    - name: CIJOE, test
+    - name: CIJOE, test VRAM through physical addresses
       run: cd cijoe && cijoe tasks/hipmem_nvme.yaml $CONFIGS --monitor --output verify-rocm-test
+
+    - name: CIJOE, test VRAM through iommu_map_pa
+      run: cd cijoe && cijoe tasks/hipmem_nvme_iommu_map_pa.yaml $CONFIGS --monitor --output verify-rocm-iommu-map-pa
+
+    - name: CIJOE, test the GPU BAR through vfio-pci and iommufd
+      run: cd cijoe && cijoe tasks/dmamem_nvme_vram_smoketest.yaml $CONFIGS --monitor --output verify-rocm-vram-bar
 
     - name: CIJOE, dump result logs on failure
       if: failure()

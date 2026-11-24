@@ -1,0 +1,33 @@
+---
+doc: |
+  CPU-initiated NVMe read/write on AMD GPU memory, through a translating IOMMU
+
+  Bind the NVMe controller to vfio-pci and run
+  test_dmamem_hip_iommu_map_pa_nvme_readwrite. The test attaches the controller
+  to an iommufd IOAS, and the iommu_map_pa module maps the HIP heap and a
+  separately registered HIP allocation into the controller's domain, because
+  IOMMU_IOAS_MAP_FILE fails for the dma-bufs that amdgpu exports.
+
+  Requires an IOMMU that translates for vfio-pci (iommu_enabled.toml) and uPCIe
+  deployed with 'deploy_rocm.yaml', which loads the dmabuf_import and
+  iommu_map_pa modules of this tree. The step 'drivers' fails when they are not
+  loaded.
+
+  The test writes the first 4 KiB of namespace 1 on the controller named by
+  upcie.dut.nvme_bdf.
+
+steps:
+- name: drivers
+  run: |
+    modprobe vfio-pci
+    cat /sys/module/dmabuf_import/version
+    cat /sys/module/iommu_map_pa/version
+
+- name: bind_vfio
+  run: |
+    devbind --device {{ config.upcie.dut.nvme_bdf }} --bind vfio-pci
+    ls /sys/bus/pci/devices/{{ config.upcie.dut.nvme_bdf }}/vfio-dev/
+
+- name: readwrite
+  run: |
+    test_dmamem_hip_iommu_map_pa_nvme_readwrite {{ config.upcie.dut.nvme_bdf }} /dev/vfio/devices/$(ls /sys/bus/pci/devices/{{ config.upcie.dut.nvme_bdf }}/vfio-dev/ | head -1)
