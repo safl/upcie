@@ -49,7 +49,7 @@ cijoe config giving the guest's PCIe topology and devices. uPCIe's own,
 `upcie-nvme`, has the one NVMe controller the tests drive, at `0000:01:00.0`;
 systems-devenv's, under `/opt/systems-devenv/rigs` in the container, add PCIe
 switches, an emulated GPU and NIC, and more controllers. The default guest image
-is a [nosi](https://github.com/safl/nosi) build, which already ships the
+is a [nosi](https://github.com/refenv/nosi) build, which already ships the
 `devbind`, `hugepages`, and `iommu` tools the test-suite uses.
 
 `make guest` brings the guest up, `make deploy` builds and installs uPCIe on it,
