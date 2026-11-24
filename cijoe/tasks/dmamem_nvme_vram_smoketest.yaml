@@ -13,6 +13,9 @@ doc: |
   into host memory.
 
 steps:
+- name: drivers
+  run: modprobe vfio-pci
+
 - name: bind_nvme
   run: 'devbind --device {{ config.upcie.dut.nvme_bdf }} --bind vfio-pci'
 

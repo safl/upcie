@@ -9,12 +9,13 @@ doc: |
   their UAPI headers, in place of the modules of the older uPCIe release that
   the guest image has. It then builds and installs uPCIe and reserves
   hugepages. The build compiles the HIP tests only when it finds ROCm, so the
-  step 'hip_built' fails when test_hipmem_producer or
-  test_hipmem_nvme_readwrite is not installed. Follow with 'hipmem_nvme.yaml'.
-  Pass the same configs as to 'guest_setup.yaml':
+  step 'hip_built' fails when a HIP test is not installed. Follow with
+  'hipmem_nvme.yaml', 'hipmem_nvme_iommu_map_pa.yaml' and, last, because it
+  unbinds the GPU from amdgpu, 'dmamem_nvme_vram_smoketest.yaml'. Pass the same
+  configs as to 'guest_setup.yaml':
 
     cijoe tasks/deploy_rocm.yaml \
-      --config configs/iommu_disabled.toml \
+      --config configs/iommu_enabled.toml \
       --config configs/ubuntu-2610-rocm.toml \
       --config /opt/xnvme-devenv/rigs/compute-node-emulated.toml
 
@@ -63,6 +64,7 @@ steps:
   run: |
     command -v test_hipmem_producer
     command -v test_hipmem_nvme_readwrite
+    command -v test_dmamem_hip_iommu_map_pa_nvme_readwrite
 
 - name: hugepages
   run: |
