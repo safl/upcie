@@ -28,6 +28,57 @@
 #include <upcie/upcie.h>
 
 #define IDENTIFY_OFFSET 0x2000 /* 8 KiB into VRAM, arbitrary */
+#define WRITE_NBYTES 4096u
+
+/**
+ * Read the LBA size of namespace `nsid`, so a transfer is expressed in its blocks.
+ */
+static int
+read_lba_bytes(struct nvme_controller *ctrlr, struct dmamem_heap *heap, uint32_t nsid,
+	       uint32_t *lba_bytes)
+{
+	struct nvme_completion cpl = {0};
+	struct nvme_command cmd = {0};
+	size_t off = 0;
+	uint8_t *buf;
+	uint32_t lbaf, lbads;
+	int err;
+
+	err = dmamem_heap_alloc_aligned(heap, 4096, 4096, &off);
+	if (err) {
+		fprintf(stderr, "FAIL: dmamem_heap_alloc_aligned(identify) err(%d)\n", err);
+		return err;
+	}
+	buf = dmamem_heap_at_va(heap, off);
+	memset(buf, 0, 4096);
+
+	cmd.opc = 0x06; /* IDENTIFY */
+	cmd.nsid = nsid;
+	cmd.prp1 = dmamem_heap_at_iova(heap, off);
+	cmd.cdw10 = 0; /* CNS=0: Identify Namespace */
+	err = nvme_qpair_submit_sync(&ctrlr->aq, &cmd, ctrlr->base.admin_timeout_ms, &cpl);
+	if (err) {
+		fprintf(stderr, "FAIL: IDENTIFY NAMESPACE err(%d)\n", err);
+		/* Not freed after a timeout: the controller may still write to it. */
+		if (err == -EIO) {
+			dmamem_heap_free(heap, off);
+		}
+		return err;
+	}
+
+	/* FLBAS[3:0] indexes the LBA format table at byte 128. LBADS, byte 2 of
+	 * a 4-byte entry, is log2 of the LBA size. */
+	memcpy(&lbaf, &buf[128 + (buf[26] & 0xF) * 4], sizeof(lbaf));
+	lbads = (lbaf >> 16) & 0xFF;
+	dmamem_heap_free(heap, off);
+	if (lbads < 9 || lbads > 12) {
+		fprintf(stderr, "FAIL: LBADS(%u) outside 9..12\n", lbads);
+		return -ENOTSUP;
+	}
+	*lba_bytes = 1u << lbads;
+
+	return 0;
+}
 
 static int
 open_gpu_and_import_bar(struct iommufd *iommufd, const char *gpu_cdev, uint32_t bar_index,
@@ -237,12 +288,26 @@ main(int argc, char *argv[])
 		struct nvme_qpair ioq = {0};
 		size_t ioq_sq = 0, ioq_cq = 0, ioq_prp = 0;
 		const uint32_t NSID = 1;
-		const uint32_t NBLOCKS_M1 = 7; /* 8 blocks (0-based) = 4 KiB */
 		const size_t WRITE_OFFSET = 0x4000;
 		uint8_t *vram = (uint8_t *)gpu_bar_va + WRITE_OFFSET;
 		uint64_t write_iova = gpu_bar_dmem.base_iova + WRITE_OFFSET;
 		size_t verify_off = 0;
 		uint8_t *verify_va;
+		uint32_t lba_bytes = 0;
+		uint32_t nblocks_m1;
+
+		err = read_lba_bytes(&ctrlr, &admin_heap, NSID, &lba_bytes);
+		if (err) {
+			goto out_ctrlr;
+		}
+		if (lba_bytes > WRITE_NBYTES || WRITE_NBYTES % lba_bytes) {
+			fprintf(stderr,
+				"FAIL: %u-byte write is not a whole number of %u-byte blocks\n",
+				WRITE_NBYTES, lba_bytes);
+			err = -ENOTSUP;
+			goto out_ctrlr;
+		}
+		nblocks_m1 = WRITE_NBYTES / lba_bytes - 1;
 
 		err = nvme_controller_create_io_qpair_dmamem(&ctrlr, &ioq, 32, &admin_heap,
 							     &ioq_sq, &ioq_cq, &ioq_prp);
@@ -252,7 +317,7 @@ main(int argc, char *argv[])
 			goto out_ctrlr;
 		}
 
-		err = dmamem_heap_alloc_aligned(&admin_heap, 4096, 4096, &verify_off);
+		err = dmamem_heap_alloc_aligned(&admin_heap, WRITE_NBYTES, 4096, &verify_off);
 		if (err) {
 			fprintf(stderr, "FAIL: dmamem_heap_alloc_aligned(verify buf) err(%d)\n",
 				err);
@@ -261,7 +326,7 @@ main(int argc, char *argv[])
 		verify_va = dmamem_heap_at_va(&admin_heap, verify_off);
 
 		/* Prime the VRAM source with a recognizable pattern. */
-		for (size_t i = 0; i < 4096; i++) {
+		for (size_t i = 0; i < WRITE_NBYTES; i++) {
 			vram[i] = (uint8_t)(0xA5 ^ (i & 0xFF));
 		}
 
@@ -271,10 +336,10 @@ main(int argc, char *argv[])
 		cmd.cid = 1;
 		cmd.nsid = NSID;
 		cmd.prp1 = write_iova;
-		cmd.cdw12 = NBLOCKS_M1;
+		cmd.cdw12 = nblocks_m1;
 		printf("issue: NVMe WRITE LBA 0..%u <- PRP1=0x%" PRIx64
 		       " (VRAM IOVA base 0x%" PRIx64 " + offset 0x%zx)\n",
-		       NBLOCKS_M1 + 1, write_iova, gpu_bar_dmem.base_iova, WRITE_OFFSET);
+		       nblocks_m1, write_iova, gpu_bar_dmem.base_iova, WRITE_OFFSET);
 		err = nvme_qpair_submit_sync(&ioq, &cmd, ctrlr.base.timeout_ms, &cpl);
 		if (err) {
 			fprintf(stderr, "FAIL: WRITE from VRAM err(%d)\n", err);
@@ -287,11 +352,11 @@ main(int argc, char *argv[])
 		cmd.cid = 1;
 		cmd.nsid = NSID;
 		cmd.prp1 = dmamem_heap_at_iova(&admin_heap, verify_off);
-		cmd.cdw12 = NBLOCKS_M1;
+		cmd.cdw12 = nblocks_m1;
 		err = nvme_qpair_submit_sync(&ioq, &cmd, ctrlr.base.timeout_ms, &cpl);
 		if (err) {
 			fprintf(stderr, "FAIL: verify READ LBA 0 err(%d)\n", err);
-		} else if (memcmp(verify_va, vram, 4096) == 0) {
+		} else if (memcmp(verify_va, vram, WRITE_NBYTES) == 0) {
 			printf("OK: NVMe WRITE from VRAM round-tripped through LBA 0"
 			       " (device read GPU memory over PCIe)\n");
 		} else {

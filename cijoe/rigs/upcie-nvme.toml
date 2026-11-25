@@ -1,7 +1,7 @@
 # upcie-nvme: the one NVMe controller uPCIe's tests drive, on a root port of its
 # own, so at 0000:01:00.0, which upcie.dut.nvme_bdf names. Booted by
-# xnvme-devenv's rig scripts, from its host container; see
-# /opt/xnvme-devenv/cijoe/scripts/rig.py there for the format.
+# systems-devenv's rig scripts, from its host container; see
+# /opt/systems-devenv/cijoe/scripts/rig.py there for the format.
 
 [rig.devices.nvme0]
 provider = "qemu"

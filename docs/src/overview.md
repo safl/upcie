@@ -41,5 +41,5 @@ in its own repositories, distributed as standalone PyPI packages:
 - [`iommu`](https://github.com/safl/iommu): inspect the IOMMU mode and switch it
   by rewriting the kernel command line, applied on the next boot.
 
-The [nosi](https://github.com/safl/nosi) images used for development and testing
+The [nosi](https://github.com/refenv/nosi) images used for development and testing
 ship with them pre-installed.

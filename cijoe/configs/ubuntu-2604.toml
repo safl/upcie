@@ -16,4 +16,4 @@ version = "26.04"
 # The nosi guest image, staged by system_imaging.diskimage_from_oras into the
 # system-imaging disk.path; the digest is the .img.gz layer's
 [system-imaging.images.nosi-x86_64]
-oras.url = "oras://ghcr.io/safl/nosi/ubuntu-2604-headless@sha256:ba8a8e478a067fa3f566dcb05559d83abf3c823b10d93c0b27fb896192d03628"
+oras.url = "oras://ghcr.io/refenv/nosi/ubuntu-2604-headless@sha256:effa6ddd9f63e52c19f5d400a0c4b99dfb62c0008a8073ad302d13a461820b54"

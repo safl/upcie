@@ -14,9 +14,9 @@ DEPLOY_ARTIFACTS ?= gen-artifacts rust-artifacts
 # The rig the QEMU guest boots with, from cijoe/rigs/, its PCIe topology and devices
 RIG ?= upcie-nvme
 
-# The guest is booted by xnvme-devenv's rig scripts, which its host container
+# The guest is booted by systems-devenv's rig scripts, which its host container
 # carries along with QEMU and cijoe; the devenv-* targets run there
-DEVENV_IMAGE ?= ghcr.io/xnvme/xnvme-devenv/host:v0.15.0
+DEVENV_IMAGE ?= ghcr.io/refenv/systems-devenv/host:v0.19.0
 DEVENV_ENGINE ?= docker
 DEVENV_NAME ?= upcie-devenv-$(notdir $(CURDIR))
 DEVENV_HOME ?= $(CURDIR)/.devenv
@@ -108,7 +108,7 @@ rust-artifacts:
 
 # Bring up the QEMU guest with its rig. QEMU-specific, so it takes the
 # system_imaging config and the rig; the retargetable deploy/test below do not.
-# Runs where xnvme-devenv's rig scripts are: in its host container, see devenv-*.
+# Runs where systems-devenv's rig scripts are: in its host container, see devenv-*.
 guest:
 	@cd cijoe && cijoe \
 		tasks/guest_setup.yaml \
@@ -145,7 +145,7 @@ verify-iommu-disabled:
 verify-iommu-enabled:
 	$(MAKE) guest deploy test CIJOE_CONFIG=configs/iommu_enabled.toml
 
-# Start the xnvme-devenv host container, unless running, with this tree and
+# Start the systems-devenv host container, unless running, with this tree and
 # /tmp/artifacts in it; DEVENV_HOME keeps its guests and images between runs
 devenv-host:
 	mkdir -p $(DEVENV_HOME) /tmp/artifacts

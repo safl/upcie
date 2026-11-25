@@ -43,13 +43,13 @@ the release config's `oras.url`), how (the `qemu` section of the guest config),
 and with which devices (a rig in `cijoe/rigs/`).
 
 The guest is booted by the rig scripts of
-[xnvme-devenv](https://github.com/xnvme/xnvme-devenv), whose host container
+[systems-devenv](https://github.com/refenv/systems-devenv), whose host container
 carries QEMU, cijoe and those scripts; CI runs the guest jobs in it. A rig is a
 cijoe config giving the guest's PCIe topology and devices. uPCIe's own,
 `upcie-nvme`, has the one NVMe controller the tests drive, at `0000:01:00.0`;
-xnvme-devenv's, under `/opt/xnvme-devenv/rigs` in the container, add PCIe
+systems-devenv's, under `/opt/systems-devenv/rigs` in the container, add PCIe
 switches, an emulated GPU and NIC, and more controllers. The default guest image
-is a [nosi](https://github.com/safl/nosi) build, which already ships the
+is a [nosi](https://github.com/refenv/nosi) build, which already ships the
 `devbind`, `hugepages`, and `iommu` tools the test-suite uses.
 
 `make guest` brings the guest up, `make deploy` builds and installs uPCIe on it,
@@ -58,7 +58,7 @@ modes. `make guest` needs the rig scripts, so it runs in the host container;
 `make devenv-verify` starts the container and runs `make verify` in it:
 
 ```bash
-make devenv-verify           # verify, in xnvme-devenv's host container
+make devenv-verify           # verify, in systems-devenv's host container
 make devenv-run CMD="..."    # any command in the container, e.g. make guest
 make devenv-down             # remove the container; its guests stay in .devenv
 
@@ -74,6 +74,26 @@ The two modes differ in the QEMU machine, so each is a full cycle rather than tw
 passes against one guest. CI runs both on every push and pull request.
 `CIJOE_CONFIG` selects the config for the bare guest, deploy, and test targets,
 `RIG` the rig, and `RELEASE` the Ubuntu release the guest runs.
+
+The nosi guests have no ROCm, so the CI job `verify-rocm` builds and runs the
+HIP tests in systems-devenv's own guest, which has ROCm. The job boots that
+guest on systems-devenv's `compute-node-emulated` rig, where rocjitsu emulates
+an AMD MI455X behind the PCIe switch that the NVMe controller is on. The guest
+has QEMU's intel-iommu and its kernel boots with `iommu=pt`, so the controller
+reaches VRAM by physical address while bound to `uio_pci_generic` and by IOVA
+while bound to `vfio-pci`. The last task unbinds the GPU from amdgpu, so the
+HIP tasks do not pass after it in the same guest boot. In the host container,
+the job runs:
+
+```bash
+cd cijoe
+CONFIGS="--config configs/iommu_enabled.toml --config configs/ubuntu-2610-rocm.toml --config /opt/systems-devenv/rigs/compute-node-emulated.toml"
+cijoe tasks/guest_setup.yaml $CONFIGS   # boot the guest on the rig
+cijoe tasks/deploy_rocm.yaml $CONFIGS   # plug the GPU, build and load the modules, build uPCIe
+cijoe tasks/hipmem_nvme.yaml $CONFIGS   # export VRAM as a dma-buf, then NVMe I/O from and into VRAM
+cijoe tasks/hipmem_nvme_iommu_map_pa.yaml $CONFIGS   # NVMe I/O on VRAM that iommu_map_pa maps into the controller's IOMMU domain
+cijoe tasks/dmamem_nvme_vram_smoketest.yaml $CONFIGS # NVMe I/O on the GPU's BAR0, imported into an iommufd IOAS through vfio-pci
+```
 
 Provisioning pulls a multi-gigabyte guest image and requires `/dev/kvm` and
 docker or podman (`DEVENV_ENGINE=podman`) on the host. `make deploy` also builds

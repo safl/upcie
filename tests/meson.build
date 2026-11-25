@@ -133,6 +133,7 @@ endif
 hiptest_sources = files(
   'test_hipmem_producer.c',
   'test_hipmem_nvme_readwrite.c',
+  'test_dmamem_hip_iommu_map_pa_nvme_readwrite.c',
 )
 
 cc = meson.get_compiler('c')

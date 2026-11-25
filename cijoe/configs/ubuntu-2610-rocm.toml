@@ -1,0 +1,38 @@
+# uPCIe cijoe configuration: systems-devenv's ROCm guest
+#
+# The guest image that systems-devenv releases with its host container: Ubuntu
+# 26.10 with ROCm 10, and a kernel whose amdgpu drives the MI455X that rocjitsu
+# emulates. This config overrides the NVMe BDF and the system image that
+# iommu_enabled.toml and iommu_disabled.toml set, so pass it after one of them,
+# together with the compute-node-emulated rig from the host container.
+# hipmem_nvme_iommu_map_pa.yaml and dmamem_nvme_vram_smoketest.yaml need
+# iommu_enabled.toml, e.g.:
+#
+#   cijoe tasks/guest_setup.yaml \
+#     --config configs/iommu_enabled.toml \
+#     --config configs/ubuntu-2610-rocm.toml \
+#     --config /opt/systems-devenv/rigs/compute-node-emulated.toml
+
+[os]
+name = "ubuntu"
+version = "26.10"
+
+# The rig's NVMe controller, behind the PCIe switch it shares with the GPU
+[upcie.dut]
+nvme_bdf = "0000:03:00.0"
+
+# The GPU that rocjitsu emulates, on the switch's second downstream port. BAR0
+# is its 2 GiB VRAM window.
+[upcie.peer_gpu]
+bdf = "0000:04:00.0"
+bar_index = 0
+bar_size = "0x80000000"
+
+[qemu]
+default_systemimage = "systems-devenv-x86_64"
+
+# The same release as the host container in .github/workflows/verify.yml
+[system-imaging.images.systems-devenv-x86_64]
+system_label = "x86_64"
+oras.url = "oras://ghcr.io/refenv/systems-devenv/guest-ubuntu-2610:v0.19.0"
+disk.path = "{{ local.env.HOME }}/system_imaging/disk/systems-devenv-x86_64.qcow2"
